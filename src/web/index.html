@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>机械臂垃圾分拣 · 作业台</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header>
+  <h1>机械臂垃圾分拣 · 作业台</h1>
+  <nav id="tabs"></nav>
+  <div class="chips">
+    <span class="chip" id="chipConn">连接中</span>
+    <span class="chip" id="chipMode">模式 —</span>
+    <span class="chip" id="chipLatency">延迟 —</span>
+    <span class="chip" id="chipTotal">0 事件</span>
+    <span class="chip" id="chipArm">控制台 —</span>
+    <span class="chip warn" id="chipDebug" hidden>调试</span>
+    <a class="chip" id="simLink" href="#" target="_blank" rel="noopener" hidden>3D 仿真工作台 ↗</a>
+    <button class="chip" id="gear" title="扩展与调试">⚙</button>
+  </div>
+</header>
+
+<div id="timerBanner" class="banner warn" hidden></div>
+
+<main id="views"></main>
+
+<footer>
+  运行数据来自本机日志，显示的时间均为相对值；运动指令由控制台校验后执行，回读来自设备。
+</footer>
+
+<script type="module" src="/js/app.js"></script>
+</body>
+</html>

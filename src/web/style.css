@@ -1,0 +1,139 @@
+/* 沿用 src/sim/web/style.css 的深色主题与配色，保持项目内几个页面一致。 */
+:root{
+  --bg:#0f1a22; --panel:#162531; --line:#2a3d4c; --text:#e3edf3; --dim:#8fa5b4;
+  --accent:#4fb3d9; --warn:#e0a84a; --bad:#e06a5a; --good:#5fc48a;
+  --c-recyclable:#4fb3d9; --c-kitchen:#5fc48a; --c-hazardous:#e06a5a; --c-other:#e0a84a;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);
+  font:14px/1.5 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif}
+h1{font-size:17px;margin:0}
+h2{font-size:14px;margin:0 0 8px}
+h3{font-size:13px;margin:14px 0 6px;color:var(--dim)}
+small{color:var(--dim);font-weight:normal}
+code{font:12px ui-monospace,Menlo,monospace;color:var(--accent)}
+.dim{color:var(--dim)}
+.good{color:var(--good)} .bad{color:var(--bad)} .mid{color:var(--warn)}
+
+header{display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--line)}
+nav{display:flex;gap:4px}
+nav button{border-color:transparent;background:none}
+nav button.on{background:#1d3040;border-color:var(--accent);color:var(--accent)}
+.chips{display:flex;flex-wrap:wrap;gap:6px;flex:1;justify-content:flex-end}
+.chip{padding:2px 9px;border:1px solid var(--line);border-radius:10px;font-size:12px;color:var(--dim)}
+.chip.on{color:var(--good);border-color:var(--good)}
+.chip.warn{color:var(--warn);border-color:var(--warn)}
+
+main{padding:12px 16px;display:flex;flex-direction:column;gap:12px}
+.grid-2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:12px;min-width:0}
+.row{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:6px 0}
+.sep{width:1px;height:18px;background:var(--line);margin:0 4px}
+.hint{color:var(--dim);font-size:12px;margin:6px 0 0}
+
+button,select,input,textarea{font:inherit;color:var(--text);background:#1d3040;
+  border:1px solid var(--line);border-radius:4px;padding:3px 9px}
+button{cursor:pointer}
+button:hover{border-color:var(--accent)}
+button.primary{background:#1f5673;border-color:var(--accent)}
+button.danger{border-color:var(--bad);color:var(--bad)}
+button.danger:hover{background:#3a1f1d}
+button.on{border-color:var(--accent);color:var(--accent)}
+button:disabled{opacity:.45;cursor:default}
+input[type=number]{width:70px}
+label{display:inline-flex;align-items:center;gap:4px;font-size:13px;color:var(--dim)}
+
+/* 关键指标卡片 */
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:8px 12px;
+  display:flex;flex-direction:column;gap:2px}
+.card span{font-size:12px;color:var(--dim)}
+.card b{font-size:20px;font-weight:500;font-variant-numeric:tabular-nums}
+
+/* 六轴 */
+.joints{display:flex;flex-direction:column;gap:4px}
+.joint{display:grid;grid-template-columns:76px 52px 1fr 84px;align-items:center;gap:8px;font-size:13px}
+.joint strong{text-align:right;font-variant-numeric:tabular-nums;font-weight:500}
+.joint em{font-style:normal;font-size:12px;text-align:right;font-variant-numeric:tabular-nums}
+.joint input[type=range]{width:100%;padding:0;background:none;border:none;accent-color:var(--accent)}
+.bar{position:relative;height:6px;background:#0b141b;border-radius:3px;overflow:hidden}
+.bar i{position:absolute;inset:0 auto 0 0;background:var(--accent);border-radius:3px;transition:width .2s}
+
+/* 当前动作 */
+.now{display:flex;flex-direction:column;gap:2px;font-size:15px;margin-bottom:4px}
+.now span{font-size:12px;color:var(--dim)}
+.grip{font-size:13px;color:var(--dim)}
+
+/* 表格 */
+table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}
+th,td{text-align:left;padding:3px 6px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+th{color:var(--dim);font-weight:normal}
+
+/* 事件流 */
+.feed{margin:0;padding-left:34px;max-height:320px;overflow:auto;
+  font:12px ui-monospace,Menlo,monospace;color:var(--dim)}
+.feed li{padding:1px 0}
+.feed b{color:var(--text);font-weight:500}
+.tag{display:inline-block;padding:0 6px;margin-left:4px;border-radius:8px;
+  border:1px solid var(--line);font-size:11px}
+.tag.c-recyclable{color:var(--c-recyclable);border-color:var(--c-recyclable)}
+.tag.c-kitchen{color:var(--c-kitchen);border-color:var(--c-kitchen)}
+.tag.c-hazardous{color:var(--c-hazardous);border-color:var(--c-hazardous)}
+.tag.c-other{color:var(--c-other);border-color:var(--c-other)}
+
+/* 分布条形 */
+.bars{display:flex;flex-direction:column;gap:5px}
+.barrow{display:grid;grid-template-columns:190px 1fr 36px;align-items:center;gap:8px;font-size:12px}
+.barrow span{font:12px ui-monospace,Menlo,monospace;color:var(--dim)}
+.barrow b{text-align:right;font-variant-numeric:tabular-nums;font-weight:500}
+
+.arm{width:100%;height:260px;display:block;border-radius:4px;background:#0b141b;
+  touch-action:none;cursor:grab}
+.arm:active{cursor:grabbing}
+
+/* 腕部相机：仿真与实机都是 640×480，占位框保持 4:3 免得取图时布局跳动 */
+.cam{width:100%;height:auto;display:block;border-radius:4px;background:#0b141b;aspect-ratio:4/3;object-fit:cover}
+
+/* 定时任务：已排任务表；待发横幅要显眼，因为那是唯一还能取消的窗口 */
+.table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+.table th,.table td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);font-size:13px}
+.table th{color:var(--dim);font-weight:400}
+
+.banner{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:0 0 10px;padding:10px 12px;
+  border-radius:6px;border:1px solid var(--line);background:var(--panel)}
+.banner.warn{border-color:#b26b00;background:#2a1e08}
+.banner b{font-size:16px;font-variant-numeric:tabular-nums}
+.banner span{color:var(--dim);font-size:12px}
+
+/* E6 未知物体存档图 */
+.gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px}
+.shot{margin:0;background:#0b141b;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.shot img{width:100%;height:140px;object-fit:cover;display:block;background:#0b141b}
+.shot figcaption{display:flex;flex-direction:column;gap:2px;padding:8px;font-size:12px}
+.shot figcaption b{font-weight:500}
+
+/* 扩展与调试：默认隐藏，顶栏 ⚙ 或 ?debug=1 开启，状态存 localStorage */
+.needs-debug{display:none}
+body.debug .needs-debug{display:block}
+body.debug #gear{border-color:var(--warn);color:var(--warn)}
+
+/* 全局待发横幅在 header 与 main 之间，main 的内边距管不到它 */
+#timerBanner{margin:12px 16px 0}
+
+footer{padding:10px 16px 20px;color:var(--dim);font-size:12px}
+
+/* 轻提示 */
+.toasts{position:fixed;right:16px;bottom:16px;display:flex;flex-direction:column;gap:6px;z-index:9}
+.toast{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--accent);
+  border-radius:4px;padding:8px 12px;font-size:13px;max-width:340px;
+  opacity:1;transition:opacity .5s, transform .5s}
+.toast.good{border-left-color:var(--good)}
+.toast.bad{border-left-color:var(--bad)}
+.toast.out{opacity:0;transform:translateY(6px)}
+
+@media(max-width:900px){
+  .grid-2{grid-template-columns:minmax(0,1fr)}
+  .joint{grid-template-columns:70px 48px 1fr}
+  .joint em{display:none}
+  .chips{justify-content:flex-start}
+}
