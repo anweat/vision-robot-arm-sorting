@@ -1,0 +1,84 @@
+{
+ "_status": "2026-10-30: found in the camera model (forward kinematics + hand-eye) for the PLANNED bin poses of config/bins_acrylic_v1.json; not tried on the real arm. Re-run when the bins are moved. J1-J4, J5 is the roll zero.",
+ "design": "bins_acrylic_v1",
+ "views": {
+  "1": [
+   23,
+   80,
+   30,
+   5
+  ],
+  "2": [
+   54,
+   80,
+   30,
+   5
+  ],
+  "3": [
+   124,
+   80,
+   30,
+   5
+  ],
+  "4": [
+   155,
+   80,
+   30,
+   5
+  ]
+ },
+ "details": {
+  "1": {
+   "tilt_deg": 22.3,
+   "min_side_px": 75,
+   "margin_px": 59,
+   "servos": [
+    23,
+    80,
+    30,
+    5
+   ],
+   "travel": 117,
+   "clearance_cm": 3.3
+  },
+  "2": {
+   "tilt_deg": 22.3,
+   "min_side_px": 75,
+   "margin_px": 58,
+   "servos": [
+    54,
+    80,
+    30,
+    5
+   ],
+   "travel": 86,
+   "clearance_cm": 3.3
+  },
+  "3": {
+   "tilt_deg": 22.3,
+   "min_side_px": 75,
+   "margin_px": 59,
+   "servos": [
+    124,
+    80,
+    30,
+    5
+   ],
+   "travel": 84,
+   "clearance_cm": 3.3
+  },
+  "4": {
+   "tilt_deg": 22.3,
+   "min_side_px": 75,
+   "margin_px": 58,
+   "servos": [
+    155,
+    80,
+    30,
+    5
+   ],
+   "travel": 115,
+   "clearance_cm": 3.3
+  }
+ }
+}

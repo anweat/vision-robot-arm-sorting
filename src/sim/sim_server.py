@@ -81,11 +81,12 @@ class SimCamera(Camera):
                 with self.world.lock:
                     servos, blocks, revision = self.world.render_list()
                     solids, laid = self.world.solids(), (self.world.map_revision, self.world.table, self.world.map_data)
+                    glass, decals = self.world.glass(), self.world.decals()
                 if laid[0] != self.map_revision:
                     self.renderer.set_map(laid[1], laid[2])
                     self.map_revision = laid[0]
                 if self.view is None or self.view[0] != revision:
-                    frame, truth = self.renderer.render(servos, blocks, solids)
+                    frame, truth = self.renderer.render(servos, blocks, solids, glass, decals)
                 else:
                     frame, truth = self.view[2], self.view[3]
                 image = R.sensor(frame, self.noise)
@@ -309,7 +310,7 @@ class SimApp(console.App):
         elif path == "/api/sim/remove":
             world.remove(body.get("id"))
         elif path == "/api/sim/faults":
-            world.set_faults(body.get("grip_miss"))
+            world.set_faults(body.get("grip_miss"), body.get("servo_bias_deg"))
         elif path == "/api/sim/map":
             world.set_map(body.get("name"))
         elif path == "/api/sim/prop":
@@ -318,7 +319,7 @@ class SimApp(console.App):
         elif path == "/api/sim/prop/remove":
             world.remove_prop(body.get("id"))
         elif path == "/api/sim/bins":
-            world.load_bins(body.get("name"))
+            world.load_bins(body.get("name"), **{k: body[k] for k in ("jitter_mm", "jitter_deg", "seed", "offsets", "only") if k in body})
         else:
             raise ValueError("未知操作")
         c.log("sim_scene", path=path, request={k: v for k, v in body.items() if k != "owner"})

@@ -306,6 +306,9 @@ def handler(app):
             except (ValueError, TypeError, KeyError, safe_arm.MotionError) as e:
                 self.send({'error':str(e)},status=409)
             except Exception:
+                import traceback
+                traceback.print_exc()   # the lock-out below is silent otherwise: say what raised and on which request
+                print(f'internal error on POST {self.path}; control locked', flush=True)
                 app.control.stop()
                 self.send({'error':'服务内部错误，控制已锁定；检查本地运行环境'},status=500)
     return Handler

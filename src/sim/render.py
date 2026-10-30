@@ -10,8 +10,12 @@ PDF; or a picture named by the JSON's "image"; or no map), a dark table around i
 with the photographed faces in data/reference/block_faces, the world's props as flat-coloured boxes,
 Lambert shading, hard shadows softened by a blur, vignetting, blur and sensor noise.
 
-Not drawn: the arm itself (the gripper fingers do not appear in the frame), the platform, the codes on
-the bins' plates, transparency (acrylic bins are opaque here), reflections, exposure changes, motion blur. A detector that passes here has been checked against the
+Also drawn, for the designed bins (config/bins_*.json): the stickers on the plate (paper, DICT_5X5_50 codes on
+the flange and the floor) as flat decals that blocks and walls can hide, and the acrylic as a faint tint over
+whatever is behind it (a block inside a bin is seen through the wall; user-added `bin` props stay opaque).
+
+Not drawn: the arm itself (the gripper fingers do not appear in the frame), the platform, refraction and
+reflections in the acrylic, exposure changes, motion blur. A detector that passes here has been checked against the
 geometry and the face artwork, not against the real camera.
 """
 from __future__ import annotations
@@ -35,6 +39,9 @@ IMAGE_W, IMAGE_H = 640, 480
 PAGE_CM = (29.7, 21.0)     # a map JSON may give its own "page_cm"; the origin is the middle of the near edge
 PAGE_PPM = 5000            # page texture, pixels per metre
 WOOD_PPM = 2000
+PAPER = (232, 232, 228)    # BGR of a printed sticker's white
+INK = (22, 22, 22)
+GLASS_TINT = np.array([218, 214, 200], np.float32)    # BGR, clear acrylic over a dark table: faint, cool
 BACKDROP = (48, 46, 44)    # above the table's horizon
 MIN_VISIBLE_PX = 150       # a block showing fewer pixels than this is not expected to be detected
 MIN_INSIDE = 0.1           # as the training labels: share of the full box that must be inside the frame
@@ -136,6 +143,7 @@ class Renderer:
         u, v = np.meshgrid((np.arange(w) + 0.5) / supersample - 0.5, (np.arange(h) + 0.5) / supersample - 0.5)
         normal = cv2.undistortPoints(np.stack([u, v], -1).reshape(-1, 1, 2), self.k, self.dist).reshape(h, w, 2)
         self.rays = np.dstack([normal, np.ones((h, w))]).astype(np.float32)     # camera frame, z = 1
+        self.codes: dict[int, np.ndarray] = {}
         self.set_map(TableMap(), {})
         self.wood = wood_texture(seed)
         self.faces = load_faces(items)
@@ -176,9 +184,60 @@ class Renderer:
         x0, y0, x1, y1 = max(x0, 0), max(y0, 0), min(x1, w), min(y1, h)
         return (slice(y0, y1), slice(x0, x1)) if x1 > x0 and y1 > y0 else None
 
-    def render(self, servos, blocks: list[tuple[str, str, np.ndarray]], solids=()) -> tuple[np.ndarray, list[dict]]:
+    def marker_cells(self, marker_id: int) -> np.ndarray:
+        """The DICT_5X5_50 code as a 7 x 7 grid (1 = white), border included, top row first."""
+        if marker_id not in self.codes:
+            dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_5X5_50)
+            self.codes[marker_id] = (cv2.aruco.generateImageMarker(dictionary, marker_id, 7, borderBits=1) > 127)
+        return self.codes[marker_id]
+
+    def draw_decal(self, image, depth, servos, origin, rays, decal) -> None:
+        """A flat sticker: where its plane is the first thing the ray meets, paint paper or the code."""
+        pose, (hw, hh) = decal["pose"], decal["half"]
+        corners = pose[:3, 3] + np.array([[sx * hw, sy * hh, 0] for sx in (-1, 1) for sy in (-1, 1)]) @ pose[:3, :3].T
+        area = self.roi(servos, corners)
+        if area is None:
+            return
+        normal = pose[:3, 2]
+        d = rays[area]
+        denom = d @ normal
+        t = ((pose[:3, 3] - origin) @ normal) / np.where(np.abs(denom) < 1e-6, 1e-6, denom)
+        local = (origin + t[..., None] * d - pose[:3, 3]) @ pose[:3, :3]
+        hit = (t > 0.01) & (t < depth[area]) & (np.abs(local[..., 0]) <= hw) & (np.abs(local[..., 1]) <= hh)
+        if not hit.any():
+            return
+        colour = np.empty(local.shape[:2] + (3,), np.float32)
+        colour[:] = PAPER
+        if decal["kind"] == "marker":
+            cells = self.marker_cells(decal["id"])
+            col = np.clip(((local[..., 0] + hw) / (2 * hw) * 7).astype(int), 0, 6)
+            row = np.clip(((hh - local[..., 1]) / (2 * hh) * 7).astype(int), 0, 6)
+            colour[~cells[row, col]] = INK
+        view, view_depth = image[area], depth[area]
+        view[hit] = colour[hit]
+        view_depth[hit] = t[hit]
+
+    def draw_glass(self, image, depth, servos, origin, rays, glass) -> None:
+        """Clear boxes: a tint that grows with the path the ray spends inside, over what is already drawn."""
+        pose, half, _ = glass
+        area = self.roi(servos, cube_corners(pose, half))
+        if area is None:
+            return
+        rb = pose[:3, :3].astype(np.float32)
+        local_o = ((origin - pose[:3, 3]) @ pose[:3, :3]).astype(np.float32)
+        enter, leave, _ = slab(local_o, rays[area] @ rb, half.astype(np.float32))
+        hit = (leave >= enter) & (enter > 0.01) & (enter < depth[area])
+        if hit.any():
+            alpha = np.clip(0.06 + 14.0 * (np.minimum(leave, depth[area]) - enter), 0, 0.45)[..., None]
+            view = image[area]
+            view[hit] = (view * (1 - alpha) + GLASS_TINT * alpha)[hit]
+
+    def render(self, servos, blocks: list[tuple[str, str, np.ndarray]], solids=(), glass=(), decals=()
+               ) -> tuple[np.ndarray, list[dict]]:
         """(clean 640x480 BGR frame as float32, truth for each block that is in view). `solids` are the
         world's prop boxes, (pose, half size, BGR): drawn, casting shadows and hiding blocks, never labelled.
+        `decals` (World.decals) are stickers lying on props; `glass` (World.glass) clear boxes, tinted over
+        everything behind them. Neither casts a shadow or hides a block.
 
         truth: id, category, bbox [x0, y0, x1, y1] of the whole cube clipped to the frame (the training
         labels' convention), visible_px (pixels not hidden by another block)."""
@@ -247,6 +306,11 @@ class Renderer:
                 view_image[m] = colour * (0.55 + 0.45 * max(0.0, float(normal @ to_light)))
             view_depth[hit] = enter[hit]
             view_ids[hit] = number
+
+        for decal in decals:
+            self.draw_decal(image, depth, servos, o, d, decal)
+        for box in glass:
+            self.draw_glass(image, depth, servos, o, d, box)
 
         frame = cv2.resize(image, (IMAGE_W, IMAGE_H), interpolation=cv2.INTER_AREA) * self.vignette
         frame = cv2.GaussianBlur(frame, (0, 0), 0.7)

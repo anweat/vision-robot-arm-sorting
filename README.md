@@ -34,7 +34,7 @@
 | 识别四类物块 | `src/vision/blocks_detector.py`、`train_blocks.py`、`synth_blocks.py` | [物块与贴纸类别](docs/atlas-200i-dk-a2/07-物块与贴纸类别.md)、[资产清单](docs/atlas-200i-dk-a2/09-资产清单.md) | 实机实测，板上 NPU |
 | 正逆解、相机位姿、地图定位 | `src/spatial/` | [硬件实测](docs/05-板卡连接与硬件实测.md) 2026-09-25 触点标定与手眼 | 实机实测 |
 | 限位、禁入区、夹爪判定 | `config/arm_limits.json`、`src/spatial/workspace.py` | [硬件实测](docs/05-板卡连接与硬件实测.md) | 实机实测 |
-| 打印地图、做垃圾桶 | `src/tools/make_map.py`、`make_bins.py`；`docs/calibration/`、`docs/bins/` | [实体容器选型约束](docs/atlas-200i-dk-a2/12-实体容器选型约束.md) | 地图 v2 实机在用；v3 与桶为设计值 |
+| 打印地图、做垃圾桶 | `src/tools/make_map.py`、`make_bins.py`；`docs/calibration/`、`docs/bins/` | [实体容器选型约束](docs/atlas-200i-dk-a2/12-实体容器选型约束.md) | 地图 v2 实机在用；v3、v4（窄桌）与桶为设计值；桶打版包见 `docs/bins/README.md`；窄桌双桶方案与联调清单见 [24](docs/atlas-200i-dk-a2/24-垃圾桶建模与仿真联调.md) |
 | 复盘一次运行 | `src/tools/analyze_session.py`、`run_stats.py` | — | 离线 |
 | 查官方资料与上游源码 | `资料/`（不入库） | [官方源码导入审计](docs/atlas-200i-dk-a2/06-官方源码导入审计.md)、[官方案例与调研](docs/atlas-200i-dk-a2/03-官方案例与调研.md) | 归档 |
 

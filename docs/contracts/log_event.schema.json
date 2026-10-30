@@ -90,6 +90,17 @@
      },
      "source": {
       "type": "string"
+     },
+     "slot": {
+      "type": "integer"
+     },
+     "drop_map_cm": {
+      "type": "array",
+      "items": {
+       "type": "number"
+      },
+      "minItems": 2,
+      "maxItems": 2
      }
     },
     "required": [
@@ -712,6 +723,71 @@
    "if": {
     "properties": {
      "event": {
+      "const": "bins_located"
+     }
+    },
+    "required": [
+     "event"
+    ]
+   },
+   "then": {
+    "description": "[stable] 实体垃圾桶按贴纸定位的结果（每桶一项：桶号、类别、位置、朝向、是找到的还是设计位置）",
+    "properties": {
+     "design": {
+      "type": "string"
+     },
+     "bins": {
+      "type": "array"
+     }
+    },
+    "required": [
+     "design",
+     "bins"
+    ]
+   }
+  },
+  {
+   "if": {
+    "properties": {
+     "event": {
+      "const": "bin_full"
+     }
+    },
+    "required": [
+     "event"
+    ]
+   },
+   "then": {
+    "description": "[stable] 某个容器已满（按够得着的落点数算），不再向它投放；该类物块被跳过",
+    "properties": {
+     "bin": {
+      "type": "string"
+     },
+     "count": {
+      "type": "integer"
+     },
+     "category": {
+      "enum": [
+       "recyclable",
+       "kitchen",
+       "hazardous",
+       "other"
+      ]
+     },
+     "by": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "bin",
+     "count"
+    ]
+   }
+  },
+  {
+   "if": {
+    "properties": {
+     "event": {
       "const": "table_z_disagrees"
      }
     },
@@ -833,44 +909,6 @@
     "required": [
      "cube",
      "image"
-    ]
-   }
-  },
-  {
-   "if": {
-    "properties": {
-     "event": {
-      "const": "bin_full"
-     }
-    },
-    "required": [
-     "event"
-    ]
-   },
-   "then": {
-    "description": "[planned] 某个容器判定为已满，停止向它投放（E3）",
-    "properties": {
-     "bin": {
-      "type": "string"
-     },
-     "count": {
-      "type": "integer"
-     },
-     "category": {
-      "enum": [
-       "recyclable",
-       "kitchen",
-       "hazardous",
-       "other"
-      ]
-     },
-     "by": {
-      "type": "string"
-     }
-    },
-    "required": [
-     "bin",
-     "count"
     ]
    }
   },

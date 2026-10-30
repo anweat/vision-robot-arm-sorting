@@ -36,9 +36,10 @@ for sub in ("spatial", "tools", "vision"):
 import dofbot_kinematics as kin  # noqa: E402
 import workspace  # noqa: E402
 from console_step import BASE, ConsoleError, Session, status  # noqa: E402
+from map_registration import DEFAULT_MAP  # noqa: E402
 
 CONFIG = json.loads((ROOT / "config" / "arm_limits.json").read_text())
-MAP = json.loads((ROOT / "config" / "map_a4_v2.json").read_text())
+MAP = json.loads(DEFAULT_MAP.read_text())      # map_a4_v2 unless ARM_MAP names another sheet (map_registration.py)
 TABLE_Z = CONFIG["keep_out"]["table_surface_z_m"]
 KEEP_OUT = workspace.load_keep_out(CONFIG)   # the platform box (docs/05, refitted 2026-09-25)
 RADIAL_OFFSET = CONFIG["gripper"].get("open_grasp_radial_offset_cm", 1.0) / 100
@@ -79,6 +80,10 @@ CARRY_RADIUS = 0.17     # retract to this radius before turning the base, so a h
 CARRY_ABOVE_TABLE = 0.07
 RUNS = ROOT / "data" / "runs" / "console_grasp"
 PLAN = RUNS / "plan.json"
+
+
+class PathBlocked(ConsoleError):
+    """A move would run the fingers into a bin (OBSTACLES). The arm has not been sent anywhere."""
 
 
 class GripMissed(ConsoleError):
@@ -206,6 +211,47 @@ def plan_approach(bx: float, by: float, yaw_deg: float | None, prefer: int = 150
     return None
 
 
+# Things on the table the gripper must not run into: (oriented box in the base frame: 2x2 rotation, centre xyz, half
+# size xyz). run.use_bins fills it with the acrylic bins; empty means nothing is checked (the old marker-code layout).
+OBSTACLES: list[tuple[list, list, list]] = []
+HIGH_LEG = [90, 125, 0, 0]       # raised and leaning forward (the first field-scan view): the way over the bins
+OBSTACLE_MARGIN = 0.01          # the fingers keep this far from a bin wall; a bin standing 1-2 mm off its seat is nothing next to it
+FINGER_POINTS = 0.05            # the fingers start this far past the servo-5 axis (a gripper-servo housing is higher still)
+
+
+def set_obstacles(boxes) -> None:
+    OBSTACLES[:] = list(boxes)
+
+
+def obstacle_depth(q) -> float:
+    """How far into an obstacle (grown by OBSTACLE_MARGIN) the deepest point of the open fingers is, in metres;
+    <= 0 when clear. The fingers are points along the last link, +-1.5 cm across it (both ways: J5 is not known here)."""
+    if not OBSTACLES:
+        return 0.0
+    pose = kin.servo5_pose(list(q)[:4] + [90])
+    o, x, y, z = (kin_col(pose, i) for i in (3, 0, 1, 2))
+    deepest = 0.0
+    for a in range(9):
+        along = FINGER_POINTS + (kin.GRIPPER - FINGER_POINTS) * a / 8
+        for u in (-0.015, 0.0, 0.015):
+            for axis in (x, y):
+                point = [o[i] + along * z[i] + u * axis[i] for i in range(3)]
+                for rot, centre, half in OBSTACLES:
+                    dx, dy = point[0] - centre[0], point[1] - centre[1]
+                    local = (rot[0][0] * dx + rot[1][0] * dy, rot[0][1] * dx + rot[1][1] * dy, point[2] - centre[2])
+                    inside = min(half[i] + OBSTACLE_MARGIN - abs(local[i]) for i in range(3))
+                    deepest = max(deepest, inside)
+    return deepest
+
+
+def kin_col(pose, i):
+    return [pose[0][i], pose[1][i], pose[2][i]]
+
+
+def obstacle_on_path(a, b, samples: int = 20) -> float:
+    return max(obstacle_depth([x + (y - x) * i / samples for x, y in zip(a[:4], b[:4])]) for i in range(samples + 1))
+
+
 def clear_of_platform(pose) -> bool:
     return workspace.platform_clearance(pose, KEEP_OUT) >= 0
 
@@ -225,6 +271,10 @@ def check_path(a, b) -> None:
     plat = platform_on_path(a, b)
     if plat < 0 and plat < workspace.platform_clearance(a[:4], KEEP_OUT) - 1e-9:
         raise ConsoleError(f"path enters the platform keep-out by {-plat*100:.1f} cm; refused")
+    if OBSTACLES:
+        hit, was = obstacle_on_path(a, b), obstacle_depth(a)
+        if hit > 0 and hit > was + 1e-9:        # a start already inside may only move out, as with the platform
+            raise PathBlocked(f"path puts the fingers {hit*100:.1f} cm into a bin's keep-out; refused")
     low = lowest_on_path(a, b)
     ends = min(tip(a)[2], tip(b)[2])
     # a path may start or end low (a grip pose is 1-2 cm above the table); it may not dip in between
@@ -321,7 +371,19 @@ def move_to(session: Session, target4: list[int], j5: int | None = None) -> None
         return
     rise_if_low(session)
     s = status()
-    check_path(s["pose"], target4)
+    try:
+        check_path(s["pose"], target4)
+    except PathBlocked:
+        # round the bins: up to a raised, forward-leaning pose at the current bearing, over to the target's, then down
+        legs = [[s["pose"][0], *HIGH_LEG[1:]], [target4[0], *HIGH_LEG[1:]], list(target4)]
+        here = s["pose"]
+        for leg in legs:
+            check_path(here, leg)
+            here = leg
+        for leg in legs[:-1]:
+            session.pose(leg + [j5])
+        session.pose(list(target4) + [j5])
+        return
     session.pose(list(target4) + [j5])
 
 
@@ -664,9 +726,20 @@ def grasp(session: Session | None = None) -> dict:
     return result
 
 
-def plan_put(grasp_pitch: float, where_: str, pose: list[int]) -> dict | None:
+BIN_CLEARANCE = 0.015     # the held block's underside clears a bin's rim by this much when it is let go
+
+
+def bin_drop_tip_z(rim_above_table_m: float, clearance_m: float = BIN_CLEARANCE) -> float:
+    """Fingertip height (FK frame) to let a block go over a bin: the fingers closed 1.2 cm above the block's
+    underside (GRASP_HEIGHT), so the underside hangs that far below the tip."""
+    return TABLE_Z + rim_above_table_m + GRASP_HEIGHT + clearance_m
+
+
+def plan_put(grasp_pitch: float, where_: str, pose: list[int], drop_tip_z: float | None = None) -> dict | None:
     """The poses put() would use to place a held block on `where_`, starting from `pose`, or None when no
-    pitch within 15 deg of the grasp pitch reaches it. Separated from put() so a caller can ask before it
+    pitch within 15 deg of the grasp pitch reaches it. With `drop_tip_z` the block is not set down: the
+    hover is at that fingertip height and it is let go from there (over a bin; see bin_drop_tip_z).
+    Separated from put() so a caller can ask before it
     grips: a block picked up for a place that turns out to be unreachable has to be put back down again,
     and until it is, the arm is carrying it (2026-09-27: three scatter moves failed this way)."""
     mx, my = parse_place(where_)
@@ -690,36 +763,45 @@ def plan_put(grasp_pitch: float, where_: str, pose: list[int]) -> dict | None:
     a = [pose[0]] + carry[1][1:]
     # a pitch unlike the grasp pitch tilts the held block by the difference; allow up to 15 deg (a far
     # grasp at 135 cannot place at 21 cm with 130-140, 2026-09-26) and release a little higher (below)
-    for pitch in sorted({grasp_pitch + d for d in (0, 5, -5, 10, -10, 15, -15)}, key=lambda p: abs(p - grasp_pitch)):
-        found = solve(tx, ty, TABLE_Z + BLOCK + HOVER_ABOVE_TOP, [pitch], floor=-3)
-        if found is None or solve(tx, ty, TABLE_Z + BLOCK / 2, [pitch], floor=-3) is None:
-            continue
-        hover_pose = found[1]
-        b = [hover_pose[0]] + a[1:]
-        try:
-            check_path(pose, a)
-            check_path(b, hover_pose)
-        except ConsoleError:
-            continue
-        return dict(carry=a, turn=b, hover=hover_pose, pitch=pitch, tx=tx, ty=ty,
-                    j5_put=pose[4] if j5_put is None else j5_put,
-                    target_map_cm=[round(mx * 100, 2), round(my * 100, 2)])
+    soft = CONFIG["soft_limits_deg"]
+    within_soft = lambda q: all(soft[str(i + 1)][0] <= q[i] <= soft[str(i + 1)][1] for i in range(4))   # noqa: E731
+    # a drop over a bin first tries only poses inside the soft limits (the explore profile lets J2-J4 go to -10 and
+    # J1 to its course limit, and a joint asked for -1..-8 reads back -2..-3, 2026-09-25), then any pose
+    for strict in ((True, False) if drop_tip_z is not None else (False,)):
+        for pitch in sorted({grasp_pitch + d for d in (0, 5, -5, 10, -10, 15, -15)}, key=lambda p: abs(p - grasp_pitch)):
+            found = solve(tx, ty, TABLE_Z + BLOCK + HOVER_ABOVE_TOP if drop_tip_z is None else drop_tip_z, [pitch], floor=-3)
+            if found is None or (drop_tip_z is None and solve(tx, ty, TABLE_Z + BLOCK / 2, [pitch], floor=-3) is None):
+                continue
+            hover_pose = found[1]
+            if strict and not within_soft(hover_pose):
+                continue
+            b = [hover_pose[0]] + a[1:]
+            try:
+                check_path(pose, a)
+                check_path(b, hover_pose)
+            except ConsoleError:
+                continue
+            return dict(carry=a, turn=b, hover=hover_pose, pitch=pitch, tx=tx, ty=ty,
+                        j5_put=pose[4] if j5_put is None else j5_put,
+                        target_map_cm=[round(mx * 100, 2), round(my * 100, 2)], drop_tip_z=drop_tip_z,
+                        within_soft_limits=within_soft(hover_pose))
     return None
 
 
-def can_put(grasp_pitch: float, where_: str, pose: list[int]) -> bool:
-    return plan_put(grasp_pitch, where_, list(pose)) is not None
+def can_put(grasp_pitch: float, where_: str, pose: list[int], drop_tip_z: float | None = None) -> bool:
+    return plan_put(grasp_pitch, where_, list(pose), drop_tip_z) is not None
 
 
-def put(where_: str, session: Session | None = None) -> dict:
+def put(where_: str, session: Session | None = None, drop_tip_z: float | None = None) -> dict:
     """Carry the held block so its centre lands on a marker centre (or map x,y cm): retract and rise at the
     grasp pitch, turn only the base, reach out at a pitch within 15 deg of the grasp pitch (the block tilts
-    with the gripper), descend, open, lift."""
+    with the gripper), descend, open, lift. With `drop_tip_z` (a bin) it stops at that height and lets go
+    there: the block falls the last few centimetres."""
     plan = json.loads(PLAN.read_text())
     if "grip_pose" not in plan:
         raise ConsoleError("nothing gripped by this plan")
     s = status()
-    steps = plan_put(plan["pitch"], where_, s["pose"])
+    steps = plan_put(plan["pitch"], where_, s["pose"], drop_tip_z)
     if steps is None:
         mx, my = parse_place(where_)
         raise ConsoleError(f"no hover within 15 deg of the grasp pitch {plan['pitch']} over map "
@@ -727,16 +809,21 @@ def put(where_: str, session: Session | None = None) -> dict:
     a, b, hover_pose, pitch = steps["carry"], steps["turn"], steps["hover"], steps["pitch"]
     tx, ty, j5_put = steps["tx"], steps["ty"], steps["j5_put"]
     j5 = s["pose"][4]
-    log("put_planned", target_map_cm=steps["target_map_cm"], pitch=pitch, hover=hover_pose, j5=j5_put)
+    log("put_planned", target_map_cm=steps["target_map_cm"], pitch=pitch, hover=hover_pose, j5=j5_put,
+        **({} if drop_tip_z is None else dict(drop_tip_z_cm=round(drop_tip_z * 100, 2))))
     with lease(session) as sess:
         sess.pose(a + [j5])                # retract and rise where the block was picked
         sess.pose(b + [j5_put])            # turn the base (and the wrist, to square the block)
         sess.pose(hover_pose + [j5_put])   # reach out over the target
-        tilt = math.radians(abs(pitch - plan["pitch"]))
-        corner = BLOCK / 2 * (math.sin(tilt) + math.cos(tilt) - 1)   # how much lower the tilted block's lowest corner is
-        released_at = descend_to(sess, tx, ty, TABLE_Z + BLOCK / 2 + 0.003 + corner, pitch)
+        if drop_tip_z is None:
+            tilt = math.radians(abs(pitch - plan["pitch"]))
+            corner = BLOCK / 2 * (math.sin(tilt) + math.cos(tilt) - 1)   # how much lower the tilted block's lowest corner is
+            released_at = descend_to(sess, tx, ty, TABLE_Z + BLOCK / 2 + 0.003 + corner, pitch)
+        else:
+            time.sleep(0.4)                # let the arm settle (it sags near full reach) before letting go
+            released_at = status()["pose"]
         sess.grip("open")
-        lift(sess, hover_pose)
+        lift(sess, hover_pose if drop_tip_z is None else b)   # a bin: back to the carry height, not straight up
     result = dict(target=where_, target_map_cm=steps["target_map_cm"], released_at=released_at)
     log("put", **result)
     return result

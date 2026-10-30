@@ -73,8 +73,16 @@ class Session:
         call('/api/stop', {}, token=self.token, owner=self.owner)
 
     def _beat(self):
+        """A beat that fails (a dropped connection, a slow answer) is tried again at the next one: the console's lease
+        lapses by itself 2 s after the last good beat, and a lapsed lease is not revived, so retrying cannot keep
+        the arm enabled any longer than it was meant to be -- but dying on the first error ended the lease for good."""
         while not self.done.wait(.5):
-            call('/api/heartbeat', {}, token=self.token, owner=self.owner)
+            try:
+                r = call('/api/heartbeat', {}, token=self.token, owner=self.owner, timeout=5)
+                if isinstance(r, dict) and r.get('error'):
+                    print(f"heartbeat refused: {r['error']}", file=sys.stderr, flush=True)
+            except Exception as e:      # noqa: BLE001
+                print(f"heartbeat failed: {e!r}", file=sys.stderr, flush=True)
 
     def _post(self, path, data, timeout=60):
         r = call(path, data, timeout=timeout, token=self.token, owner=self.owner)

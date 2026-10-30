@@ -5,6 +5,8 @@
 """Generate the printable A4 table map with an ArUco grid, plus its layout JSON.
 
   uv run src/tools/make_map.py --name dofbot_map_a4_v2
+  uv run src/tools/make_map.py --name dofbot_map_a4_v4 --bins config/bins_acrylic_v2_pair.json \
+      --placement-from config/map_a4_v2.json --extra="-2.2,2;2.2,2;..."      # two bins, more codes where they are free
   uv run src/tools/make_map.py --name dofbot_map_a4_v3 --bins config/bins_acrylic_v1.json \
       --placement-from config/map_a4_v2.json
 
@@ -45,6 +47,9 @@ def main() -> None:
     parser.add_argument("--first-id", type=int, default=30)
     parser.add_argument("--base-offset-cm", type=float, default=8.0, help="servo-1 axis to platform front face")
     parser.add_argument("--mat-z-cm", type=float, default=-9.0, help="map plane height in the base frame")
+    parser.add_argument("--extra", help='more codes where the grid has room: "x,y;x,y" in map cm (use --extra="-2,3;2,3" '
+                                        'for a negative x). They take ids from --extra-first-id up, the grid keeps its ids')
+    parser.add_argument("--extra-first-id", type=int, default=0)
     parser.add_argument("--bins", type=Path, help="bin design JSON from make_bins.py; needs --placement-from")
     parser.add_argument("--placement-from", type=Path, help="map JSON whose base_from_map placement is carried over")
     args = parser.parse_args()
@@ -69,6 +74,16 @@ def main() -> None:
     count = len(args.cols) * len(args.rows)
     if args.first_id + count > 50:
         raise SystemExit("DICT_4X4_50 has ids 0-49 only")
+    extra = [tuple(float(v) for v in item.split(",")) for item in args.extra.split(";")] if args.extra else []
+    extra_ids = list(range(args.extra_first_id, args.extra_first_id + len(extra)))
+    if set(extra_ids) & set(range(args.first_id, args.first_id + count)) or (extra_ids and extra_ids[-1] > 49):
+        raise SystemExit("--extra ids collide with the grid's or run past 49")
+    for x, y in extra:
+        if abs(x) > W_CM / 2 - 1.0 or not 1.0 <= y <= H_CM - 1.0:
+            raise SystemExit(f"extra code ({x}, {y}) is off the page or within 1 cm of its edge")
+        if any(cv2.pointPolygonTest(np.array(plate, np.float32), (x, y), True) > -(args.side_cm / 2 + 0.3)
+               for _, plate, _ in plates.values()):
+            raise SystemExit(f"extra code ({x}, {y}) lies under, or within 3 mm of, a bin plate")
 
     def px(x_cm: float, y_cm: float) -> tuple[int, int]:
         return round((x_cm + W_CM / 2) * 10 * MM), round((H_CM - y_cm) * 10 * MM)
@@ -97,6 +112,15 @@ def main() -> None:
                            [(x + h) / 100, (y - h) / 100], [(x - h) / 100, (y - h) / 100]]  # TL TR BR BL
             mid += 1
 
+    for mid, (x, y) in zip(extra_ids, extra):
+        marker = cv2.aruco.generateImageMarker(dictionary, mid, side_px, borderBits=1)
+        cx, cy = px(x, y)
+        page.paste(Image.fromarray(marker), (cx - side_px // 2, cy - side_px // 2))
+        draw.text((cx + side_px // 2 + 6, cy + side_px // 2 - 24), str(mid), fill=0, font=small)
+        h = args.side_cm / 2
+        layout[mid] = [[(x - h) / 100, (y + h) / 100], [(x + h) / 100, (y + h) / 100],
+                       [(x + h) / 100, (y - h) / 100], [(x - h) / 100, (y - h) / 100]]
+
     for number, (name, plate, opening) in plates.items():
         for pts, width in ((plate, 4), (opening, 2)):
             draw.line([px(*q) for q in pts + pts[:1]], fill=110, width=width)
@@ -119,7 +143,8 @@ def main() -> None:
         if yc % 5 == 0:
             draw.text((a[0] + 36, a[1] - 14), str(yc), fill=0, font=small)
     draw.text(px(-14.2, 20.6), f"Dofbot 桌面地图 {args.name} · A4 横向 · 必须按 100%/实际尺寸打印 · "
-              f"DICT_4X4_50 id {args.first_id}-{mid - 1}, {args.side_cm * 10:g} mm"
+              f"DICT_4X4_50 id {args.first_id}-{mid - 1}"
+              + (f" + {extra_ids[0]}-{extra_ids[-1]}" if extra_ids else "") + f", {args.side_cm * 10:g} mm"
               + (f" · 桶位下不印码：{skipped}" if skipped else ""), fill=0, font=small)
     bar_y = 20.1
     for t in range(11):
@@ -136,6 +161,7 @@ def main() -> None:
         "map_frame": "origin at the centre of the page's near edge; X right (arm's right), Y away from the arm, metres",
         "corner_order": "ArUco order TL, TR, BR, BL with the marker top pointing to +Y",
         "layout_m": layout,
+        "extra_ids": extra_ids,
         "placement": {
             "rule": "near edge flush against the front face of the arm's platform; dashed centre line under the arm's centre",
             "base_from_map": {"dx": 0.0, "dy": args.base_offset_cm / 100, "dz": args.mat_z_cm / 100,

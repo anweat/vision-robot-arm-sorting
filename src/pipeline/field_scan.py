@@ -28,7 +28,7 @@ SCAN_POSES = [[100, 125, 0, 0], [70, 125, 0, 0], [110, 105, 15, 0], [80, 120, 0,
 RUNS = ROOT / "data" / "runs" / "pipeline"
 
 
-def frame_at_rest(settle: float = 0.8, timeout: float = 10.0) -> tuple[bytes, dict]:
+def frame_at_rest(settle: float = 0.8, timeout: float = 10.0, board: bool = True) -> tuple[bytes, dict]:
     """A board frame taken after the readback has been still for `settle` seconds. The console's board
     result for this pose is attached when one arrives (it may be an error: a view without enough markers
     is still a useful view; registration is done offline from all views)."""
@@ -43,6 +43,8 @@ def frame_at_rest(settle: float = 0.8, timeout: float = 10.0) -> tuple[bytes, di
     else:
         raise G.ConsoleError("the arm did not come to rest")
     jpeg = urllib.request.urlopen(f"{BASE}/api/frame", timeout=5).read()
+    if not board:
+        return jpeg, now
     t0 = time.time()
     while time.time() - t0 < 8:   # the console's result for this pose (with its official-model detections)
         s = status()
@@ -61,7 +63,11 @@ def scan(run: Path | None = None, session: Session | None = None) -> Path:
     with G.lease(session) as sess:
         j5 = G.ROLL_ZERO
         for i, pose in enumerate(SCAN_POSES):
-            G.move_to(sess, pose, j5)
+            try:
+                G.move_to(sess, pose, j5)
+            except G.PathBlocked as e:       # a bin stands where this view puts the fingers: take the others
+                G.log("scan_view_skipped", run=str(run.relative_to(ROOT)), view=i, pose=pose, reason=str(e))
+                continue
             jpeg, s = frame_at_rest()
             name = f"view_{i:02d}.jpg"
             (run / name).write_bytes(jpeg)
@@ -71,6 +77,39 @@ def scan(run: Path | None = None, session: Session | None = None) -> Path:
             G.log("scan_view", run=str(run.relative_to(ROOT)), view=i, pose=s["pose"], markers=board.get("markers"),
                   official=[(d.get("label"), d.get("conf")) for d in board.get("official", [])])
     (run / "views.json").write_text(json.dumps(views, indent=1, ensure_ascii=False))
+    return run
+
+
+def bin_views_path(design: str) -> Path:
+    return ROOT / "config" / f"bin_views_{design}.json"
+
+
+def has_bin_views(design: str) -> bool:
+    """Whether src/tools/find_bin_views.py found view poses for this design. Without them the bins are taken
+    where they were planned (seated on the printed outlines of the map), not looked for."""
+    return bin_views_path(design).exists()
+
+
+def scan_bins(run: Path, session: Session | None = None, design: str | None = None, only=None) -> Path:
+    """One view of each bin's stickers, from the poses config/bin_views_<design>.json holds (src/tools/find_bin_views.py).
+    Written beside the field scan as bin_views.json + bin_view_<n>.jpg; views.json stays the map's own, since
+    these views look past the paper and would only smear the orthophotos. The arm goes back to the observe
+    pose at the end."""
+    cfg = json.loads(bin_views_path(design or "bins_acrylic_v1").read_text())
+    entries = []
+    with G.lease(session) as sess:
+        j5 = G.ROLL_ZERO
+        for number, pose in sorted(cfg["views"].items(), key=lambda kv: int(kv[0])):
+            if only is not None and int(number) not in only:
+                continue
+            G.move_to(sess, pose, j5)
+            jpeg, s = frame_at_rest(board=False)
+            name = f"bin_view_{number}.jpg"
+            (run / name).write_bytes(jpeg)
+            entries.append(dict(bin=int(number), image=name, readback=s["pose"], command=pose + [j5], t=time.time()))
+            G.log("bin_view", run=str(run.relative_to(ROOT) if run.is_relative_to(ROOT) else run), bin=number, pose=s["pose"])
+        G.move_to(sess, G.OBSERVE)
+    (run / "bin_views.json").write_text(json.dumps(entries, indent=1, ensure_ascii=False))
     return run
 
 

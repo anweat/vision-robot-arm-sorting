@@ -21,5 +21,29 @@
     "hazardous": "有害垃圾",
     "other": "其他垃圾"
   },
-  "model_min_conf": 0.5
+  "model_min_conf": 0.5,
+  "_bins_note": "Physical acrylic bins (config/bins_acrylic_*.json, docs/atlas-200i-dk-a2/24). Used when run.py is given --bins: the block is let go over the bin opening instead of set down on a map code. slots_cm are drop points in the bin frame (x right, +Y to the flange), filled in order; 3 cm blocks in an 80 mm opening. +-1.2 cm chosen in simulation (2026-10-30, bins off by 8 mm / 4 deg, joints off by 1.5 deg: 8 of 8 in; +-1.8 cm: 2 of 4 hung on the rim). A bin counts as full after as many blocks as it has slots (data/runs/bins_state.json keeps the count; run.py --empty-bins resets it). Design values, not tried on the real arm.",
+  "bins": {
+    "design": "bins_acrylic_v1",
+    "slots_cm": [
+      [
+        -1.2,
+        -1.2
+      ],
+      [
+        1.2,
+        1.2
+      ],
+      [
+        -1.2,
+        1.2
+      ],
+      [
+        1.2,
+        -1.2
+      ]
+    ],
+    "look_margin_cm": 1.0,
+    "min_plate_gap_mm": 5.0
+  }
 }

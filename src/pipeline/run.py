@@ -9,6 +9,10 @@ orthophoto (src/pipeline/cubes.py); category from the official 3-class model (it
 views, projected onto the top plane) when confident and consistent with the top colour, else the colour
 (src/tasks/sort_blocks.resolve). The motion reuses the verified console stages (hover, grasp, put) with
 the plan made from the scan instead of a close look.
+
+With --bins the targets are the physical acrylic bins (config/bins_acrylic_v1.json) instead of map codes: each
+bin is found from its own stickers in extra views (field_scan.scan_bins), a block is carried over its bin's
+opening and let go from above the rim, into the next free slot (config/sorting.json "bins").
 """
 from __future__ import annotations
 
@@ -29,6 +33,7 @@ for sub in ("pipeline", "tasks", "tools", "spatial", "vision"):
 
 import console_grasp as G  # noqa: E402
 import cubes as C  # noqa: E402
+import bins as B  # noqa: E402
 import scene as S  # noqa: E402
 import scramble as SCR  # noqa: E402
 import sort_blocks as SB  # noqa: E402
@@ -273,14 +278,20 @@ def refine(run: Path, scene: dict, session) -> dict:
     is rebuilt from all views. A wrong yaw lands the fingers on the cube's corners, and a jammed grip
     once latched the gripper servo until a power cycle (docs/05, 2026-09-26)."""
     import field_scan as SC
-    weak = [c for c in scene["cubes"] if needs_refine(c)]
+    weak = [c for c in scene["cubes"] if needs_refine(c)
+            and not (BINS is not None and BINS.containing(G.map_to_base(c["map_cm"][0] / 100, c["map_cm"][1] / 100),
+                                                          SB.SORTING["bins"]["look_margin_cm"] / 100))]   # a block in a bin is done
     if not weak:
         return scene
     views = json.loads((run / "views.json").read_text())
     for c in weak:
         bx, by = G.map_to_base(c["map_cm"][0] / 100, c["map_cm"][1] / 100)
-        look = G.look_pose(bx, by, G.status()["pose"])
-        G.move_to(session, look, G.ROLL_ZERO)
+        try:
+            look = G.look_pose(bx, by, G.status()["pose"])
+            G.move_to(session, look, G.ROLL_ZERO)
+        except G.ConsoleError as e:        # no view of it that keeps the fingers off a bin: it is judged from the scan alone
+            G.log("refine_skipped", cube=c["map_cm"], reason=str(e))
+            continue
         jpeg, s = SC.frame_at_rest()
         name = f"view_{len(views):02d}.jpg"
         (run / name).write_bytes(jpeg)
@@ -292,6 +303,8 @@ def refine(run: Path, scene: dict, session) -> dict:
     return build_scene(run)
 
 
+STATE_FILE = ROOT / "data" / "runs" / "bins_state.json"    # blocks given to each bin, across rounds and runs
+BINS: B.BinSet | None = None      # set by use_bins(): the targets are acrylic bins, not map codes
 TABLE_Z_DISAGREE_CM = 1.5   # beyond this the scan and the touched table are not describing one surface
 
 
@@ -322,7 +335,126 @@ def plan_for(cube: dict, prefer: int = 150) -> dict | None:
                 block_centre_z_cm=round((G.TABLE_Z + G.GRASP_HEIGHT) * 100, 2), **approach)
 
 
+def use_bins(found: B.BinSet | None) -> None:
+    """Sort into these bins from now on (None: back to the map codes)."""
+    global BINS
+    BINS = found
+    boxes = []
+    for b in (found.bins.values() if found else ()):
+        c, s = math.cos(math.radians(b.yaw_deg)), math.sin(math.radians(b.yaw_deg))
+        half = found.design["geometry_mm"]["outer"] / 2000
+        boxes.append(([[c, -s], [s, c]], [float(b.xy[0]), float(b.xy[1]), G.TABLE_Z + found.wall_top_m / 2],
+                      [half, half, found.wall_top_m / 2]))
+    G.set_obstacles(boxes)
+
+
+def saved_counts(design: str) -> dict[int, int]:
+    """How many blocks this process or an earlier run gave each bin. The scan alone undercounts: blocks stacked in a
+    bin hide one another, and a bin that looks half empty from above may be full."""
+    try:
+        return {int(n): int(c) for n, c in json.loads(STATE_FILE.read_text()).get(design, {}).items()}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_counts() -> None:
+    try:
+        state = json.loads(STATE_FILE.read_text())
+    except (OSError, ValueError):
+        state = {}
+    state[BINS.name] = {str(n): c for n, c in BINS.given.items()}
+    STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    STATE_FILE.write_text(json.dumps(state, indent=1))
+
+
+def forget_counts(design: str) -> None:
+    """The blocks were taken out of the bins: start counting again."""
+    try:
+        state = json.loads(STATE_FILE.read_text())
+    except (OSError, ValueError):
+        return
+    state.pop(design, None)
+    STATE_FILE.write_text(json.dumps(state, indent=1))
+
+
+def bin_drop_z(bins: B.BinSet) -> float:
+    return G.bin_drop_tip_z(bins.wall_top_m)
+
+
+def bin_slots() -> list:
+    return B.drop_slots(SB.SORTING["bins"]["slots_cm"])
+
+
+def usable_slots(b: B.Bin) -> list[int]:
+    """Indices of the drop slots of bin `b` the arm can reach at drop height, those inside the soft joint
+    limits first (the outer corners of bins 1 and 4 sit at J1 ~ 20 and ~ 160)."""
+    ok = []
+    for i in range(len(bin_slots())):
+        where = ",".join(str(v) for v in bin_drop_map_cm(b, i))
+        plan = G.plan_put(150, where, list(G.OBSERVE) + [G.ROLL_ZERO], bin_drop_z(BINS))
+        if plan is not None:
+            ok.append((not plan["within_soft_limits"], i))
+    return [i for _, i in sorted(ok)]
+
+
+def bin_drop_map_cm(b: B.Bin, slot: int) -> list[float]:
+    """Map cm of the point above which a block goes into `slot` of bin `b`."""
+    x, y = B.drop_xy(b, bin_slots()[slot])
+    return [round(float(x - G.DX) * 100, 2), round(float(y - G.DY) * 100, 2)]
+
+
+def decide_bins(scene: dict) -> list[dict]:
+    """Jobs for physical bins: a block inside a bin's opening is done (or in the wrong bin and left there:
+    it cannot be taken out again), a detection on a bin's plate that is not in the opening is the plate's
+    own stickers and paper, not a block."""
+    margin = SB.SORTING["bins"]["look_margin_cm"] / 100
+    holding = {n: 0 for n in BINS.bins}
+    jobs = []
+    for c in scene["cubes"]:
+        c["_base"] = G.map_to_base(c["map_cm"][0] / 100, c["map_cm"][1] / 100)
+        c["_in_bin"] = BINS.containing(c["_base"], margin)
+        if c["_in_bin"] is not None:
+            holding[c["_in_bin"].number] += 1
+    saved = saved_counts(BINS.name)
+    for n, held in holding.items():
+        BINS.given[n] = max(held, saved.get(n, 0))
+        holding[n] = BINS.given[n]
+    BINS.slots = {b.number: usable_slots(b) for b in BINS.bins.values()}
+    reachable = {n: bool(slots) for n, slots in BINS.slots.items()}
+    G.log("bin_slots", slots={str(n): slots for n, slots in BINS.slots.items()},
+          note="每个桶机械臂在投放高度够得着的落点序号（先软限位内的）；容量 = 个数")
+    for c in scene["cubes"]:
+        holder, base = c.pop("_in_bin"), c.pop("_base")
+        if holder is None and BINS.over_footprint(base, margin) is not None:
+            G.log("bin_plate_ignored", cube=c["map_cm"], bin=str(BINS.over_footprint(base, margin).number))
+            continue
+        target = BINS.of_category(c["category"]) if c["category"] else None
+        bx, by = base
+        reach = math.hypot(bx, by)
+        why = None
+        if c["category"] is None:
+            why = c["source"]
+        elif holder is not None:
+            why = f"already in bin {holder.number}" + ("" if holder.category == c["category"] else
+                                                       f" ({holder.category}, but it is {c['category']}): left there")
+        elif target is None:
+            why = f"no bin for {c['category']}"
+        elif not reachable[target.number]:
+            why = f"bin {target.number} cannot be reached at drop height"
+        elif holding[target.number] >= len(BINS.slots[target.number]):
+            why = f"bin {target.number} is full ({holding[target.number]} blocks)"
+            G.log("bin_full", bin=str(target.number), count=holding[target.number], category=target.category, by="pipeline")
+        elif plan_for(c) is None:
+            why = f"{reach*100:.1f} cm from the base: no reachable grasp at pitch 130-170"
+        elif c["coverage"] < 0.9:
+            why = f"only {c['coverage']*100:.0f}% of it was in view; rescan with it nearer the middle"
+        jobs.append(dict(cube=c, bin=str(target.number) if target else None, skip=why))
+    return jobs
+
+
 def decide(scene: dict) -> list[dict]:
+    if BINS is not None:
+        return decide_bins(scene)
     bins = {cat: [v * 100 for v in G.marker_centre(m)] for cat, m in SB.SORTING["category_bins"].items()}
     jobs = []
     for c in scene["cubes"]:
@@ -374,6 +506,14 @@ def execute(run, scene: dict, jobs: list[dict], sess, rng=None) -> dict:
 
     def carry(j, bin_or_marker, why):
         """One block to one place; True when it is there."""
+        if BINS is not None and why == "sort":
+            n = int(bin_or_marker)
+            if BINS.given[n] >= len(BINS.slots[n]):        # earlier blocks of this round filled it: do not pick this one up
+                G.log("bin_full", bin=bin_or_marker, count=BINS.given[n], category=BINS.bins[n].category, by="pipeline")
+                G.log("pipeline_skip", cube=j["cube"]["map_cm"], category=j["cube"]["category"],
+                      reason=f"bin {n} is full ({BINS.given[n]} blocks)")
+                counts["skipped"] += 1
+                return False
         plan = plan_for(j["cube"])
         if plan is None:
             counts["skipped"] += 1
@@ -400,7 +540,13 @@ def execute(run, scene: dict, jobs: list[dict], sess, rng=None) -> dict:
                   seconds=round(time.time() - started))
             return False
         try:
-            G.put(bin_or_marker, sess)
+            if BINS is not None and why == "sort":
+                b = BINS.bins[int(bin_or_marker)]
+                slot = BINS.slots[b.number][BINS.given[b.number]]
+                where_cm = bin_drop_map_cm(b, slot)
+                G.put(",".join(str(v) for v in where_cm), sess, drop_tip_z=bin_drop_z(BINS))
+            else:
+                G.put(bin_or_marker, sess)
         except G.ConsoleError as e:
             # holding a block with nowhere to put it: the next hover would open the fingers and drop it
             try:
@@ -412,15 +558,22 @@ def execute(run, scene: dict, jobs: list[dict], sess, rng=None) -> dict:
                   category=j["cube"]["category"], reason=str(e), released=where)
             return False
         here = by_cube[id(j["cube"])]
-        here["map_cm"] = [round(v * 100, 1) for v in G.marker_centre(bin_or_marker)]
+        extra = {}
+        if BINS is not None and why == "sort":
+            here["map_cm"] = where_cm
+            BINS.given[int(bin_or_marker)] += 1
+            save_counts()
+            extra = dict(slot=slot, drop_map_cm=where_cm)
+        else:
+            here["map_cm"] = [round(v * 100, 1) for v in G.marker_centre(bin_or_marker)]
         G.log("pipeline_sorted" if why == "sort" else "pipeline_cleared",
               cube=j["cube"]["map_cm"], bin=bin_or_marker, category=j["cube"]["category"],
-              source=j["cube"]["source"], seconds=round(time.time() - started))
+              source=j["cube"]["source"], seconds=round(time.time() - started), **extra)
         counts["sorted" if why == "sort" else "cleared"] += 1
         return True
 
     while pending:
-        free = [j for j in pending if blocker_of(j["bin"], positions, by_cube[id(j["cube"])]) is None]
+        free = [j for j in pending if BINS is not None or blocker_of(j["bin"], positions, by_cube[id(j["cube"])]) is None]
         if not free:
             # every remaining block is blocked by another one: lift one blocker out of the way first
             stuck = pending[0]
@@ -441,22 +594,60 @@ def execute(run, scene: dict, jobs: list[dict], sess, rng=None) -> dict:
         pending.remove(j)
         carry(j, j["bin"], "sort")
 
-    G.observe(sess)
+    try:
+        G.observe(sess)
+    except G.ConsoleError as e:        # the arm is back at the observe pose; only the localization check after it failed
+        G.log("observe_unchecked", reason=str(e))
     counts["seconds"] = round(time.time() - started_run)
     G.log("pipeline_end", run=str(run), **counts)
     return counts
+
+
+def locate_bins(run: Path, design: str, only=None) -> B.BinSet:
+    """The bins of `design` (only those numbered in `only`, when given) found in the run's bin views
+    (planned places for any no view showed)."""
+    found = B.BinSet(design, only)
+    if (run / "bin_views.json").exists():
+        B.locate_run(run, found, G.TABLE_Z)
+    else:
+        print(f"{run} 里没有 bin_views.json：桶按设计位置处理，不是找到的位置")
+    for b in found.bins.values():
+        print(f"bin {b.number} {b.category:10s} {b.source:7s} base ({b.xy[0]*100:6.1f}, {b.xy[1]*100:5.1f}) cm  yaw {b.yaw_deg:6.1f}"
+              + (f"  off plan {b.shift_mm():.1f} mm / {b.turn_deg():.1f} deg, {b.views} views" if b.source == "markers" else ""))
+    for problem in B.table_check(found, SB.SORTING["bins"]["min_plate_gap_mm"]):
+        print("注意：", problem)
+    G.log("bins_located", design=design, bins=[b.summary() for b in found.bins.values()])
+    return found
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--scan", type=Path, help="use this scan directory instead of scanning")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--bins", nargs="?", const=B.DEFAULT_DESIGN, metavar="DESIGN",
+                        help="sort into the acrylic bins of config/<DESIGN>.json instead of the map codes")
+    parser.add_argument("--empty-bins", action="store_true",
+                        help="the blocks were taken out of the bins: forget how many each was given, and stop")
+    parser.add_argument("--bin-side", default="all", metavar="left|right|all|1,2",
+                        help="with --bins: only these bins stand on the table (a half-side start for a small table); "
+                             "blocks of the other categories are left alone")
     args = parser.parse_args()
+    if args.empty_bins:
+        forget_counts(args.bins or B.DEFAULT_DESIGN)
+        print("每个桶的计数已清零")
+        return
     import field_scan as SC
     if not (args.dry_run and args.scan):
         G.require_empty_gripper()
     with (G.nullcontext(None) if args.dry_run and args.scan else G.Session()) as sess:
+        only = B.parse_only(args.bin_side)
+        if args.bins:
+            use_bins(B.BinSet(args.bins, only))             # the keep-out round the bins, before the arm moves at all
         run = (args.scan.resolve() if args.scan else None) or SC.scan(session=sess)
+        if args.bins:
+            if not args.scan and SC.has_bin_views(args.bins):
+                SC.scan_bins(run, sess, args.bins, only)
+            use_bins(locate_bins(run, args.bins, only))
         scene = build_scene(run)
         use_registration(scene["registration"])
         if not args.dry_run:

@@ -126,7 +126,7 @@ def main() -> None:
             world.reset(args.blocks)
             blocks = world.render_list()[1]
             for view, pose in enumerate(SCAN_POSES):
-                frame, truth = renderer.render(pose, blocks, world.solids())
+                frame, truth = renderer.render(pose, blocks, world.solids(), world.glass(), world.decals())
                 image = R.sensor(frame, noise)
                 result = compare(truth, detector.detect(image, conf=args.conf))
                 for k in total:

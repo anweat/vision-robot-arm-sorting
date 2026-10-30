@@ -54,21 +54,26 @@ class Scan:
 
     # ------------------------------------------------------------------ registration
     def register(self) -> dict:
-        """base_T_map per view (>= 3 markers), and their median."""
+        """base_T_map per view (>= 3 markers), and their median. Map v3 leaves out the codes under two bins,
+        and blocks stand on others: when no view shows 3 codes, views with 2 are used (two codes give 8
+        coplanar points, which the pose solves; it is only less well conditioned)."""
         base_T_map0 = to_matrix(np.eye(3), self.table.offset)
         per_view = []
-        for v, m in zip(self.views, self.markers):
-            if len(m) < 3:
-                continue
-            base_T_cam = self.cam.base_T_cam(v["readback"])
-            prior = (np.linalg.inv(base_T_map0) @ base_T_cam)[:3, 3]
-            pose = solve_camera_pose(m, self.table, self.k, self.dist, prior_centre=prior)
-            if pose is None or pose.reprojection_px > 2.5:
-                continue
-            per_view.append(dict(image=v["image"], markers=sorted(m), reproj_px=round(pose.reprojection_px, 2),
-                                 base_T_map=base_T_cam @ to_matrix(pose.R, pose.t)))
+        for need in (3, 2):
+            for v, m in zip(self.views, self.markers):
+                if len(m) < need:
+                    continue
+                base_T_cam = self.cam.base_T_cam(v["readback"])
+                prior = (np.linalg.inv(base_T_map0) @ base_T_cam)[:3, 3]
+                pose = solve_camera_pose(m, self.table, self.k, self.dist, prior_centre=prior)
+                if pose is None or pose.reprojection_px > 2.5:
+                    continue
+                per_view.append(dict(image=v["image"], markers=sorted(m), reproj_px=round(pose.reprojection_px, 2),
+                                     base_T_map=base_T_cam @ to_matrix(pose.R, pose.t)))
+            if per_view:
+                break
         if not per_view:
-            raise RuntimeError("no view sees 3 markers: cannot register the map")
+            raise RuntimeError("no view sees 2 markers: cannot register the map")
         t = np.array([p["base_T_map"][:3, 3] for p in per_view])
         yaw = np.array([math.atan2(p["base_T_map"][1, 0], p["base_T_map"][0, 0]) for p in per_view])
         median_t, median_yaw = np.median(t, axis=0), float(np.median(yaw))

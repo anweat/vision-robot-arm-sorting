@@ -1,0 +1,206 @@
+{
+  "_status": "design values from src/tools/make_bins.py for docs/bins/bins_acrylic_v2_pair_*; slot-and-tab acrylic box, not cut, not measured; placements and release solutions are plans from the upstream link model only",
+  "drawing": {
+    "number": "BIN-ACR-01",
+    "revision": "B",
+    "date": "2026-10-30",
+    "set": "bins_acrylic_v1_drawings.pdf"
+  },
+  "dictionary": "DICT_5X5_50",
+  "side_m": 0.02,
+  "bin_frame": "origin at the centre of the opening on the plate's top face; +Y towards the marker flange, metres",
+  "corner_order": "ArUco order TL, TR, BR, BL with the marker top pointing to +Y",
+  "_corner_order_note": "defined in the bin frame (x right, +Y towards the flange, y up); OpenCV image coordinates have y down, so flip y before comparing",
+  "marker_plane_above_table_m": 0.0021,
+  "_marker_plane_note": "plate t plus printing paper (~0.1 mm); measured from the table the plate stands on",
+  "geometry_mm": {
+    "thickness": 2.0,
+    "inner": 80.0,
+    "outer": 84.0,
+    "wall_height": 40.0,
+    "wall_length": 82.0,
+    "panel_height": 42.0,
+    "plate": [
+      94.0,
+      121.0
+    ],
+    "plate_y_range": [
+      -47.0,
+      74.0
+    ],
+    "rim_top_above_table": 42.0,
+    "tab_length": 14.0,
+    "tab_height": 2.0,
+    "notch_length": 54.0,
+    "slot_width": 2.0,
+    "slots_per_wall": 2,
+    "base_slots": 8,
+    "base_slot_holes": 4
+  },
+  "bins": {
+    "2": {
+      "category": "kitchen",
+      "name": "厨余垃圾",
+      "ids": {
+        "floor": 20,
+        "flange_left": 21,
+        "flange_right": 22
+      },
+      "corners_m": {
+        "20": [
+          [
+            -0.01,
+            0.01
+          ],
+          [
+            0.01,
+            0.01
+          ],
+          [
+            0.01,
+            -0.01
+          ],
+          [
+            -0.01,
+            -0.01
+          ]
+        ],
+        "21": [
+          [
+            -0.035,
+            0.068
+          ],
+          [
+            -0.015,
+            0.068
+          ],
+          [
+            -0.015,
+            0.048
+          ],
+          [
+            -0.035,
+            0.048
+          ]
+        ],
+        "22": [
+          [
+            0.015,
+            0.068
+          ],
+          [
+            0.035,
+            0.068
+          ],
+          [
+            0.035,
+            0.048
+          ],
+          [
+            0.015,
+            0.048
+          ]
+        ]
+      },
+      "planned_centre_base_m": [
+        0.095,
+        0.14
+      ],
+      "planned_flange_direction_deg": 90.0,
+      "planned_release": {
+        "tip_z_base_cm": 4.98,
+        "solution": {
+          "servos": [
+            55.8,
+            94.1,
+            15.3,
+            10.6
+          ],
+          "pitch_deg": 150
+        }
+      }
+    },
+    "3": {
+      "category": "hazardous",
+      "name": "有害垃圾",
+      "ids": {
+        "floor": 30,
+        "flange_left": 31,
+        "flange_right": 32
+      },
+      "corners_m": {
+        "30": [
+          [
+            -0.01,
+            0.01
+          ],
+          [
+            0.01,
+            0.01
+          ],
+          [
+            0.01,
+            -0.01
+          ],
+          [
+            -0.01,
+            -0.01
+          ]
+        ],
+        "31": [
+          [
+            -0.035,
+            0.068
+          ],
+          [
+            -0.015,
+            0.068
+          ],
+          [
+            -0.015,
+            0.048
+          ],
+          [
+            -0.035,
+            0.048
+          ]
+        ],
+        "32": [
+          [
+            0.015,
+            0.068
+          ],
+          [
+            0.035,
+            0.068
+          ],
+          [
+            0.035,
+            0.048
+          ],
+          [
+            0.015,
+            0.048
+          ]
+        ]
+      },
+      "planned_centre_base_m": [
+        -0.095,
+        0.14
+      ],
+      "planned_flange_direction_deg": 90.0,
+      "planned_release": {
+        "tip_z_base_cm": 4.98,
+        "solution": {
+          "servos": [
+            124.2,
+            94.1,
+            15.3,
+            10.6
+          ],
+          "pitch_deg": 150
+        }
+      }
+    }
+  }
+}

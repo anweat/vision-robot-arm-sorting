@@ -13,6 +13,7 @@ and, if given, nearest the forward-kinematics prediction is kept.
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, Sequence
@@ -21,7 +22,9 @@ import cv2
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_MAP = ROOT / "config" / "map_a4_v2.json"
+# The map the pipeline and the simulation assume is on the table: ARM_MAP=map_a4_v4 (a config/ name) picks another
+# printed sheet, the default is the calibrated A4 v2. Everything that reads DEFAULT_MAP follows it.
+DEFAULT_MAP = ROOT / "config" / f"{os.environ.get('ARM_MAP', 'map_a4_v2')}.json"
 
 
 class TableMap:
