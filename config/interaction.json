@@ -1,0 +1,24 @@
+{
+  "_note": "语音/手势 -> 指令 的草案映射（docs/atlas-200i-dk-a2/25-语音手势接口.md）。手势语义未经需求方确认，只有 palm->stop 落地；改这里不需要改代码。",
+  "voice": {
+    "cooldown_s": 2.0,
+    "words": {
+      "stop": ["停止", "停下", "别动"],
+      "start": ["启动", "开始"],
+      "run_preset:dance": ["跳舞"]
+    }
+  },
+  "gesture": {
+    "threshold": 0.6,
+    "frames": 3,
+    "cooldown_s": 2.0,
+    "labels": ["fist", "like", "ok", "palm"],
+    "map": {
+      "palm": "stop",
+      "fist": null,
+      "like": null,
+      "ok": null
+    }
+  },
+  "always_allowed": ["stop"]
+}

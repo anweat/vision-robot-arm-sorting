@@ -37,7 +37,7 @@ import cv2
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[2]
-for sub in ("vision", "sim", "teleop", "tools"):
+for sub in ("vision", "sim", "teleop", "tools", "interact"):
     sys.path.insert(0, str(ROOT / "src" / sub))
 
 import server as console  # noqa: E402  (src/teleop/server.py)
@@ -45,6 +45,7 @@ from camera import Camera  # noqa: E402
 from core import Controller  # noqa: E402
 from localization import Locator, annotate as annotate_location, locate_board  # noqa: E402
 import evaluate as E  # noqa: E402
+import intents as I  # noqa: E402  (src/interact)
 import log_contract as L  # noqa: E402
 import render as R  # noqa: E402
 import world as W  # noqa: E402
@@ -160,6 +161,7 @@ class SimApp(console.App):
         self.sorting = None                 # the run_pipeline.py child process, when one was started here
         self.port = None                    # set once the HTTP server is listening
         self.sorting_tail = []
+        self.interaction = I.Interaction(self.run_command)
         self.locator = SimLocator(controller, camera, controller.directory, self.detect)
         threading.Thread(target=self.locator.run, daemon=True).start()
 
@@ -251,7 +253,40 @@ class SimApp(console.App):
             self.control.stop()
         return self.sort_state()
 
+    def run_command(self, command, preset):
+        """What an accepted voice/gesture command does here (src/interact/intents.py calls this)."""
+        if command == "stop":
+            self.stop_sort()
+            self.control.stop()
+            return "已停止后续指令"
+        if command == "start":
+            self.start_sort({})
+            return "分拣任务已启动"
+        if command == "run_preset":
+            raise NotImplementedError(f"预设动作“{preset}”尚未接入，待硬件组提供")
+        raise ValueError(f"未知指令 {command}")
+
+    def interact(self, path, body):
+        """/api/interact/*: the voice and gesture side. Accepted commands also land in the log as `interaction`."""
+        it = self.interaction
+        if path == "/api/interact/arm":
+            result = it.arm(body.get("armed") is True)
+        elif path == "/api/interact/voice":
+            result = it.voice(body.get("text"))
+        elif path == "/api/interact/gesture":
+            result = it.gesture(body.get("label"), body.get("confidence"))
+        else:
+            raise ValueError("未知操作")
+        event = result.pop("event", None)
+        if event:
+            self.log_path.parent.mkdir(parents=True, exist_ok=True)
+            with self.log_path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(event, ensure_ascii=False) + "\n")
+        return result
+
     def action(self, path, body):
+        if path.startswith("/api/interact/"):
+            return self.interact(path, body)
         if path == "/api/sim/sort":
             return self.start_sort(body)
         if path == "/api/sim/sort/stop":
@@ -344,6 +379,8 @@ def handler(app: SimApp):
                         self.send({k: v for k, v in result.items() if k not in ("image", "key")})
                 elif path == "/api/sim/sort":
                     self.send(app.sort_state())
+                elif path == "/api/interact":
+                    self.send(app.interaction.describe())
                 elif path == "/api/log":
                     after = int(query.get("after", ["0"])[0])
                     limit = min(int(query.get("limit", ["500"])[0]), 2000)

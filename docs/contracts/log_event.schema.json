@@ -742,6 +742,39 @@
    "if": {
     "properties": {
      "event": {
+      "const": "interaction"
+     }
+    },
+    "required": [
+     "event"
+    ]
+   },
+   "then": {
+    "description": "[stable] 手势或语音触发、且已被受理执行的指令（E1、E7）；被忽略或拒绝的不写；语音没有 confidence",
+    "properties": {
+     "source": {
+      "type": "string"
+     },
+     "command": {
+      "type": "string"
+     },
+     "confidence": {
+      "type": "number"
+     },
+     "detail": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "source",
+     "command"
+    ]
+   }
+  },
+  {
+   "if": {
+    "properties": {
+     "event": {
       "const": "mode_changed"
      }
     },
@@ -880,39 +913,6 @@
      "joint",
      "expected",
      "readback"
-    ]
-   }
-  },
-  {
-   "if": {
-    "properties": {
-     "event": {
-      "const": "interaction"
-     }
-    },
-    "required": [
-     "event"
-    ]
-   },
-   "then": {
-    "description": "[planned] 手势、表情或语音触发的指令（E1、E7）",
-    "properties": {
-     "source": {
-      "type": "string"
-     },
-     "command": {
-      "type": "string"
-     },
-     "confidence": {
-      "type": "number"
-     },
-     "detail": {
-      "type": "string"
-     }
-    },
-    "required": [
-     "source",
-     "command"
     ]
    }
   }

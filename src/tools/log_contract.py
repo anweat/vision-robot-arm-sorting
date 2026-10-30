@@ -62,6 +62,8 @@ EVENTS: dict[str, dict] = {
     "stopped": dict(status="stable", meaning="任务中止", required=dict(reason="str")),
     "table_z_disagrees": dict(status="stable", meaning="扫描得到的桌面高度与标定值相差过大，需重新标定",
                               required=dict(scan_cm="num", calibrated_cm="num"), optional=dict(note="str")),
+    "interaction": dict(status="stable", meaning="手势或语音触发、且已被受理执行的指令（E1、E7）；被忽略或拒绝的不写；语音没有 confidence",
+                        required=dict(source="str", command="str"), optional=dict(confidence="num", detail="str")),
     # ---- planned: no writer yet
     "mode_changed": dict(status="planned", meaning="作业模式切换（W1）",
                          required=dict(mode="str", source="str"), optional=dict(previous="str")),
@@ -71,8 +73,6 @@ EVENTS: dict[str, dict] = {
                      required=dict(bin="str", count="int"), optional=dict(category="category", by="str")),
     "stall": dict(status="planned", meaning="舵机堵转，已停止后续指令（W6）",
                   required=dict(joint="int", expected="num", readback="num"), optional=dict(pose="pose")),
-    "interaction": dict(status="planned", meaning="手势、表情或语音触发的指令（E1、E7）",
-                        required=dict(source="str", command="str"), optional=dict(confidence="num", detail="str")),
 }
 RECORD_RESULTS = ("sorted", "missed", "skipped", "failed", "cleared")
 MODES = ("manual", "preset", "auto")
