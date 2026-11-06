@@ -18,6 +18,7 @@
 
 任何一条量不出来就明确报"无法测量"，不拿通过来凑数。
 """
+from __future__ import annotations   # Path | None / list[str] 在 Python 3.9（板卡环境）下需要
 import argparse
 import json
 import subprocess

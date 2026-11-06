@@ -94,13 +94,25 @@ function render() {
   // 否则 render 每秒抛一次 TypeError，整页都不再更新
   views[active].view?.update?.(store);
 
-  chip("chipConn").textContent = { connecting: "连接中", live: "实时", polling: "轮询", error: "重连中" }[store.connection] ?? "—";
+  // 连接状态分两层：浏览器↔服务器（store.connection）和服务器↔控制台（arm.age_s/error）。
+  // 后者更危险——控制台掉线、轮询线程被异常杀死时，服务端 age_s 用本地墙钟算会持续涨，
+  // 这里优先显示"回读过期"，不能让页头假显示"实时"盖住一条已失去监控的臂。
+  const arm = store.status.arm;
+  const stale = arm?.attached && (arm.error || (arm.age_s != null && arm.age_s > 2));
+  if (stale) {
+    chip("chipConn").textContent = "回读过期";
+    chip("chipConn").className = "chip warn";
+  } else {
+    chip("chipConn").textContent = { connecting: "连接中", live: "实时", polling: "轮询", error: "重连中" }[store.connection] ?? "—";
   chip("chipConn").className = "chip " + (store.connection === "live" ? "on" : store.connection === "error" ? "warn" : "");
+  }
   chip("chipMode").textContent = `模式 ${MODE_NAMES[store.status.mode] ?? store.status.mode ?? "—"}`;
-  // 回放时日志的 t 是写入时刻，延迟恒为 0——那不叫实时，直接标"回放"（接口文档要求）
+  // 这个数量的是"距上次事件多久"（空闲时会 1:1 往上涨），不是"事件到展示"的延迟；
+  // 真正量延迟的是 tests 里的 latency 脚本，改名以免验收时拿错指标。
+  // 回放时日志的 t 是写入时刻，这个数恒为 0——那不叫实时，直接标"回放"。
   chip("chipLatency").textContent = store.status.replay
-    ? "延迟 回放"
-    : (store.latency === null ? "延迟 —" : `延迟 ${store.latency.toFixed(2)} s`);
+    ? "距上次事件 回放"
+    : (store.latency === null ? "距上次事件 —" : `距上次事件 ${store.latency.toFixed(2)} s`);
   chip("chipTotal").textContent = `${store.total} 事件`;
   renderBanner();
 }

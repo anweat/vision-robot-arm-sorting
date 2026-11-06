@@ -85,6 +85,36 @@ export const sendTimer = async (body) => {
 };
 
 /**
+ * E7 语音识别：POST /api/voice。传 text 直通（开发机联调 / 前端已用浏览器语音 API 识别），
+ * 或 audio(base64 wav) 让板上 WeNet 推理；dispatch=false 只识别不下发。识别结果最终仍走 /api/cmd。
+ */
+export const sendVoice = async (body) => {
+  const res = await fetch(authUrl("/api/voice"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
+    body: JSON.stringify(body),
+  });
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(payload.error || `语音识别失败 ${res.status}`);
+  return payload;
+};
+
+/**
+ * E1 手势识别：POST /api/gesture。传 label 直通调试，或 image(base64) / snapshot(取板载相机帧)
+ * 让板上 hrnet 推理；低于阈值返回空 label 不下发。
+ */
+export const sendGesture = async (body) => {
+  const res = await fetch(authUrl("/api/gesture"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
+    body: JSON.stringify(body),
+  });
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(payload.error || `手势识别失败 ${res.status}`);
+  return payload;
+};
+
+/**
  * 事件流订阅。SSE 优先，断线由 EventSource 自带重连并按 Last-Event-ID 续传；
  * SSE 不可用（或被代理挡住）时退化为按 seq 轮询，行为一致。
  *
@@ -204,12 +234,23 @@ export class StatusFeed {
 
   start() {
     this.stopped = false;
+    this._openSse();
+  }
+
+  // SSE 优先，连上就不再轮询（之前 catch 外无条件 _poll() 导致 SSE 与轮询并存、
+  // 请求量翻倍；catch 分支还会调两次 _poll，两个循环写同一个 timer，stop() 只能停一个，另一个泄漏）。
+  // SSE 构造失败或从未打开时，才降级成一条轮询，写法与 LogFeed 对齐。
+  _openSse() {
+    let opened = false;
     try {
       this.source = new EventSource(authUrl("/api/status/stream"));
-      this.source.onmessage = (m) => { this.onState("live"); this.onStatus(JSON.parse(m.data)); };
-      this.source.onerror = () => this.onState("connecting");
-    } catch { this._poll(); }
-    this._poll();                                   // SSE 慢一拍时也有数据
+    } catch { this._poll(); return; }
+    this.source.onopen = () => { opened = true; this.onState("live"); };
+    this.source.onmessage = (m) => { this.onState("live"); this.onStatus(JSON.parse(m.data)); };
+    this.source.onerror = () => {
+      if (!opened) { this.source.close(); this._poll(); return; }   // 服务端没有 SSE：降级轮询
+      this.onState("error");                                         // 打开过又断：EventSource 自己重连
+    };
   }
 
   _poll() {

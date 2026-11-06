@@ -87,9 +87,13 @@ th{color:var(--dim);font-weight:normal}
 .barrow span{font:12px ui-monospace,Menlo,monospace;color:var(--dim)}
 .barrow b{text-align:right;font-variant-numeric:tabular-nums;font-weight:500}
 
-/* 内嵌的仿真工作台：装得下它自己的标题栏与 3D 场景，再往下是它的控制面板，
-   可以在框内滚动看完整内容 */
-.sim-frame{width:100%;height:min(900px,86vh);display:block;border:0;border-radius:4px;background:#0b141b}
+/* 视图行：3D 动画 与 腕部相机 左右并排，对齐仿真工作台的顶栏布局。
+   顶部对齐而不强行拉伸——相机是 4:3、3D 是固定高，硬拉等高会在短的那块底下留白。 */
+.view-row{align-items:start}
+/* 内嵌的仿真工作台 3D：只装 3D 画布 + 数值回读。
+   高度跟右侧 4:3 相机大致看齐（工作台里画布是 400 px）；别占满一屏，
+   框里滚轮是缩放（iframe 内滚轮不传给外层），太高会翻不动下面的面板。 */
+.sim-frame{width:100%;height:min(420px,56vh);display:block;border:0;border-radius:4px;background:#0b141b}
 .sim-frame[hidden]{display:none}
 
 /* 腕部相机：仿真与实机都是 640×480，占位框保持 4:3 免得取图时布局跳动 */

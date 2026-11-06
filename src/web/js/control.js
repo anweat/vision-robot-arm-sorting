@@ -2,7 +2,7 @@
 // 指令一律经 POST /api/cmd 下发，字段按需求规格 ④；运动由控制台执行，本页不直接碰硬件。
 
 import { MODES, MODE_NAMES, JOINT_LIMITS, NAMED_POSES, categoryName } from "./contract.js";
-import { sendCmd, fetchBlocks, authUrl } from "./api.js";
+import { sendCmd, sendVoice, sendGesture, fetchBlocks, authUrl } from "./api.js";
 import { toast } from "./format.js";
 
 const PRESETS = [["dance", "跳舞"], ["stack", "叠积木"], ["carry", "搬运"]];
@@ -45,33 +45,13 @@ export function createControlView(root) {
       <div class="row" id="modeRow"></div>
       <p class="hint" id="modeHint">当前模式由服务端持有，切换会写入运行记录。预设动作、视觉自主可以切，但执行侧和视觉侧还没接进来，切过去不会有实际动作。</p>
     </section>
-    <section class="panel">
-      <h2 id="sceneTitle">三维状态视图 <small>骨架点取自服务端正运动学回读，拖动旋转、滚轮缩放</small></h2>
-      <!-- 3D 只留一个：接仿真控制台时直接用它自己的工作台（桌面、物块、料框都在里面），
-           不再另画一套骨架，免得同一页出现两个 3D。实机没有这一页，这里给一句说明。
-           这一块单独占整行：仿真页是宽屏布局，塞进半栏会被挤成竖排、看起来像空白。 -->
-      <iframe id="simFrame" class="sim-frame" title="仿真工作台" hidden></iframe>
-      <p class="hint" id="sceneHint" hidden>接的是实机控制台，没有仿真工作台这一页；六轴角度与末端坐标见下方数值回读。</p>
-    </section>
-    <!-- 桌面物块真值：仿真/视觉侧才有，实机没有就整块收起，不硬编造位置 -->
-    <section class="panel" id="blocksPanel" hidden>
-      <h2>桌面物块 <small>仿真真值：id、类别、基座坐标（cm）；夹爪里的也会列出来</small></h2>
-      <table class="table">
-        <thead><tr><th>id</th><th>类别</th><th>位置 cm</th><th>状态</th></tr></thead>
-        <tbody id="blockRows"></tbody>
-      </table>
-      <p class="hint" id="blocksHint"></p>
-    </section>
-    <div class="grid-2">
+    <!-- 视图行：3D 动画 与 腕部相机 左右并排，对齐仿真工作台的顶栏布局。
+         3D 只留一个：接仿真控制台时直接用它自己的工作台；实机没有这一页，左栏给一句说明。 -->
+    <div class="grid-2 view-row">
       <section class="panel">
-        <h2>关节控制 <small>拖动滑块后点“下发”，统一走六舵机批量写入</small></h2>
-        <div id="jointBars" class="joints"></div>
-        <p class="hint" id="jointHint"></p>
-        <div class="row">
-          <button id="sendJoints" class="primary">下发角度</button>
-          <button id="poseUpright">直立</button>
-          <button id="poseObserve">观察位</button>
-        </div>
+        <h2 id="sceneTitle">三维状态视图 <small>骨架点取自服务端正运动学回读，拖动旋转、滚轮缩放</small></h2>
+        <iframe id="simFrame" class="sim-frame" title="仿真工作台" hidden></iframe>
+        <p class="hint" id="sceneHint" hidden>接的是实机控制台，没有仿真工作台这一页；六轴角度与末端坐标见下方数值回读。</p>
       </section>
       <section class="panel">
         <h2>腕部相机 <small>与概览页同一路画面，拖滑块时可对照着看</small></h2>
@@ -79,6 +59,25 @@ export function createControlView(root) {
         <p class="hint" id="ctrlCamHint">等待画面…</p>
       </section>
     </div>
+    <section class="panel">
+      <h2>关节控制 <small>拖动滑块后点“下发”，统一走六舵机批量写入</small></h2>
+      <div id="jointBars" class="joints"></div>
+      <p class="hint" id="jointHint"></p>
+      <div class="row">
+        <button id="sendJoints" class="primary">下发角度</button>
+        <button id="poseUpright">直立</button>
+        <button id="poseObserve">观察位</button>
+      </div>
+    </section>
+    <!-- 桌面物块：拉不到或为空就整块收起，不硬编造位置；实机口径由工作区重构（issue #4）统一 -->
+    <section class="panel" id="blocksPanel" hidden>
+      <h2>桌面物块 <small>id、类别、基座坐标（cm）；夹爪里的也会列出来</small></h2>
+      <table class="table">
+        <thead><tr><th>id</th><th>类别</th><th>位置 cm</th><th>状态</th></tr></thead>
+        <tbody id="blockRows"></tbody>
+      </table>
+      <p class="hint" id="blocksHint"></p>
+    </section>
     <section class="panel">
       <h2>坐标移动 <small>基座坐标系，厘米</small></h2>
       <div class="row">
@@ -92,6 +91,24 @@ export function createControlView(root) {
         <div class="row" id="presetRow"></div>
         <p class="hint" id="presetHint">暂不可用：动作本身由执行侧提供，尚未接入；接入后这里会放开。</p>
       </div>
+    </section>
+    <section class="panel needs-debug">
+      <h2>语音与手势（扩展） <small>识别结果仍走 /api/cmd 下发；模型只在 Atlas 板上跑，未部署时用文本/类别直通联调</small></h2>
+      <div class="row">
+        <input id="voiceText" type="text" placeholder="输入指令文本，如：启动 / 停止 / 跳个舞" style="flex:1;min-width:0">
+        <button id="voiceSend">识别并下发</button>
+        <button id="voiceOnly">只识别</button>
+      </div>
+      <p class="hint" id="voiceHint"></p>
+      <div class="row" id="gestureRow">
+        <span class="dim">手势直通</span>
+        <button data-gesture="fist">握拳→合爪</button>
+        <button data-gesture="like">点赞→启动</button>
+        <button data-gesture="ok">OK→停止</button>
+        <button data-gesture="palm">张开→松爪</button>
+        <button id="gestureSnap">取相机帧识别</button>
+      </div>
+      <p class="hint" id="gestureHint"></p>
     </section>`;
 
   const $ = (id) => root.querySelector("#" + id);
@@ -170,12 +187,48 @@ export function createControlView(root) {
     target_cm: [+$("tx").value, +$("ty").value, +$("tz").value],
   }, "移动指令已下发"));
 
+  // 语音/手势（扩展）：识别走 /api/voice、/api/gesture，最终仍经 /api/cmd 下发，
+  // source 标 voice/gesture，审计事件与手动点按钮区分开。模型只在板上跑，这里用直通联调。
+  const voiceHint = $("voiceHint");
+  const voiceText = $("voiceText");
+  const runVoice = async (dispatch) => {
+    const text = voiceText.value.trim();
+    if (!text) { toast("先输入要识别的文本", "bad"); return; }
+    try {
+      const r = await sendVoice({ text, dispatch });
+      voiceHint.textContent = r.command
+        ? `识别“${r.text}” → ${JSON.stringify(r.command)}${r.dispatched ? "，已下发" : ""}`
+        : `识别“${r.text}” → 未匹配到指令`;
+    } catch (e) { toast(e.message, "bad"); }
+  };
+  $("voiceSend").addEventListener("click", () => runVoice(true));
+  $("voiceOnly").addEventListener("click", () => runVoice(false));
+  const gestureHint = $("gestureHint");
+  $("gestureRow").addEventListener("click", async (ev) => {
+    const btn = ev.target.closest("button[data-gesture]");
+    if (!btn) return;
+    try {
+      const r = await sendGesture({ label: btn.dataset.gesture, dispatch: true });
+      gestureHint.textContent = r.command
+        ? `手势 ${r.label} → ${JSON.stringify(r.command)}${r.dispatched ? "，已下发" : ""}`
+        : `手势 ${r.label} → 未映射动作`;
+    } catch (e) { toast(e.message, "bad"); }
+  });
+  $("gestureSnap").addEventListener("click", async () => {
+    try {
+      const r = await sendGesture({ snapshot: true, dispatch: true });
+      gestureHint.textContent = r.label
+        ? `识别 ${r.label}（${(r.confidence * 100).toFixed(0)}%）${r.dispatched ? "，已下发" : ""}`
+        : "未识别到手势（置信度低于阈值）";
+    } catch (e) { toast(e.message, "bad"); }
+  });
+
   function applyPose(pose) {
     pose.forEach((v, i) => { if (v != null) setJoint(i, v); });
     toast("已填入预设姿态，点“下发角度”执行");
   }
 
-  // 桌面物块真值：只有仿真/视觉侧给得出。拉不到或为空就整块收起，不编造位置。
+  // 桌面物块：拉不到或为空就整块收起，不编造位置；实机口径由工作区重构（issue #4）统一。
   // 2 s 一次，只在这一页可见时拉；内容没变就不重绘，免得表格每两秒闪一下
   const blocksPanel = $("blocksPanel");
   const blockRows = $("blockRows");
@@ -196,16 +249,19 @@ export function createControlView(root) {
     }).join("");
     if (html !== blocksHtml) { blockRows.innerHTML = html; blocksHtml = html; }
     blocksHint.textContent = `共 ${rows.length} 块${data.block_side_cm ? `，边长 ${data.block_side_cm} cm` : ""}；`
-      + "位置来自仿真真值，实机没有这份数据。";
+      + "位置来自执行侧的世界接口；当前为仿真场景给出的值。";
   };
   setInterval(pullBlocks, 2000);
   pullBlocks();
 
-  // 接的是仿真控制台时，用它的 3D 工作台当这一页唯一的 3D 视图
+  // 接的是仿真控制台时，用它的 3D 视图当这一页唯一的 3D。只嵌 ?embed=scene：
+  // 工作台其余面板（它自己的腕部相机、关节滑块、桌面物块表、日志、接口）这一页都有，
+  // 整页嵌进来就会两套控件并排、还各用各的 owner 抢操作权（409）。
   const simFrame = $("simFrame");
   const sceneTitle = $("sceneTitle");
   const SCENE_SKELETON = "三维状态视图 <small>接的是实机控制台，数值回读见下方</small>";
   const SCENE_SIM = "仿真工作台 <small>桌面、物块、料框都是仿真场景；拖动旋转、滚轮缩放</small>";
+  const simEmbedUrl = (base) => base + (base.indexOf("?") >= 0 ? "&" : "?") + "embed=scene";
   let simUrl = null;
   fetch(authUrl("/api/health")).then((r) => r.json()).then((h) => {
     if (h.console && h.console_sim) simUrl = h.console.replace(/\/+$/, "") + "/sim/";
@@ -218,7 +274,7 @@ export function createControlView(root) {
     $("sceneHint").hidden = sim;
     sceneTitle.innerHTML = sim ? SCENE_SIM : SCENE_SKELETON;
     // 已经加载过就别再重设 src：每次重设都会白屏一两秒，看起来像"没有内容"
-    if (sim && simFrame.getAttribute("src") !== simUrl) simFrame.src = simUrl;
+    if (sim && simFrame.getAttribute("src") !== simEmbedUrl(simUrl)) simFrame.src = simEmbedUrl(simUrl);
     if (!sim) simFrame.src = "about:blank";   // 实机/后台时卸掉，仿真页自己还占一条长连接
   }
 
@@ -226,22 +282,36 @@ export function createControlView(root) {
   // 上一帧没回来就先不再发新请求，否则浏览器会把旧请求中断掉、控制台刷一片 ERR_ABORTED
   const cam = $("ctrlCam");
   const camHint = $("ctrlCamHint");
+  // 失败指数退避：断线时别固定每 0.6 s 刷一片错，越失败间隔越长（上限 10 s）；
+  // 成功一帧就清零回到 0.6 s。camBusy 仍保证同一时刻只飞一帧请求。
   let camBusy = false;
+  let camFail = 0;
+  let camTimer = null;
+  const CAM_BASE = 600, CAM_MAX = 10000;
+  const scheduleCam = () => {
+    clearTimeout(camTimer);
+    camTimer = setTimeout(tickCam, Math.min(CAM_BASE * 2 ** camFail, CAM_MAX));
+  };
   const tickCam = () => {
-    if (root.hidden || camBusy) return;
+    if (root.hidden) { scheduleCam(); return; }   // 不可见也保持调度，切回来立即恢复
+    if (camBusy) return;
     camBusy = true;
     cam.src = authUrl(`/api/frame?t=${Date.now()}`);
   };
   cam.addEventListener("load", () => {
     camBusy = false;
+    camFail = 0;
     camHint.textContent = `${cam.naturalWidth}×${cam.naturalHeight} · 每 0.6 s 一帧`;
+    scheduleCam();
   });
   cam.addEventListener("error", () => {
     camBusy = false;
-    camHint.textContent = "没有画面：未接控制台（--console）或相机还没出图";
+    camFail += 1;
+    const retry_s = Math.min(CAM_BASE * 2 ** camFail, CAM_MAX) / 1000;
+    camHint.textContent = `没有画面：未接控制台（--console）或相机还没出图（${retry_s} s 后重试）`;
+    scheduleCam();
   });
-  setInterval(tickCam, 600);
-  tickCam();
+  tickCam();        // 首帧立即拉，之后由 load/error 自行调度
 
   return {
     update(store) {

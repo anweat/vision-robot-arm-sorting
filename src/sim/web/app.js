@@ -10,6 +10,9 @@ const JOINTS = ['底座旋转', '肩部俯仰', '肘部俯仰', '腕部俯仰', 
 const RESULT = {correct: ['正确', 'ok'], wrong_class: ['类别错', 'bad'], missed: ['漏检', 'bad'], ignored: ['不计（露出太少）', 'mid']};
 
 let token = '', scene = null, state = null, world = null, beat = null, view = 'raw', worldRevision = -1;
+// 嵌入模式（?embed=scene）：被手动操作页借用 3D 视图时，不再拉相机流、日志流和分拣轮询，
+// 那些面板在父页面已经有一份。控件本身照常初始化——setState 要更新关节读回，缺了会报 null。
+const EMBED = new URLSearchParams(location.search).get('embed') === 'scene';
 
 // ---------------------------------------------------------------- calls
 
@@ -415,12 +418,14 @@ async function poll() {
     buildJoints(boot.status.limits);
     await refreshWorld();
     setState(boot.status);
-    setView('raw');
-    pick(API[1], $('apiList').querySelector('button'));
-    setInterval(refreshView, 1200);
-    setInterval(refreshSort, 1500);
-    refreshSummary();
-    new EventSource('/api/log/stream').onmessage = m => onLogEvent(JSON.parse(m.data));
+    if (!EMBED) {
+      setView('raw');
+      pick(API[1], $('apiList').querySelector('button'));
+      setInterval(refreshView, 1200);
+      setInterval(refreshSort, 1500);
+      refreshSummary();
+      new EventSource('/api/log/stream').onmessage = m => onLogEvent(JSON.parse(m.data));
+    }
     poll();
   } catch (e) { fail(e); }
 })();

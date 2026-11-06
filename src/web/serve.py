@@ -18,7 +18,13 @@
     GET  /api/status                          当前模式与角度
     GET  /api/status/stream                   ≥ 2 Hz 角度推送（SSE）
     POST /api/cmd                             需求规格 ④ 的控制指令
+    POST /api/voice                           E7 语音识别：音频→文本→指令（source=voice）
+    POST /api/gesture                         E1 手势识别：图像→类别→指令（source=gesture）
     GET  /api/health                          健康检查
+
+语音/手势只做"把输入变成识别结果"，随后仍经 /api/cmd 下发（source=voice/gesture
+已在契约预留），运动串行化、限位、审计事件全复用 _cmd。模型（WeNet / hrnet .om）
+只能在 Atlas 板上跑，未部署时端点按 501 返回原因；前端可传 text / label 直通联调。
 
 实机接入前用 --replay 回放样例日志：页面、事件名、字段与实机相同，可以先验收
 “条数一致、延迟 ≤ 1 s”。运动类指令需要控制台，未接控制台时按 501 返回，不假装执行。
@@ -41,6 +47,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src" / "tools"))
 import log_contract as L  # noqa: E402
+import perception as P  # noqa: E402  # 顶层只依赖标准库，ais_bench 在函数内延迟 import
 
 WEB = Path(__file__).resolve().parent
 
@@ -97,12 +104,14 @@ def safe_under(root: Path, name: str) -> Path | None:
 
 
 class ConsoleError(ValueError):
-    """控制台返回的业务错误。status 是 HTTP 状态码：revision 冲突与凭证过期都是 409，
-    调用方按码重试，不再匹配中文长句。"""
+    """控制台返回的业务错误。status 是 HTTP 状态码；reason 是控制台对错误的分类，
+    目前只有 revision_conflict 会让调用方重读 revision 后重试，其余一律原样上抛，
+    避免把"画面过期 / 未使能 / 正在运动"这些真原因改写成"revision 反复过期"。"""
 
-    def __init__(self, message: str, status: int | None = None):
+    def __init__(self, message: str, status: int | None = None, reason: str | None = None):
         super().__init__(message)
         self.status = status
+        self.reason = reason
 
 
 class MotionError(ValueError):
@@ -163,8 +172,9 @@ class Console:
         except urllib.error.HTTPError as exc:
             raw = exc.read()
             try:
-                raise ConsoleError(json.loads(raw).get("error") or f"控制台 {exc.code}",
-                                   status=exc.code) from exc
+                data = json.loads(raw)
+                raise ConsoleError(data.get("error") or f"控制台 {exc.code}",
+                                   status=exc.code, reason=data.get("reason")) from exc
             except json.JSONDecodeError:
                 raise ConsoleError(f"控制台 {exc.code} {path}", status=exc.code) from exc
         except urllib.error.URLError as exc:
@@ -199,16 +209,20 @@ class Console:
         return self.request("/api/sim/world")
 
     def move(self, path: str, body: dict) -> dict:
-        """动作都要新鲜的 revision；冲突（409）就重读一次再试，仍不行才放弃。"""
+        """动作都要新鲜的 revision；只有控制台明确标 reason=revision_conflict 时才重读再试。
+
+        其余 409（画面过期、未使能、正在运动、预览过期等）原样上抛——控制台给出的中文
+        原因就是页面该显示的原因，不能在这里改写成"revision 反复过期"把真相吞掉。
+        """
         for _ in range(2):
             revision = self.status()["revision"]
             try:
                 return self.request(path, dict(body, owner=self.owner, revision=revision))
             except ConsoleError as exc:
-                # 凭证类 409 由 request() 的重取凭证逻辑处理过仍失败，这里不再当 revision 重试
-                if exc.status != 409 or "凭证" in str(exc):
-                    raise
-        raise ValueError("姿态已改变（revision 反复过期），请重试")
+                if exc.reason != "revision_conflict":
+                    raise                         # 不是 revision 冲突：保留原消息
+        raise ConsoleError("姿态已改变（revision 反复过期），请重试",
+                           status=409, reason="revision_conflict")
 
     def enable(self) -> dict:
         return self.request("/api/enable", dict(owner=self.owner, onsite=self.onsite))
@@ -409,7 +423,8 @@ class State:
     def __init__(self, log_path: Path, token: str | None = None,
                  scene_json: Path | None = None, scene_image: Path | None = None,
                  console: Console | None = None, timers: Timers | None = None,
-                 archive: Path | None = None):
+                 archive: Path | None = None, asr_dir: str | None = None,
+                 gesture_dir: str | None = None, camera_url: str | None = None):
         self.log_path = log_path
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
         self.token = token
@@ -418,11 +433,15 @@ class State:
         self.console = console
         self.timers = timers
         self.archive = archive
+        self.asr_dir = asr_dir                         # E7：未配置→/api/voice 按 501，不假装识别
+        self.gesture_dir = gesture_dir                 # E1：未配置→/api/gesture 按 501
+        self.camera_url = camera_url                   # 板载相机快照地址，不配则不取帧
         self.mode = "manual"
         self.joints: list | None = None
         self.joints_t: float | None = None
         self.console_status: dict | None = None
         self.console_error: str | None = None
+        self.console_observed_at: float | None = None   # 最近一次成功回读的本地墙钟，算 age_s 用
         self.keep_alive_on = False
         self.motion_lock = threading.Lock()      # 运动串行化：同一时刻只执行一条运动指令
         self.replay = False                      # --replay 时为真：页面据此标"回放"，不冒充实时
@@ -468,7 +487,7 @@ class State:
         while self.keep_alive_on and self.console is not None:
             try:
                 self.console.heartbeat()
-            except ValueError:
+            except Exception:
                 self.keep_alive_on = False
                 return
             time.sleep(1.0)
@@ -483,14 +502,21 @@ class State:
         self.keep_alive_on = False
 
     def poll_console(self, every: float = 0.4) -> None:
-        """后台回读控制台。≥ 2 Hz，满足“实时显示 6 个舵机角度（每秒 ≥ 2 次）”。"""
+        """后台回读控制台。≥ 2 Hz，满足“实时显示 6 个舵机角度（每秒 ≥ 2 次）”。
+
+        只兜 ValueError 的话，连接被拒抛的 RemoteDisconnected（不是 ValueError）会把线程
+        永久杀死，console_status 冻在最后一个好值、console_error 一直是 None——页面看到的
+        是一条活着的机械臂，实际已失去监控。这里兜底捕获全部异常，线程永远不退出；
+        age_s 用本地墙钟算，冻住时它会自己涨上去，前端一眼能看出过期。
+        """
         while True:
             if self.console is not None:
                 try:
                     status = self.console.status()
                     self.console_status, self.console_error = status, None
+                    self.console_observed_at = time.time()
                     self.note_pose(status.get("pose"), status.get("observed_at") or time.time())
-                except ValueError as exc:
+                except Exception as exc:
                     self.console_error = str(exc)
                     if "操作权" in str(exc) or "另一页面" in str(exc):
                         self.keep_alive_on = False
@@ -508,13 +534,19 @@ class State:
         fk = status.get("fk") or {}
         chain = {k: [round(v * 100, 2) for v in p]
                  for k, p in fk.items() if isinstance(p, list) and len(p) == 3}
+        # age_s 不透传控制台自报的值，用本地墙钟减最近一次成功回读：控制台掉线、线程
+        # 没拿到新值时，这个数会持续涨，前端就能看出回读已过期，而不是显示一个冻住的 0.88 s
+        if self.console_observed_at is not None:
+            age_s = round(max(0.0, time.time() - self.console_observed_at), 3)
+        else:
+            age_s = None
         return dict(
             attached=True, error=self.console_error,
             joints_deg=status.get("pose"),
             target_deg=status.get("command"),
             armed=bool(status.get("armed")), busy=bool(status.get("busy")),
             revision=status.get("revision"), profile=status.get("profile"),
-            age_s=status.get("age_s"), observed_at=status.get("observed_at"),
+            age_s=age_s, observed_at=status.get("observed_at"),
             clearance_cm=status.get("clearance_cm"),
             tip_cm=chain.get("tip"),
             chain_cm=dict(chain, base=[0.0, 0.0, 0.0]) if chain else None,
@@ -637,6 +669,88 @@ class Handler(BaseHTTPRequestHandler):
         self.state.append(dict(t=time.time(), event="interaction", source="web",
                                command="add_timer", detail=repeat))
         return self._send(dict(ok=True, timer=timer, **timers.status()))
+
+    def _voice(self, body: dict):
+        """POST /api/voice：识别音频→文本→映射成指令→经 _cmd 下发（source=voice）。
+
+        入体可选：audio(base64 wav，需 --asr-dir 且板上有模型) / text(直通，开发机联调) /
+        confidence / dispatch(默认 true；false 只识别不下发)。模型不可用且无 text 时 501。
+        识别结果仍走现有 /api/cmd：运动串行化、限位、审计事件全复用 _cmd，不在别处开口子。
+        """
+        text = body.get("text")
+        confidence = body.get("confidence")
+        if not text and body.get("audio") is not None:
+            if not self.state.asr_dir:
+                return self._fail("未配置语音模型：启动加 --asr-dir <目录>；当前可用 text 直通调试", status=501)
+            try:
+                text, confidence = P.transcribe(body["audio"], self.state.asr_dir)
+            except P.ModelUnavailable as exc:
+                return self._fail(str(exc), status=501)
+            except ValueError as exc:
+                return self._fail(str(exc))
+        if not isinstance(text, str) or not text.strip():
+            return self._fail("缺少 text，或 audio 且已部署模型")
+        cmd = P.voice_command(text)
+        # 识别输入本身记一条 interaction（command=recognize 与 _cmd 链的执行事件区分开），
+        # detail 存原文；映射出指令后 _cmd 还会写 mode_changed / stopped 等执行事件
+        evt = dict(t=time.time(), event="interaction", source="voice",
+                   command="recognize", detail=text[:80])
+        if confidence is not None:                  # 契约 confidence 是 num，不是 num?：None 就不带
+            evt["confidence"] = confidence
+        try:
+            self.state.append(evt)
+        except ValueError:
+            pass
+        if not body.get("dispatch", True) or cmd is None:
+            return self._send(dict(ok=True, source="voice", text=text, confidence=confidence,
+                                   command=cmd, dispatched=False))
+        return self._cmd(dict(cmd, source="voice"))
+
+    def _gesture(self, body: dict):
+        """POST /api/gesture：识别图像→类别→映射成指令→经 _cmd 下发（source=gesture）。
+
+        入体可选：image(base64 jpg/png，需 --gesture-dir) / snapshot(从 --camera-url 取帧) /
+        label(直通调试) / dispatch。低于阈值返回空 label，不下发、不算失败。
+        """
+        label = body.get("label")
+        confidence, probs = body.get("confidence"), None
+        if not label:
+            if body.get("image") is not None:
+                data = body["image"]
+            elif body.get("snapshot"):
+                if not self.state.camera_url:
+                    return self._fail("未配置相机地址：启动加 --camera-url <快照地址>", status=501)
+                try:
+                    data = P.grab_snapshot(self.state.camera_url)
+                except P.ModelUnavailable as exc:
+                    return self._fail(str(exc), status=502)
+            else:
+                data = None
+            if data is not None:
+                if not self.state.gesture_dir:
+                    return self._fail("未配置手势模型：启动加 --gesture-dir <目录>；当前可用 label 直通调试", status=501)
+                try:
+                    label, confidence, probs = P.classify(data, self.state.gesture_dir)
+                except P.ModelUnavailable as exc:
+                    return self._fail(str(exc), status=501)
+                except ValueError as exc:
+                    return self._fail(str(exc))
+        if not isinstance(label, str) or not label.strip():
+            return self._send(dict(ok=True, source="gesture", label="", confidence=confidence,
+                                   probs=probs, command=None, dispatched=False, note="未识别到手势"))
+        cmd = P.gesture_command(label)
+        evt = dict(t=time.time(), event="interaction", source="gesture",
+                   command="recognize", detail=label)
+        if confidence is not None:
+            evt["confidence"] = confidence
+        try:
+            self.state.append(evt)
+        except ValueError:
+            pass
+        if not body.get("dispatch", True) or cmd is None:
+            return self._send(dict(ok=True, source="gesture", label=label, confidence=confidence,
+                                   probs=probs, command=cmd, dispatched=False))
+        return self._cmd(dict(cmd, source="gesture"))
 
     def _fail(self, message, status=400, **extra):
         self._send(dict(ok=False, error=message,
@@ -836,7 +950,7 @@ class Handler(BaseHTTPRequestHandler):
         url = urlsplit(self.path)
         if not self._authorized():
             return self._fail("token 无效", status=401)
-        if url.path not in ("/api/cmd", "/api/timers"):
+        if url.path not in ("/api/cmd", "/api/timers", "/api/voice", "/api/gesture"):
             return self._fail("没有这个接口", status=404)
         if not self._write_allowed():
             return
@@ -847,6 +961,10 @@ class Handler(BaseHTTPRequestHandler):
 
         if url.path == "/api/timers":
             return self._timers(body)
+        if url.path == "/api/voice":
+            return self._voice(body)
+        if url.path == "/api/gesture":
+            return self._gesture(body)
         return self._cmd(body)
 
     def _cmd(self, body: dict):
@@ -988,6 +1106,12 @@ def main(argv=None) -> int:
     parser.add_argument("--token", help="开启简单鉴权，请求带 X-Token 或 ?token=")
     parser.add_argument("--onsite", action="store_true",
                         help="向控制台声明现场有人值守（实机 enable 的必要条件；仿真不需要）")
+    parser.add_argument("--asr-dir",
+                        help="E7 语音模型目录（含 offline_encoder.om/vocab.txt/model.py），只有 Atlas 板上能跑；不配则 /api/voice 仅支持 text 直通")
+    parser.add_argument("--gesture-dir",
+                        help="E1 手势模型目录（含 hrnet.om），只有 Atlas 板上能跑；不配则 /api/gesture 仅支持 label 直通")
+    parser.add_argument("--camera-url",
+                        help="板载相机快照地址，如 http://192.168.x.x:8080/snapshot.jpg；不配则 /api/gesture 不从相机取帧")
     args = parser.parse_args(argv)
 
     token = args.token
@@ -1002,7 +1126,8 @@ def main(argv=None) -> int:
     state = State(ROOT / args.log, token=token, console=console, timers=timers,
                   archive=ROOT / args.archive if args.archive else None,
                   scene_json=ROOT / args.scene_json if args.scene_json else None,
-                  scene_image=ROOT / args.scene_image if args.scene_image else None)
+                  scene_image=ROOT / args.scene_image if args.scene_image else None,
+                  asr_dir=args.asr_dir, gesture_dir=args.gesture_dir, camera_url=args.camera_url)
     if console is not None:
         threading.Thread(target=state.poll_console, daemon=True).start()
     if timers is not None:
