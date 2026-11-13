@@ -5,6 +5,10 @@
 /*.jpg
 
 # 工具与本机状态
+/.android-sdk/
+/.android-home/
+/.gradle-home/
+/.uv-cache/
 .codegraph/
 .claude/
 __pycache__/

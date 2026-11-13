@@ -1,0 +1,200 @@
+{
+ "_status": "2026-11-06. Model + calibration mix. Every number carries its source and evidence level; see docs/atlas-200i-dk-a2/27-夹爪与整臂建模.md for the full derivation and the error budget. Do not promote 'official document' numbers to 'measured on this arm' without the calibration step in that doc.",
+ "_frame": {
+  "name": "link5 (servo-5 frame)",
+  "origin": "centre of the J5 axis",
+  "z": "along the last link, towards the fingertips",
+  "x": "jaw opening axis (fingers translate along +/-x when they open)",
+  "y": "lateral; +y points towards the arm base at J5 = 90 deg (dofbot_kinematics.servo5_pose y axis)",
+  "unit": "metres"
+ },
+ "servo": {
+  "id": 6,
+  "role": "gripper",
+  "command_range_deg": [
+   0,
+   180
+  ],
+  "direction": "angle grows as the jaws close (upstream examples: 0 open, ~130-135 grip)",
+  "soft_limit_deg": [
+   5,
+   175
+  ],
+  "readback_lag_at_contact_deg": [
+   4,
+   9
+  ],
+  "_lag_note": "measured 2026-09-24/25: command 131-133 while a 3 cm block resists, readback settles 124-128. Never invert the jaw curve from a contact readback; use the commanded angle.",
+  "hardware": {
+   "torque": "6 kg.cm @ 6 V",
+   "gear": "plastic",
+   "rotation_range_deg": "180 +/- 10",
+   "stall_current_a": 1.7,
+   "stall_protection_s": 3,
+   "size_mm": [
+    40.6,
+    20.0,
+    41.8
+   ],
+   "source": "manual page 9 (photo 2026-09-24) and https://www.yahboom.store/blogs/news/unboxing-reviewing-dofbot-pro",
+   "evidence": "official spec + local servo behaviour agrees"
+  }
+ },
+ "jaw": {
+  "model": "piecewise_linear",
+  "points": [
+   [
+    0,
+    64.0
+   ],
+   [
+    57,
+    60.0
+   ],
+   [
+    80,
+    55.0
+   ],
+   [
+    95,
+    50.0
+   ],
+   [
+    105,
+    45.0
+   ],
+   [
+    115,
+    40.0
+   ],
+   [
+    125,
+    35.0
+   ],
+   [
+    134,
+    30.0
+   ],
+   [
+    143,
+    25.0
+   ],
+   [
+    152,
+    20.0
+   ],
+   [
+    160,
+    15.0
+   ],
+   [
+    168,
+    10.0
+   ],
+   [
+    176,
+    5.0
+   ],
+   [
+    180,
+    0.0
+   ]
+  ],
+  "_points_note": "[servo angle deg, object width mm]. Official table is 'object width -> servo angle' in 0.5 cm steps; the first and last rows are the endpoints of the published range (0 cm at 180 deg, 6.0-6.4 cm at 0-57 deg).",
+  "max_gap_m": 0.064,
+  "min_gap_m": 0.0,
+  "source": "https://www.yahboom.net/study/Dofbot-Pi/15480 (table reproduced verbatim on https://www.yahboom.net/study/DOFBOT-Pro/17606/)",
+  "evidence": "official document table; one local confirmation: 3 cm block grips at command 133 deg, table says 134 deg",
+  "local_check": {
+   "3cm_block_command_deg": 133,
+   "official_deg": 134,
+   "empty_close_stop_deg": 170,
+   "empty_close_contact": false,
+   "open_deg_used": 30,
+   "wide_open_deg_used": 11,
+   "source": "config/arm_limits.json gripper + data/runs/gripper_calibration.jsonl",
+   "evidence": "measured on this arm"
+  },
+  "uncertainty": "The Isaac USD variant of the same robot cannot open past 44.7 mm, and its pads are 35.9 mm apart in the default pose. If this unit is that smaller variant, everything above ~45 mm is unavailable and the 55-64 mm part of the official table does not apply. For the 3 cm blocks used here the two only differ above 45 mm. A caliper reading at 0/30/60/90/120/150/180 deg settles it (see doc, calibration step 1).",
+  "effect_on_this_project": "3 cm blocks need 30 mm (+1 cm localisation margin = 40 mm); both variants provide that at <= 115 deg, i.e. every open pose the project uses (11-30 deg) is safe under either model."
+ },
+ "geometry": {
+  "source": "Isaac Sim Yahboom Dofbot USD, extracted by scripts/extract_isaac_dofbot.py (data/reference/isaac_dofbot/geometry.json)",
+  "evidence": "official model of the same robot family, not a measurement of this arm; arm link lengths agree with the upstream URDF to 0.03 cm except J4->J5",
+  "j5_to_fingertip_m": 0.11699,
+  "j5_to_fingertip_note": "highest point of the distal finger plate in the default pose; the upstream IK uses a hard-coded 0.12 m",
+  "closed_tip_estimate_m": 0.111,
+  "closed_tip_note": "parallelogram four-bar: closing translates the pads inwards and pulls the tips back by about 0.6 cm from the default pose; the STL link5 mesh ends 11.11 cm from the J5 axis, which supports this",
+  "pad": {
+   "length_m": 0.021,
+   "thickness_m": 0.006,
+   "width_m": 0.02,
+   "inner_gap_at_default_m": 0.03586,
+   "outer_span_at_default_m": 0.06837,
+   "z_range_from_j5_m": [
+    0.0963,
+    0.1169
+   ],
+   "centre_m": 0.1066
+  },
+  "pivot": {
+   "z_m": 0.0419,
+   "x_m": 0.0123,
+   "y_m": -0.0055,
+   "note": "left/right proximal joints at world x -1.28 / +1.18 cm, z 38.06 cm (J5 at 33.87 cm)"
+  },
+  "four_bar": {
+   "type": "parallelogram (ground 1.96, crank 3.00, coupler 3.01, rocker 2.00 cm)",
+   "ground_m": 0.0196,
+   "crank_m": 0.03,
+   "coupler_m": 0.0301,
+   "rocker_m": 0.02,
+   "driven_joint": "Finger_0x_01 revolute, axis X in the USD joint frame (= world Y at rest)",
+   "closure": "Finger_02-Finger_03 spherical joint, excludeFromArticulation",
+   "source": "data/analysis/gripper_loop.py"
+  },
+  "housing": {
+   "extent_m": [
+    0.0547,
+    0.0555,
+    0.069
+   ],
+   "source": "Wrist_Twist world AABB"
+  }
+ },
+ "tcp": {
+  "_note": "Four different 'tips' exist and must not be mixed. New code should use grasp_centre; the verified console path uses the empirical offset until a 3-pose recalibration is done.",
+  "fk_tip_m": 0.12,
+  "fk_tip_source": "upstream dofbot_server.cpp constant, used by src/spatial/dofbot_kinematics.py",
+  "fingertip_m": 0.11699,
+  "grasp_centre_m": 0.1066,
+  "grasp_centre_note": "middle of the pad, ~1.1 cm behind the upstream FK tip; 3 cm blocks span the whole pad so the block centre belongs here",
+  "empirical_offset_link_m": [
+   0.0,
+   0.0115,
+   0.0
+  ],
+  "empirical_offset_source": "operator measurements 2026-09-25/26 written into config/arm_limits.json (open_grasp_radial_offset_cm = 1.0, at pitch 150 the horizontal share is 1.0 cm of a 1.15 cm lateral offset); verified by grasps that held",
+  "empirical_offset_note": "this offset lives in the gripper cross-section (y) direction and therefore turns with J5, which is what the operator saw after a 160 deg roll; the geometric pad centre instead lies along -z and would not turn with J5. The two are within 2 mm of each other in magnitude but differ in direction, so one 3-pose test should decide which is real before any replanning rewrite.",
+  "evidence": "mixed: fk_tip and fingertip are model values, grasp_centre is a model value, empirical_offset is measured but its direction is only partly verified"
+ },
+ "envelope": {
+  "_note": "Replaces the coarse 'half width 2.5 cm, from 5 cm to 12 cm' hull only after review; the current keep-out was fitted to contact data and must not be swapped without re-running the contact samples.",
+  "pad_half_thickness_m": 0.003,
+  "pad_width_m": 0.02,
+  "outer_span_max_m": 0.0684,
+  "z_start_m": 0.05,
+  "z_end_m": 0.1169,
+  "housing_half_width_m": 0.0277,
+  "housing_z_range_m": [
+   -0.006,
+   0.063
+  ]
+ },
+ "use": {
+  "planning": "open at jaw_gap >= block width + 0.01 m; 11-30 deg covers 62-64 mm",
+  "grasp": "grip at the official angle for the block width (134 deg for 30 mm), stop within 2-3 deg of contact, never hold a stall",
+  "collision": "envelope boxes above; do not use for keep-out until re-fitted against the contact samples",
+  "simulation": "jaw gap + pad boxes are enough for the block-in-jaw check; the four-bar is only needed for visual fidelity"
+ }
+}
