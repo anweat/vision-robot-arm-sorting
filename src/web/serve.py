@@ -48,7 +48,6 @@ from urllib.parse import parse_qs, unquote, urlsplit
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src" / "tools"))
 import log_contract as L  # noqa: E402
-import perception as P  # noqa: E402  # 顶层只依赖标准库，ais_bench 在函数内延迟 import
 
 WEB = Path(__file__).resolve().parent
 
@@ -424,8 +423,7 @@ class State:
     def __init__(self, log_path: Path, token: str | None = None,
                  scene_json: Path | None = None, scene_image: Path | None = None,
                  console: Console | None = None, timers: Timers | None = None,
-                 archive: Path | None = None, asr_dir: str | None = None,
-                 gesture_dir: str | None = None, camera_url: str | None = None):
+                 archive: Path | None = None):
         self.log_path = log_path
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
         self.token = token
@@ -434,9 +432,6 @@ class State:
         self.console = console
         self.timers = timers
         self.archive = archive
-        self.asr_dir = asr_dir                         # E7：未配置→/api/voice 按 501，不假装识别
-        self.gesture_dir = gesture_dir                 # E1：未配置→/api/gesture 按 501
-        self.camera_url = camera_url                   # 板载相机快照地址，不配则不取帧
         self.mode = "manual"
         self.joints: list | None = None
         self.joints_t: float | None = None
@@ -689,88 +684,6 @@ class Handler(BaseHTTPRequestHandler):
             if status not in (400, 409, 501, 502, 503):
                 status = 502
             return self._fail(str(exc), status=status)
-
-    def _voice(self, body: dict):
-        """POST /api/voice：识别音频→文本→映射成指令→经 _cmd 下发（source=voice）。
-
-        入体可选：audio(base64 wav，需 --asr-dir 且板上有模型) / text(直通，开发机联调) /
-        confidence / dispatch(默认 true；false 只识别不下发)。模型不可用且无 text 时 501。
-        识别结果仍走现有 /api/cmd：运动串行化、限位、审计事件全复用 _cmd，不在别处开口子。
-        """
-        text = body.get("text")
-        confidence = body.get("confidence")
-        if not text and body.get("audio") is not None:
-            if not self.state.asr_dir:
-                return self._fail("未配置语音模型：启动加 --asr-dir <目录>；当前可用 text 直通调试", status=501)
-            try:
-                text, confidence = P.transcribe(body["audio"], self.state.asr_dir)
-            except P.ModelUnavailable as exc:
-                return self._fail(str(exc), status=501)
-            except ValueError as exc:
-                return self._fail(str(exc))
-        if not isinstance(text, str) or not text.strip():
-            return self._fail("缺少 text，或 audio 且已部署模型")
-        cmd = P.voice_command(text)
-        # 识别输入本身记一条 interaction（command=recognize 与 _cmd 链的执行事件区分开），
-        # detail 存原文；映射出指令后 _cmd 还会写 mode_changed / stopped 等执行事件
-        evt = dict(t=time.time(), event="interaction", source="voice",
-                   command="recognize", detail=text[:80])
-        if confidence is not None:                  # 契约 confidence 是 num，不是 num?：None 就不带
-            evt["confidence"] = confidence
-        try:
-            self.state.append(evt)
-        except ValueError:
-            pass
-        if not body.get("dispatch", True) or cmd is None:
-            return self._send(dict(ok=True, source="voice", text=text, confidence=confidence,
-                                   command=cmd, dispatched=False))
-        return self._cmd(dict(cmd, source="voice"))
-
-    def _gesture(self, body: dict):
-        """POST /api/gesture：识别图像→类别→映射成指令→经 _cmd 下发（source=gesture）。
-
-        入体可选：image(base64 jpg/png，需 --gesture-dir) / snapshot(从 --camera-url 取帧) /
-        label(直通调试) / dispatch。低于阈值返回空 label，不下发、不算失败。
-        """
-        label = body.get("label")
-        confidence, probs = body.get("confidence"), None
-        if not label:
-            if body.get("image") is not None:
-                data = body["image"]
-            elif body.get("snapshot"):
-                if not self.state.camera_url:
-                    return self._fail("未配置相机地址：启动加 --camera-url <快照地址>", status=501)
-                try:
-                    data = P.grab_snapshot(self.state.camera_url)
-                except P.ModelUnavailable as exc:
-                    return self._fail(str(exc), status=502)
-            else:
-                data = None
-            if data is not None:
-                if not self.state.gesture_dir:
-                    return self._fail("未配置手势模型：启动加 --gesture-dir <目录>；当前可用 label 直通调试", status=501)
-                try:
-                    label, confidence, probs = P.classify(data, self.state.gesture_dir)
-                except P.ModelUnavailable as exc:
-                    return self._fail(str(exc), status=501)
-                except ValueError as exc:
-                    return self._fail(str(exc))
-        if not isinstance(label, str) or not label.strip():
-            return self._send(dict(ok=True, source="gesture", label="", confidence=confidence,
-                                   probs=probs, command=None, dispatched=False, note="未识别到手势"))
-        cmd = P.gesture_command(label)
-        evt = dict(t=time.time(), event="interaction", source="gesture",
-                   command="recognize", detail=label)
-        if confidence is not None:
-            evt["confidence"] = confidence
-        try:
-            self.state.append(evt)
-        except ValueError:
-            pass
-        if not body.get("dispatch", True) or cmd is None:
-            return self._send(dict(ok=True, source="gesture", label=label, confidence=confidence,
-                                   probs=probs, command=cmd, dispatched=False))
-        return self._cmd(dict(cmd, source="gesture"))
 
     def _fail(self, message, status=400, **extra):
         self._send(dict(ok=False, error=message,
@@ -1128,12 +1041,6 @@ def main(argv=None) -> int:
     parser.add_argument("--token", help="开启简单鉴权，请求带 X-Token 或 ?token=")
     parser.add_argument("--onsite", action="store_true",
                         help="向控制台声明现场有人值守（实机 enable 的必要条件；仿真不需要）")
-    parser.add_argument("--asr-dir",
-                        help="E7 语音模型目录（含 offline_encoder.om/vocab.txt/model.py），只有 Atlas 板上能跑；不配则 /api/voice 仅支持 text 直通")
-    parser.add_argument("--gesture-dir",
-                        help="E1 手势模型目录（含 hrnet.om），只有 Atlas 板上能跑；不配则 /api/gesture 仅支持 label 直通")
-    parser.add_argument("--camera-url",
-                        help="板载相机快照地址，如 http://192.168.x.x:8080/snapshot.jpg；不配则 /api/gesture 不从相机取帧")
     args = parser.parse_args(argv)
 
     token = args.token
@@ -1149,7 +1056,7 @@ def main(argv=None) -> int:
                   archive=ROOT / args.archive if args.archive else None,
                   scene_json=ROOT / args.scene_json if args.scene_json else None,
                   scene_image=ROOT / args.scene_image if args.scene_image else None,
-                  asr_dir=args.asr_dir, gesture_dir=args.gesture_dir, camera_url=args.camera_url)
+)
     if console is not None:
         threading.Thread(target=state.poll_console, daemon=True).start()
     if timers is not None:
