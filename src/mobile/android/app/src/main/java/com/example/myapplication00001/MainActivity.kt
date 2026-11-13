@@ -31,6 +31,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -78,12 +79,15 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         val preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         setContent {
-            MyApplication00001Theme {
-                var showClassic by remember { mutableStateOf(false) }
+            MyApplication00001Theme(darkTheme = true, dynamicColor = false) {
+                var showClassic by rememberSaveable { mutableStateOf(false) }
+                var webUrl by rememberSaveable {
+                    mutableStateOf(preferences.getString(WEB_URL_KEY, DEFAULT_WEB_URL) ?: DEFAULT_WEB_URL)
+                }
                 Scaffold(modifier = Modifier.fillMaxSize()) { padding ->
                     if (showClassic) {
                         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-                            Button(onClick = { showClassic = false }) { Text("返回统一网页") }
+                            Button(onClick = { showClassic = false }) { Text("返回作业台") }
                             StatusScreen(
                                 initialUrl = preferences.getString(URL_KEY, DEFAULT_URL) ?: DEFAULT_URL,
                                 saveUrl = { preferences.edit().putString(URL_KEY, it).apply() },
@@ -93,9 +97,13 @@ class MainActivity : ComponentActivity() {
                         }
                     } else {
                         WebConsoleScreen(
-                            initialUrl = preferences.getString(WEB_URL_KEY, DEFAULT_WEB_URL) ?: DEFAULT_WEB_URL,
-                            saveUrl = { preferences.edit().putString(WEB_URL_KEY, it).apply() },
+                            activeUrl = webUrl,
+                            saveUrl = {
+                                webUrl = it
+                                preferences.edit().putString(WEB_URL_KEY, it).apply()
+                            },
                             openClassic = { showClassic = true },
+                            inForeground = inForeground,
                             modifier = Modifier.padding(padding),
                         )
                     }
@@ -114,7 +122,7 @@ private data class ArmStatus(
     val error: String,
 )
 
-private data class LogSummary(
+internal data class LogSummary(
     val events: Int,
     val records: Int,
     val roundsFinished: Int,
@@ -124,6 +132,7 @@ private data class LogSummary(
     val failed: Int,
     val cleared: Int,
     val medianSeconds: Double?,
+    val sortedByCategory: Map<String, Int>,
 )
 
 internal data class BlockRecord(
@@ -142,7 +151,7 @@ internal data class BlockRecord(
     val source: String,
 )
 
-private data class LogView(val summary: LogSummary, val allRecords: List<BlockRecord>)
+internal data class LogView(val summary: LogSummary, val allRecords: List<BlockRecord>)
 
 private data class AlertEvent(val seq: Int, val time: String, val title: String, val detail: String)
 
@@ -507,9 +516,12 @@ internal fun endpoint(baseUrl: String, path: String): java.net.URL {
 }
 
 private suspend fun fetchLogView(baseUrl: String): LogView = withContext(Dispatchers.IO) {
-    val summaryJson = readJson(baseUrl, "/api/log/summary")
-    val recordsJson = readJson(baseUrl, "/api/log/records")
+    parseLogView(readJson(baseUrl, "/api/log/summary"), readJson(baseUrl, "/api/log/records"))
+}
+
+internal fun parseLogView(summaryJson: JSONObject, recordsJson: JSONObject): LogView {
     val byResult = summaryJson.getJSONObject("by_result")
+    val byCategory = summaryJson.optJSONObject("by_category")
     val summary = LogSummary(
         events = summaryJson.getInt("events"),
         records = summaryJson.getInt("records"),
@@ -521,6 +533,9 @@ private suspend fun fetchLogView(baseUrl: String): LogView = withContext(Dispatc
         cleared = byResult.optInt("cleared"),
         medianSeconds = if (summaryJson.isNull("seconds_per_sorted_block_median")) null
             else summaryJson.getDouble("seconds_per_sorted_block_median"),
+        sortedByCategory = listOf("recyclable", "kitchen", "hazardous", "other").associate { category ->
+            categoryName(category) to (byCategory?.optJSONObject(category)?.optInt("sorted") ?: 0)
+        },
     )
     val rows = recordsJson.getJSONArray("records")
     val timeFormat = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.MEDIUM, Locale.CHINA)
@@ -543,7 +558,7 @@ private suspend fun fetchLogView(baseUrl: String): LogView = withContext(Dispatc
             source = if (row.isNull("source")) "" else row.getString("source"),
         )
     }
-    LogView(summary, allRecords)
+    return LogView(summary, allRecords)
 }
 
 private suspend fun fetchEventPage(baseUrl: String, after: Int): EventPage = withContext(Dispatchers.IO) {
