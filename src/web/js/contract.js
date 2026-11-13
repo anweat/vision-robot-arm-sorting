@@ -65,11 +65,12 @@ export const EVENTS = {
   gripper_wake_refused: { status: "stable", meaning: "唤醒动作被拒绝", record: null },
   stopped: { status: "stable", meaning: "任务中止", record: null },
   table_z_disagrees: { status: "stable", meaning: "桌面高度与标定值相差过大", record: null },
-  mode_changed: { status: "planned", meaning: "作业模式切换", record: null },
+  bins_located: { status: "stable", meaning: "实体垃圾桶按贴纸定位的结果", record: null },
+  mode_changed: { status: "stable", meaning: "作业模式切换", record: null },
   unknown_object: { status: "planned", meaning: "发现不属于四类的物体", record: null },
-  bin_full: { status: "planned", meaning: "容器已满，停止投放", record: null },
+  bin_full: { status: "stable", meaning: "容器已满，停止投放", record: null },
   stall: { status: "planned", meaning: "舵机堵转，已停止后续指令", record: null },
-  interaction: { status: "planned", meaning: "手势、表情或语音触发的指令", record: null },
+  interaction: { status: "stable", meaning: "手势、表情或语音触发且已受理执行的指令", record: null },
 };
 
 // 异常日志页关心的事件：出问题的都在这里，其余进实时状态页的事件流

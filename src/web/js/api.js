@@ -85,33 +85,56 @@ export const sendTimer = async (body) => {
 };
 
 /**
- * E7 语音识别：POST /api/voice。传 text 直通（开发机联调 / 前端已用浏览器语音 API 识别），
- * 或 audio(base64 wav) 让板上 WeNet 推理；dispatch=false 只识别不下发。识别结果最终仍走 /api/cmd。
+ * 语音/手势走控制台那一套（/api/interact/*），本服务只是代理。
+ * 返回 {status: accepted|ignored|rejected, command, preset, matched, reason, id, t, ...}。
+ * 三态与 reason 原样显示，页面不自己判断词表、阈值和连续帧。
  */
-export const sendVoice = async (body) => {
-  const res = await fetch(authUrl("/api/voice"), {
+export const fetchInteract = () => json("/api/interact");
+
+/** 武装/解除：除“停止”外的指令都要先武装（POST /api/interact/arm） */
+export const armInteract = async (armed) => {
+  const res = await fetch(authUrl("/api/interact/arm"), {
     method: "POST",
     headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ armed: !!armed }),
+  });
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(payload.error || `武装失败 ${res.status}`);
+  return payload;
+};
+
+/** 一句识别文本（POST /api/interact/voice）；识别与执行都在控制台 */
+export const sendVoice = async (text) => {
+  const res = await fetch(authUrl("/api/interact/voice"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
+    body: JSON.stringify({ text }),
   });
   const payload = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(payload.error || `语音识别失败 ${res.status}`);
   return payload;
 };
 
-/**
- * E1 手势识别：POST /api/gesture。传 label 直通调试，或 image(base64) / snapshot(取板载相机帧)
- * 让板上 hrnet 推理；低于阈值返回空 label 不下发。
- */
-export const sendGesture = async (body) => {
-  const res = await fetch(authUrl("/api/gesture"), {
+/** 一帧手势分类结果（POST /api/interact/gesture）；服务端自己累计连续帧 */
+export const sendGestureFrame = async (label, confidence = 0.9) => {
+  const res = await fetch(authUrl("/api/interact/gesture"), {
     method: "POST",
     headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ label, confidence }),
   });
   const payload = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(payload.error || `手势识别失败 ${res.status}`);
   return payload;
+};
+
+/**
+ * 连发 frames 帧，返回最后一次结果（真正可能触发的那一次）。
+ * 真实识别器是逐帧上报的，这里按同样的帧数发，才走得到控制台那条“连续 3 帧”的门槛。
+ */
+export const sendGesture = async (label, frames = 3, confidence = 0.9) => {
+  let last = null;
+  for (let i = 0; i < frames; i += 1) last = await sendGestureFrame(label, confidence);
+  return last;
 };
 
 /**

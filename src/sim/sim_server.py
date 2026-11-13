@@ -263,9 +263,31 @@ class SimApp(console.App):
         if command == "start":
             self.start_sort({})
             return "分拣任务已启动"
+        if command == "gripper":
+            return self.grip_by_command(preset)
         if command == "run_preset":
             raise NotImplementedError(f"预设动作“{preset}”尚未接入，待硬件组提供")
         raise ValueError(f"未知指令 {command}")
+
+    def grip_by_command(self, action):
+        """语音/手势触发的夹爪动作：复用控制台的限位与回读，不另开一条下发路径。
+
+        夹爪动作同样要过 Controller 的使能与 revision 校验，所以只能由当前持有操作权的
+        那一方执行（通常就是打开页面的会话）。没人使能时明确拒绝，不悄悄替页面抢占操作权。
+        """
+        action = action or "grip"
+        if action not in ("grip", "open", "wide"):
+            raise ValueError(f"夹爪动作只允许 grip/open/wide，收到 {action}")
+        c = self.control
+        if c.busy:
+            raise ValueError("机械臂正在动作，等这一步结束再试")
+        owner = c.owner
+        if not owner:
+            raise ValueError("未使能：先在页面点使能，再用手势/语音控制夹爪")
+        with c.gate:
+            revision = c.revision
+        c.gripper(owner, action, revision)
+        return {"grip": "已合爪", "open": "已松爪", "wide": "已张开到位"}[action]
 
     def interact(self, path, body):
         """/api/interact/*: the voice and gesture side. Accepted commands also land in the log as `interaction`."""

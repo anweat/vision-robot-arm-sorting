@@ -88,24 +88,37 @@ class GestureTest(unittest.TestCase):
     def frames(self, label, conf, n):
         return [self.it.gesture(label, conf) for _ in range(n)]
 
-    def test_palm_fires_stop_once_after_three_frames_and_carries_the_probability(self):
+    def test_palm_releases_the_gripper_once_after_three_frames_and_carries_the_probability(self):
+        self.it.arm(True)
         out = self.frames('palm', 0.9, 5)
         self.assertEqual([r['status'] for r in out], ['ignored', 'ignored', 'accepted', 'ignored', 'ignored'])
+        self.assertEqual((out[2]['command'], out[2]['preset']), ('gripper', 'open'))
         self.assertEqual(out[2]['event']['confidence'], 0.9)
         self.assertEqual(L.validate(out[2]['event']), [])
-        self.assertEqual(self.f.calls, [('stop', None)])
+        self.assertEqual(self.f.calls, [('gripper', 'open')])
+
+    def test_every_label_is_bound_and_only_stop_works_unarmed(self):
+        # 2026-11-13 需求方确认四类手势都绑动作；除 stop 外都要先武装
+        mapped = {'fist': 'gripper', 'like': 'start', 'ok': 'stop', 'palm': 'gripper'}
+        for label, command in mapped.items():
+            self.it.streak, self.it.latched = (None, 0), False
+            self.it.last_fire.clear()
+            self.it.armed = False
+            r = self.frames(label, 0.9, 3)[-1]
+            if command == 'stop':
+                self.assertEqual(r['status'], 'accepted', label)
+            else:
+                self.assertEqual(r['status'], 'rejected', label)
+                self.assertIn('武装', r['reason'])
 
     def test_a_weak_frame_breaks_the_run(self):
+        self.it.arm(True)
         self.frames('palm', 0.9, 2)
         self.it.gesture('palm', 0.3)
         self.assertEqual([r['status'] for r in self.frames('palm', 0.9, 3)], ['ignored', 'ignored', 'accepted'])
 
-    def test_unbound_gestures_never_run_anything(self):
-        for label in ('fist', 'like', 'ok'):
-            self.assertTrue(all(r['status'] == 'ignored' for r in self.frames(label, 0.99, 6)))
-        self.assertEqual(self.f.calls, [])
-
     def test_holding_again_after_another_gesture_fires_again_after_the_cooldown(self):
+        self.it.arm(True)
         self.frames('palm', 0.9, 3)
         self.frames('fist', 0.9, 1)
         self.f.now += 3
@@ -164,17 +177,17 @@ class SimEndpointTest(unittest.TestCase):
                                      {'Content-Type': 'application/json', 'X-Console-Token': token})
         return json.loads(urllib.request.urlopen(req, timeout=30).read())
 
-    def test_voice_stop_and_palm_gesture_reach_the_log_as_interaction_events(self):
+    def test_voice_stop_and_gesture_stop_reach_the_log_as_interaction_events(self):
         self.assertFalse(self.get('/api/interact')['armed'])
         self.assertEqual(self.post('/api/interact/voice', text='停止')['status'], 'accepted')
         for _ in range(3):
-            r = self.post('/api/interact/gesture', label='palm', confidence=0.93)
+            r = self.post('/api/interact/gesture', label='ok', confidence=0.93)
         self.assertEqual(r['status'], 'accepted')
         events = self.get('/api/log')['events']
         got = [(e['source'], e['command'], e.get('confidence')) for e in events if e['event'] == 'interaction']
         self.assertEqual(got, [('voice', 'stop', None), ('gesture', 'stop', 0.93)])
         self.assertTrue(all(not L.validate(e) for e in events))
-        self.assertEqual(self.get('/api/interact')['recent'][-1]['input'], 'palm')
+        self.assertEqual(self.get('/api/interact')['recent'][-1]['input'], 'ok')
 
     def test_refused_and_ignored_recognitions_are_shown_but_not_logged(self):
         before = len(self.get('/api/log')['events'])

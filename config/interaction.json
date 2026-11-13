@@ -1,11 +1,13 @@
 {
-  "_note": "语音/手势 -> 指令 的草案映射（docs/atlas-200i-dk-a2/25-语音手势接口.md）。手势语义未经需求方确认，只有 palm->stop 落地；改这里不需要改代码。",
+  "_note": "语音/手势 -> 指令 的映射（docs/atlas-200i-dk-a2/25-语音手势接口.md）。2026-11-13 需求方确认：四类手势都绑定动作，且除 stop 外都要先武装。带冒号的 key 是 command:preset，由 src/interact/intents.py 拆开交给执行侧。改这里不需要改代码。",
   "voice": {
     "cooldown_s": 2.0,
     "words": {
       "stop": ["停止", "停下", "别动"],
       "start": ["启动", "开始"],
-      "run_preset:dance": ["跳舞"]
+      "run_preset:dance": ["跳舞"],
+      "gripper:grip": ["合爪", "抓取", "夹住"],
+      "gripper:open": ["松爪", "张开", "放开"]
     }
   },
   "gesture": {
@@ -14,10 +16,10 @@
     "cooldown_s": 2.0,
     "labels": ["fist", "like", "ok", "palm"],
     "map": {
-      "palm": "stop",
-      "fist": null,
-      "like": null,
-      "ok": null
+      "palm": "gripper:open",
+      "fist": "gripper:grip",
+      "like": "start",
+      "ok": "stop"
     }
   },
   "always_allowed": ["stop"]

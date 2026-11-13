@@ -371,77 +371,34 @@ class PerceptionEndpointTest(unittest.TestCase):
         events, _ = L.read(self.log)
         return events[before_count:]
 
-    # ---- voice ----------------------------------------------------------
-    def test_voice_text_maps_to_command_and_logs_interaction(self):
-        before, _ = L.read(self.log)
-        status, reply = self._post('/api/voice', {'text': '启动', 'dispatch': False})
-        self.assertEqual(status, 200)
-        self.assertEqual(reply['command'], {'cmd': 'start'})
-        self.assertFalse(reply['dispatched'])
-        inter = [e for e in self._new_events(len(before)) if e.get('event') == 'interaction']
-        self.assertEqual(len(inter), 1)
-        self.assertEqual(inter[0]['source'], 'voice')
-        self.assertEqual(inter[0]['command'], 'recognize')   # 与 _cmd 链的执行事件区分开
-        self.assertEqual(inter[0]['detail'], '启动')
-        self.assertEqual(L.validate(inter[0]), [])           # 拟定事件也要守契约
+    # ---- 语音/手势：只做代理，链路在控制台 ------------------------------
+    def test_interact_post_without_console_is_501(self):
+        # 本服务不自己识别：没有控制台就明确 501，不假装识别出结果
+        for path in ('/api/interact/arm', '/api/interact/voice', '/api/interact/gesture'):
+            body = {'armed': True, 'text': '启动', 'label': 'palm', 'confidence': 0.9}
+            status, reply = self._post(path, body)
+            self.assertEqual(status, 501, path)
+            self.assertIn('控制台', reply['error'])
 
-    def test_voice_stop_dispatches_through_cmd_without_console(self):
-        # stop 不依赖控制台：dispatch=true 应经 _cmd 返回 200，而不是 501
-        status, reply = self._post('/api/voice', {'text': '停止'})
-        self.assertEqual(status, 200)
-        self.assertTrue(reply['ok'])
-
-    def test_voice_audio_without_model_is_501_not_500(self):
-        status, reply = self._post('/api/voice', {'audio': 'ZmFrZQ=='})   # base64 "fake"
-        self.assertEqual(status, 501)
-        self.assertIn('模型', reply['error'])
-
-    def test_voice_without_input_is_400(self):
-        status, _ = self._post('/api/voice', {})
-        self.assertEqual(status, 400)
-
-    def test_voice_unmatched_text_returns_command_none(self):
-        before, _ = L.read(self.log)
-        status, reply = self._post('/api/voice', {'text': '今天天气不错'})
-        self.assertEqual(status, 200)
-        self.assertIsNone(reply['command'])
-        self.assertFalse(reply['dispatched'])
-        # 没映射出指令也不应写半条执行事件，只写识别记录
-        new = self._new_events(len(before))
-        self.assertTrue(all(e.get('event') == 'interaction' for e in new))
-
-    # ---- gesture --------------------------------------------------------
-    def test_gesture_label_maps_to_command_and_logs_interaction(self):
-        before, _ = L.read(self.log)
-        status, reply = self._post('/api/gesture', {'label': 'fist', 'dispatch': False})
-        self.assertEqual(status, 200)
-        self.assertEqual(reply['command'], {'cmd': 'gripper', 'action': 'grip'})
-        inter = [e for e in self._new_events(len(before)) if e.get('event') == 'interaction']
-        self.assertEqual(len(inter), 1)
-        self.assertEqual(inter[0]['source'], 'gesture')
-        self.assertEqual(inter[0]['detail'], 'fist')
-        self.assertEqual(L.validate(inter[0]), [])
-
-    def test_gesture_ok_dispatches_stop_through_cmd(self):
-        status, reply = self._post('/api/gesture', {'label': 'ok'})   # dispatch 默认 true
-        self.assertEqual(status, 200)
-        self.assertTrue(reply['ok'])
-
-    def test_gesture_image_without_model_is_501(self):
-        status, reply = self._post('/api/gesture', {'image': 'ZmFrZQ=='})
-        self.assertEqual(status, 501)
-        self.assertIn('模型', reply['error'])
-
-    def test_gesture_snapshot_without_camera_url_is_501(self):
-        status, _ = self._post('/api/gesture', {'snapshot': True})
+    def test_interact_get_without_console_is_501(self):
+        try:
+            with urllib.request.urlopen(f'http://127.0.0.1:{self.port}/api/interact', timeout=5) as r:
+                status = r.status
+        except urllib.error.HTTPError as e:
+            status = e.code
         self.assertEqual(status, 501)
 
-    def test_gesture_empty_label_is_not_a_failure(self):
-        # 低于阈值会返回空 label：不下发，但接口本身 200，前端按 note 提示
-        status, reply = self._post('/api/gesture', {'label': ''})
-        self.assertEqual(status, 200)
-        self.assertEqual(reply['label'], '')
-        self.assertFalse(reply['dispatched'])
+    def test_interact_does_not_write_interaction_itself(self):
+        # interaction 由控制台在受理后写；本服务不重复记，避免同一件事两条
+        before, _ = L.read(self.log)
+        self._post('/api/interact/voice', {'text': '启动'})
+        new = [e for e in self._new_events(len(before)) if e.get('event') == 'interaction']
+        self.assertEqual(new, [])
+
+    def test_old_voice_and_gesture_paths_are_gone(self):
+        # 旧的 /api/voice、/api/gesture 已下线：两套识别口径不能并存
+        self.assertEqual(self._post('/api/voice', {'text': '启动'})[0], 404)
+        self.assertEqual(self._post('/api/gesture', {'label': 'fist'})[0], 404)
 
     def test_unknown_paths_still_404(self):
         status, _ = self._post('/api/voice2', {})

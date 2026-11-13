@@ -18,13 +18,14 @@
     GET  /api/status                          当前模式与角度
     GET  /api/status/stream                   ≥ 2 Hz 角度推送（SSE）
     POST /api/cmd                             需求规格 ④ 的控制指令
-    POST /api/voice                           E7 语音识别：音频→文本→指令（source=voice）
-    POST /api/gesture                         E1 手势识别：图像→类别→指令（source=gesture）
+    GET  /api/interact                        语音/手势状态（武装、词表、阈值、最近识别）
+    POST /api/interact/{arm,voice,gesture}    E1/E7 语音手势：代理到控制台，识别与判定都在那边
     GET  /api/health                          健康检查
 
-语音/手势只做"把输入变成识别结果"，随后仍经 /api/cmd 下发（source=voice/gesture
-已在契约预留），运动串行化、限位、审计事件全复用 _cmd。模型（WeNet / hrnet .om）
-只能在 Atlas 板上跑，未部署时端点按 501 返回原因；前端可传 text / label 直通联调。
+语音/手势**只有一份实现**：控制台的 /api/interact/*。武装、连续帧、阈值、冷却与
+accepted/ignored/rejected 三态由 src/interact/intents.py 判定（口径见 25-语音手势接口.md），
+本服务只做代理，不自己识别、也不自己写 interaction 事件。控制台没这组端点（实机）时按 501
+返回原因，不假装识别出了什么。
 
 实机接入前用 --replay 回放样例日志：页面、事件名、字段与实机相同，可以先验收
 “条数一致、延迟 ≤ 1 s”。运动类指令需要控制台，未接控制台时按 501 返回，不假装执行。
@@ -670,6 +671,25 @@ class Handler(BaseHTTPRequestHandler):
                                command="add_timer", detail=repeat))
         return self._send(dict(ok=True, timer=timer, **timers.status()))
 
+    def _interact(self, path: str, body: dict | None = None):
+        """语音/手势：整条链交给控制台，本服务只做代理（鉴权、token、换目标）。
+
+        识别、武装开关、连续帧、阈值、冷却、accepted/ignored/rejected 三态全部由控制台的
+        src/interact/intents.py 决定，口径见 25-语音手势接口.md。本服务不重复实现，也不自己写
+        interaction 事件——控制台受理后自己记，避免同一件事记两条或漏记。
+        """
+        console = self.state.console
+        if console is None:
+            return self._fail("未接控制台：语音/手势要控制台的识别与执行侧", status=501)
+        try:
+            return self._send(console.request(path, body))
+        except ConsoleError as exc:
+            # 实机控制台没有这组端点、或板上模型没部署：把原因原样给页面，不伪装成功
+            status = 501 if exc.status == 404 else (exc.status or 502)
+            if status not in (400, 409, 501, 502, 503):
+                status = 502
+            return self._fail(str(exc), status=status)
+
     def _voice(self, body: dict):
         """POST /api/voice：识别音频→文本→映射成指令→经 _cmd 下发（source=voice）。
 
@@ -912,6 +932,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(target.read_bytes(),
                               mime=MIME.get(target.suffix.lower(), "image/jpeg"))
 
+        # 语音/手势：武装状态、词表、阈值与最近识别记录，页面直接显示控制台给的那一份
+        if path == "/api/interact":
+            return self._interact(path)
+
         if path == "/api/status":
             return self._send(self.state.status())
 
@@ -950,7 +974,7 @@ class Handler(BaseHTTPRequestHandler):
         url = urlsplit(self.path)
         if not self._authorized():
             return self._fail("token 无效", status=401)
-        if url.path not in ("/api/cmd", "/api/timers", "/api/voice", "/api/gesture"):
+        if url.path != "/api/cmd" and url.path != "/api/timers" and not url.path.startswith("/api/interact/"):
             return self._fail("没有这个接口", status=404)
         if not self._write_allowed():
             return
@@ -961,10 +985,8 @@ class Handler(BaseHTTPRequestHandler):
 
         if url.path == "/api/timers":
             return self._timers(body)
-        if url.path == "/api/voice":
-            return self._voice(body)
-        if url.path == "/api/gesture":
-            return self._gesture(body)
+        if url.path.startswith("/api/interact/"):
+            return self._interact(url.path, body)
         return self._cmd(body)
 
     def _cmd(self, body: dict):

@@ -2,7 +2,7 @@
 // 指令一律经 POST /api/cmd 下发，字段按需求规格 ④；运动由控制台执行，本页不直接碰硬件。
 
 import { MODES, MODE_NAMES, JOINT_LIMITS, NAMED_POSES, categoryName } from "./contract.js";
-import { sendCmd, sendVoice, sendGesture, fetchBlocks, authUrl } from "./api.js";
+import { sendCmd, sendVoice, sendGesture, fetchInteract, armInteract, fetchBlocks, authUrl } from "./api.js";
 import { toast } from "./format.js";
 
 const PRESETS = [["dance", "跳舞"], ["stack", "叠积木"], ["carry", "搬运"]];
@@ -93,22 +93,25 @@ export function createControlView(root) {
       </div>
     </section>
     <section class="panel needs-debug">
-      <h2>语音与手势（扩展） <small>识别结果仍走 /api/cmd 下发；模型只在 Atlas 板上跑，未部署时用文本/类别直通联调</small></h2>
+      <h2>语音与手势（扩展） <small>走控制台的 /api/interact：武装、连续帧、阈值与三态结果都由执行侧判定</small></h2>
       <div class="row">
-        <input id="voiceText" type="text" placeholder="输入指令文本，如：启动 / 停止 / 跳个舞" style="flex:1;min-width:0">
+        <label class="dim"><input id="interactArmed" type="checkbox"> 武装（除“停止”外都要先武装）</label>
+        <span class="dim" id="interactState">—</span>
+      </div>
+      <div class="row">
+        <input id="voiceText" type="text" placeholder="输入指令文本，如：启动 / 停止 / 跳个舞 / 合爪" style="flex:1;min-width:0">
         <button id="voiceSend">识别并下发</button>
-        <button id="voiceOnly">只识别</button>
       </div>
       <p class="hint" id="voiceHint"></p>
       <div class="row" id="gestureRow">
-        <span class="dim">手势直通</span>
+        <span class="dim">手势（连发 3 帧，与识别器逐帧上报等价）</span>
         <button data-gesture="fist">握拳→合爪</button>
         <button data-gesture="like">点赞→启动</button>
         <button data-gesture="ok">OK→停止</button>
         <button data-gesture="palm">张开→松爪</button>
-        <button id="gestureSnap">取相机帧识别</button>
       </div>
       <p class="hint" id="gestureHint"></p>
+      <ul class="hint" id="interactRecent" style="max-height:120px;overflow:auto;padding-left:18px"></ul>
     </section>`;
 
   const $ = (id) => root.querySelector("#" + id);
@@ -187,41 +190,65 @@ export function createControlView(root) {
     target_cm: [+$("tx").value, +$("ty").value, +$("tz").value],
   }, "移动指令已下发"));
 
-  // 语音/手势（扩展）：识别走 /api/voice、/api/gesture，最终仍经 /api/cmd 下发，
-  // source 标 voice/gesture，审计事件与手动点按钮区分开。模型只在板上跑，这里用直通联调。
+  // 语音/手势（扩展）：整条链在控制台（src/interact/intents.py）。本页只把输入发过去，
+  // 把 accepted/ignored/rejected 三态与 reason 原样显示，不在这里判断词表、阈值和连续帧。
+  const armedBox = $("interactArmed");
+  const interactState = $("interactState");
   const voiceHint = $("voiceHint");
   const voiceText = $("voiceText");
-  const runVoice = async (dispatch) => {
+  const gestureHint = $("gestureHint");
+  const recentList = $("interactRecent");
+
+  const HEAD = { accepted: "已执行", ignored: "忽略", rejected: "拒绝" };
+  const describe = (r) => {
+    const head = HEAD[r.status] ?? r.status ?? "—";
+    const cmd = r.command ? r.command + (r.preset ? ":" + r.preset : "") : "无指令";
+    return `${head} · ${cmd}${r.reason ? " · " + r.reason : ""}`;
+  };
+
+  const paintState = (state) => {
+    armedBox.checked = !!state.armed;
+    interactState.textContent = state.armed ? "已武装" : "未武装（只有“停止”能直接执行）";
+    // 用 textContent 逐条建 li：识别文本是外部输入，不进 innerHTML
+    recentList.replaceChildren(...(state.recent || []).slice(-8).reverse().map((r) => {
+      const li = document.createElement("li");
+      li.textContent = `${r.source === "gesture" ? "手势" : "语音"} ${r.input ?? r.label ?? ""} — ${describe(r)}`;
+      return li;
+    }));
+  };
+
+  const refreshInteract = async () => {
+    try { paintState(await fetchInteract()); }
+    catch { interactState.textContent = "语音/手势不可用（未接控制台）"; }
+  };
+
+  armedBox.addEventListener("change", async () => {
+    try { paintState(await armInteract(armedBox.checked)); }
+    catch (e) { toast(e.message, "bad"); armedBox.checked = !armedBox.checked; }
+  });
+
+  $("voiceSend").addEventListener("click", async () => {
     const text = voiceText.value.trim();
     if (!text) { toast("先输入要识别的文本", "bad"); return; }
     try {
-      const r = await sendVoice({ text, dispatch });
-      voiceHint.textContent = r.command
-        ? `识别“${r.text}” → ${JSON.stringify(r.command)}${r.dispatched ? "，已下发" : ""}`
-        : `识别“${r.text}” → 未匹配到指令`;
+      const r = await sendVoice(text);
+      voiceHint.textContent = `“${r.input ?? text}” → ${describe(r)}`;
+      refreshInteract();
     } catch (e) { toast(e.message, "bad"); }
-  };
-  $("voiceSend").addEventListener("click", () => runVoice(true));
-  $("voiceOnly").addEventListener("click", () => runVoice(false));
-  const gestureHint = $("gestureHint");
+  });
+
   $("gestureRow").addEventListener("click", async (ev) => {
     const btn = ev.target.closest("button[data-gesture]");
     if (!btn) return;
     try {
-      const r = await sendGesture({ label: btn.dataset.gesture, dispatch: true });
-      gestureHint.textContent = r.command
-        ? `手势 ${r.label} → ${JSON.stringify(r.command)}${r.dispatched ? "，已下发" : ""}`
-        : `手势 ${r.label} → 未映射动作`;
+      const r = await sendGesture(btn.dataset.gesture, 3, 0.9);
+      gestureHint.textContent = `${btn.textContent} → ${describe(r)}`;
+      refreshInteract();
     } catch (e) { toast(e.message, "bad"); }
   });
-  $("gestureSnap").addEventListener("click", async () => {
-    try {
-      const r = await sendGesture({ snapshot: true, dispatch: true });
-      gestureHint.textContent = r.label
-        ? `识别 ${r.label}（${(r.confidence * 100).toFixed(0)}%）${r.dispatched ? "，已下发" : ""}`
-        : "未识别到手势（置信度低于阈值）";
-    } catch (e) { toast(e.message, "bad"); }
-  });
+
+  refreshInteract();
+  setInterval(refreshInteract, 3000);
 
   function applyPose(pose) {
     pose.forEach((v, i) => { if (v != null) setJoint(i, v); });
