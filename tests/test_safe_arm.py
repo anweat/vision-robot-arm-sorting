@@ -21,6 +21,15 @@ class PlanSegmentsTest(unittest.TestCase):
             self.assertTrue(all(abs(a - b) <= 5 for a, b in zip(pose, previous)))
             previous = pose
 
+    def test_the_first_step_out_of_a_joint_reading_past_180_stays_inside_what_the_servo_call_accepts(self):
+        """The folded arm reads [91, 183, -5, -1, 100, -3]; the plan to the observe pose used to start with J2 = 181,
+        which Arm_serial_servo_write6 refuses (2026-11-06, real arm)."""
+        segments = safe_arm.plan_segments([91, 183, -5, -1, 100, -3], [90, 105, 5, 5, 100, -3], 2)
+        self.assertEqual(segments[-1], [90, 105, 5, 5, 100, -3])
+        self.assertTrue(all(pose[1] <= 180 for pose in segments))
+        self.assertEqual(segments[0][1], 180)
+        self.assertTrue(all(abs(a - b) <= 2 for a, b in zip(segments[1], segments[0])))
+
     def test_no_motion_gives_no_segments(self):
         self.assertEqual(safe_arm.plan_segments([90] * 6, [90] * 6, 5), [])
 

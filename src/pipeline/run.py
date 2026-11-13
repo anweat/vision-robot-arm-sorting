@@ -348,13 +348,15 @@ def use_bins(found: B.BinSet | None) -> None:
     G.set_obstacles(boxes)
 
 
-def saved_counts(design: str) -> dict[int, int]:
-    """How many blocks this process or an earlier run gave each bin. The scan alone undercounts: blocks stacked in a
-    bin hide one another, and a bin that looks half empty from above may be full."""
+def saved_counts(design: str) -> dict[int, int] | None:
+    """How many blocks this process or an earlier run gave each bin, or None when nobody has said (no run, no
+    `--empty-bins`). The scan alone is no count: blocks stacked in a bin hide one another, and the bin's own floor
+    sticker has been taken for a block (2026-11-06, real arm, bin 3)."""
     try:
-        return {int(n): int(c) for n, c in json.loads(STATE_FILE.read_text()).get(design, {}).items()}
+        entry = json.loads(STATE_FILE.read_text()).get(design)
     except (OSError, ValueError):
-        return {}
+        return None
+    return None if entry is None else {int(n): int(c) for n, c in entry.items()}
 
 
 def save_counts() -> None:
@@ -368,12 +370,13 @@ def save_counts() -> None:
 
 
 def forget_counts(design: str) -> None:
-    """The blocks were taken out of the bins: start counting again."""
+    """The bins are empty (the blocks were taken out, or none was ever put in): every count is zero from here."""
     try:
         state = json.loads(STATE_FILE.read_text())
     except (OSError, ValueError):
-        return
-    state.pop(design, None)
+        state = {}
+    state[design] = {str(n): 0 for n in B.BinSet(design).bins}
+    STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
     STATE_FILE.write_text(json.dumps(state, indent=1))
 
 
@@ -397,9 +400,16 @@ def usable_slots(b: B.Bin) -> list[int]:
     return [i for _, i in sorted(ok)]
 
 
+def bin_drop_offset(b: B.Bin) -> list[float]:
+    """Measured correction (cm, bin frame) added to every drop point of bin `b`: the model puts the carried block's centre
+    where the open fingers' midpoint was, and a gripped block does not sit there exactly (2026-11-06: the red block
+    came down 1-2 cm towards the bin's left edge). Zero until measured, see config/sorting.json."""
+    return [float(v) for v in SB.SORTING["bins"].get("drop_offset_cm", {}).get(str(b.number), (0.0, 0.0))]
+
+
 def bin_drop_map_cm(b: B.Bin, slot: int) -> list[float]:
     """Map cm of the point above which a block goes into `slot` of bin `b`."""
-    x, y = B.drop_xy(b, bin_slots()[slot])
+    x, y = B.drop_xy(b, bin_slots()[slot] + np.array(bin_drop_offset(b)) / 100)
     return [round(float(x - G.DX) * 100, 2), round(float(y - G.DY) * 100, 2)]
 
 
@@ -417,7 +427,11 @@ def decide_bins(scene: dict) -> list[dict]:
             holding[c["_in_bin"].number] += 1
     saved = saved_counts(BINS.name)
     for n, held in holding.items():
-        BINS.given[n] = max(held, saved.get(n, 0))
+        # what was counted going in is trusted over what the scan sees; with no count yet, the scan is all there is
+        BINS.given[n] = held if saved is None else saved.get(n, 0)
+        if saved is not None and held != BINS.given[n]:
+            G.log("bin_count_differs", bin=str(n), counted=BINS.given[n], seen=held,
+                  note="计数和扫描里看到的不一致：以计数为准；桶里确实有块没记到就先运行 --empty-bins 或补记")
         holding[n] = BINS.given[n]
     BINS.slots = {b.number: usable_slots(b) for b in BINS.bins.values()}
     reachable = {n: bool(slots) for n, slots in BINS.slots.items()}
@@ -444,6 +458,9 @@ def decide_bins(scene: dict) -> list[dict]:
         elif holding[target.number] >= len(BINS.slots[target.number]):
             why = f"bin {target.number} is full ({holding[target.number]} blocks)"
             G.log("bin_full", bin=str(target.number), count=holding[target.number], category=target.category, by="pipeline")
+        elif reach < G.MIN_REACH:
+            why = (f"{reach*100:.1f} cm from the base (< {G.MIN_REACH*100:.1f}): it would need a pitch of 160, which has not been "
+                   f"tried on the real arm; move it to map y >= {math.sqrt(max(G.MIN_REACH**2 - (c['map_cm'][0]/100 + G.DX)**2, 0))*100 - G.DY*100 + 1:.0f} cm")
         elif plan_for(c) is None:
             why = f"{reach*100:.1f} cm from the base: no reachable grasp at pitch 130-170"
         elif c["coverage"] < 0.9:
@@ -627,14 +644,14 @@ def main() -> None:
     parser.add_argument("--bins", nargs="?", const=B.DEFAULT_DESIGN, metavar="DESIGN",
                         help="sort into the acrylic bins of config/<DESIGN>.json instead of the map codes")
     parser.add_argument("--empty-bins", action="store_true",
-                        help="the blocks were taken out of the bins: forget how many each was given, and stop")
+                        help="the bins are empty: set every bin's count to 0 and stop (do this before the first run, and after taking blocks out)")
     parser.add_argument("--bin-side", default="all", metavar="left|right|all|1,2",
                         help="with --bins: only these bins stand on the table (a half-side start for a small table); "
                              "blocks of the other categories are left alone")
     args = parser.parse_args()
     if args.empty_bins:
         forget_counts(args.bins or B.DEFAULT_DESIGN)
-        print("每个桶的计数已清零")
+        print("每个桶的计数已设为 0（桶是空的）")
         return
     import field_scan as SC
     if not (args.dry_run and args.scan):

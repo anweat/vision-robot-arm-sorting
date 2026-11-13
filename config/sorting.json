@@ -44,6 +44,17 @@
       ]
     ],
     "look_margin_cm": 1.0,
-    "min_plate_gap_mm": 5.0
+    "min_plate_gap_mm": 5.0,
+    "drop_offset_cm": {
+      "2": [
+        0.0,
+        0.0
+      ],
+      "3": [
+        0.0,
+        0.0
+      ]
+    },
+    "_drop_offset_note": "Per bin, [dx, dy] cm in the bin frame (x to the right looking from the arm, +y away from the arm), ADDED to the slot's drop point. 0 = the model as it is. 2026-11-06 real arm: bin 2 block came to rest toward the bin's edge, bin 3 block 'near the left edge' after a bounce, roughly 1-2 cm off. Fill in from measured landings (centre of the block against the bin centre, after subtracting the slot): if it lands 1.5 cm too far left, put +1.5 in dx."
   }
 }

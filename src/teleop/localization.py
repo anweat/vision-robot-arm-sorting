@@ -100,10 +100,32 @@ def locate_board(jpeg, servos):
         if b.method=='top-face':   # square top face: its outline's rotation on the map, folded into [-45, 45)
             outline=np.array([pose.pixel_to_plane(p,k,dist,z=.03)[:2] for p in b.contour.reshape(-1,2)],np.float32)
             yaw=round((cv2.minAreaRect(outline)[2]+45)%90-45,1)
+        # Classical ROI refinement (src/vision/roi_pose.py): the cube silhouette, not the colour blob, so
+        # sticker-up blocks get a yaw too, and the centre is not dragged by a partial colour patch. It is
+        # allowed to fail: the blob result above is the fallback.
+        method,roi=b.method,None
+        try:
+            import roi_pose
+            x0,y0,w0,h0=b.bbox
+            roi=roi_pose.solve_top_face(image,[x0,y0,x0+w0,y0+h0],pose,k,dist,yaw,prior_xy=(x,y))
+        except Exception as exc:
+            roi=dict(ok=False,reason=str(exc))
+        if roi.get('ok'):
+            rx,ry=roi['map_cm'][0]/100,roi['map_cm'][1]/100
+            shift=float(np.hypot(rx-x,ry-y))
+            if not (-0.1485<=rx<=0.1485 and 0<=ry<=0.21):
+                roi=dict(roi,ok=False,reason='refined centre off the map')
+            elif shift>0.008:   # the colour blob is a strong prior; a fit this far away is a wrong lock
+                roi=dict(roi,ok=False,reason=f'refined centre {shift*100:.1f} cm from the colour blob')
+            else:
+                x,y,yaw=rx,ry,roi['yaw_deg']
+                method='top-face' if b.method=='top-face' else 'edges'
         targets.append(dict(label=b.label,map_cm=[round(x*100,2),round(y*100,2)],yaw_deg=yaw,
                             base_cm=(table.map_to_base([x,y,.03])*100).round(2).tolist(),
-                            bbox=list(b.bbox),method=b.method,height_cm=3,
-                            precision='rough; tentative intrinsics, assumed 3 cm block and map placement'))
+                            bbox=list(b.bbox),method=method,height_cm=3,roi=roi,
+                            precision='ROI silhouette fit; map registration and the 3 cm block assumption apply'
+                                      if roi and roi.get('ok') else
+                                      'rough; tentative intrinsics, assumed 3 cm block and map placement'))
     detector=official_detector();garbage=[]
     if detector is not None:
         try:

@@ -99,11 +99,22 @@ def cmd_hover(args) -> None:
         raise SystemExit(f"{args.bin} 号桶槽位 {args.slot} 在投放高度够不着（plan_put 无解），不动")
     print(f"bin {b.number} ({b.source}) slot {args.slot} drop at map {where} cm, tip z {z*100:.2f} cm")
     print(f"path: carry {plan['carry']} -> turn {plan['turn']} -> hover {plan['hover']} (pitch {plan['pitch']}, J5 {plan['j5_put']})")
+    j5 = plan["j5_put"] if args.j5 is None else args.j5
+    if j5 != plan["j5_put"]:
+        print(f"J5 用 {j5}（计划里是 {plan['j5_put']}）：空夹爪核对时手腕转角不影响路径，用来待在控制台当前档位的软限位内")
     confirm("将带着空夹爪走到桶口上方的投放高度，停住等你看，然后退回携带高度")
     with G.Session() as sess:
-        sess.pose(plan["carry"] + [s["pose"][4]])
-        sess.pose(plan["turn"] + [plan["j5_put"]])
-        sess.pose(plan["hover"] + [plan["j5_put"]])
+        try:
+            if max(abs(a - b) for a, b in zip(plan["carry"], s["pose"][:4])) > 1:     # a repeat of the same pose is refused
+                sess.pose(plan["carry"] + [s["pose"][4]])
+            sess.pose(plan["turn"] + [j5])
+            sess.pose(plan["hover"] + [j5])
+        except G.ConsoleError as e:
+            # a refused leg sends nothing, but the legs before it have run: the arm stands where the last one left it
+            print(f"没走完：{e}\n机械臂现在在 {G.status()['pose']}")
+            confirm("要把它退回观察位吗（取消则留在原地，之后用页面退回）")
+            G.move_to(sess, G.OBSERVE)
+            raise SystemExit(1)
         time.sleep(1.0)
         pose = G.status()["pose"]
         tip = G.tip(pose)
@@ -125,6 +136,7 @@ def main() -> None:
     h = sub.add_parser("hover")
     h.add_argument("--bin", type=int, required=True)
     h.add_argument("--slot", type=int, default=0)
+    h.add_argument("--j5", type=int, help="wrist roll to use instead of the plan's (the console's normal profile keeps J5 in 95-180)")
     h.add_argument("--run", help="a `locate` run directory: hover over the bin where it was found there")
     args = p.parse_args()
     {"plan": cmd_plan, "locate": cmd_locate, "hover": cmd_hover}[args.cmd](args)
