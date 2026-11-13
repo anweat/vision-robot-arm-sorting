@@ -77,12 +77,16 @@ class Session:
         lapses by itself 2 s after the last good beat, and a lapsed lease is not revived, so retrying cannot keep
         the arm enabled any longer than it was meant to be -- but dying on the first error ended the lease for good."""
         while not self.done.wait(.5):
+            began = time.time()
             try:
                 r = call('/api/heartbeat', {}, token=self.token, owner=self.owner, timeout=5)
                 if isinstance(r, dict) and r.get('error'):
                     print(f"heartbeat refused: {r['error']}", file=sys.stderr, flush=True)
             except Exception as e:      # noqa: BLE001
-                print(f"heartbeat failed: {e!r}", file=sys.stderr, flush=True)
+                print(f"heartbeat failed after {time.time() - began:.1f} s: {e!r}", file=sys.stderr, flush=True)
+            took = time.time() - began
+            if took > 0.8:              # the lease is 2 s: an answer this slow is a near miss worth knowing about
+                print(f"heartbeat slow: {took:.1f} s at {time.strftime('%H:%M:%S')}", file=sys.stderr, flush=True)
 
     def _post(self, path, data, timeout=60):
         r = call(path, data, timeout=timeout, token=self.token, owner=self.owner)

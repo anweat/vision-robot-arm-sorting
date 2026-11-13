@@ -23,6 +23,7 @@ if READY:
     import render as R
     from camera_model import ArmCamera
     from map_registration import load_intrinsics
+    import run as PIPE
 
 VIEWS = json.loads((ROOT / 'config' / 'bin_views_bins_acrylic_v1.json').read_text())['views']
 
@@ -232,6 +233,77 @@ class DropPlanTest(unittest.TestCase):
         plan = G.plan_put(150, '40', self.OBSERVE + [30])
         self.assertIsNone(plan['drop_tip_z'])
         self.assertAlmostEqual(G.tip(plan['hover'])[2], G.TABLE_Z + G.BLOCK + G.HOVER_ABOVE_TOP, delta=0.006)
+
+
+@unittest.skipUnless(READY, 'needs numpy, OpenCV and data/reference/block_faces')
+class DecideBinsTest(unittest.TestCase):
+    """What the pipeline decides about blocks when the targets are bins (run.decide_bins) and how it counts them."""
+
+    def setUp(self):
+        import tempfile
+        saved = (G.log, G.DX, G.DY, PIPE.STATE_FILE, PIPE.BINS)
+        self.events = []
+        G.log = lambda event, **data: self.events.append((event, data))
+        G.DX, G.DY = 0.0005, 0.0675
+        self.tmp = tempfile.TemporaryDirectory()
+        PIPE.STATE_FILE = Path(self.tmp.name) / 'bins_state.json'
+
+        def restore():
+            G.log, G.DX, G.DY, PIPE.STATE_FILE = saved[:4]
+            PIPE.use_bins(saved[4])
+            self.tmp.cleanup()
+
+        self.addCleanup(restore)
+        PIPE.use_bins(B.BinSet('bins_acrylic_v2_pair'))
+
+    @staticmethod
+    def cube(category, map_cm):
+        return dict(map_cm=list(map_cm), yaw_deg=0.0, category=category, source='test', coverage=1.0, colour=None, sticker=None)
+
+    def decide(self, *cubes):
+        return {tuple(j['cube']['map_cm']): j for j in PIPE.decide_bins(dict(cubes=list(cubes)))}
+
+    def test_a_block_nearer_than_the_minimum_reach_is_left_alone_with_the_reason(self):
+        """2026-11-06, real arm: a red block 16.3 cm from the base was given pitch 160, which has not been tried."""
+        jobs = self.decide(self.cube('hazardous', (1.2, 9.0)), self.cube('kitchen', (0.5, 15.1)))
+        near, far = jobs[(1.2, 9.0)], jobs[(0.5, 15.1)]
+        self.assertIn('160', near['skip'])
+        self.assertEqual((far['skip'], far['bin']), (None, '2'))
+
+    def test_a_block_with_no_bin_for_its_category_is_skipped(self):
+        job = self.decide(self.cube('recyclable', (0.0, 14.1)))[(0.0, 14.1)]
+        self.assertIn('no bin', job['skip'])
+
+    def test_with_no_count_the_scan_is_all_there_is_and_afterwards_the_count_wins(self):
+        inside_bin_3 = self.cube('hazardous', (-9.5, 7.3))          # the floor sticker taken for a block
+        self.assertIsNone(PIPE.saved_counts('bins_acrylic_v2_pair'))
+        job = self.decide(inside_bin_3)[(-9.5, 7.3)]
+        self.assertIn('already in bin 3', job['skip'])
+        self.assertEqual(PIPE.BINS.given[3], 1)
+        PIPE.forget_counts('bins_acrylic_v2_pair')
+        self.assertEqual(PIPE.saved_counts('bins_acrylic_v2_pair'), {2: 0, 3: 0})
+        self.events.clear()
+        self.decide(inside_bin_3)
+        self.assertEqual(PIPE.BINS.given[3], 0)
+        self.assertIn('bin_count_differs', [e for e, _ in self.events])
+
+    def test_a_measured_drop_offset_moves_the_drop_point_in_the_bin_frame(self):
+        import sort_blocks
+        bin3 = PIPE.BINS.bins[3]
+        before = PIPE.bin_drop_map_cm(bin3, 0)
+        saved = dict(sort_blocks.SORTING['bins'].get('drop_offset_cm', {}))
+        self.addCleanup(lambda: sort_blocks.SORTING['bins'].__setitem__('drop_offset_cm', saved))
+        sort_blocks.SORTING['bins']['drop_offset_cm'] = {'3': [1.5, -0.5]}
+        after = PIPE.bin_drop_map_cm(bin3, 0)
+        self.assertAlmostEqual(after[0] - before[0], 1.5, places=2)       # bin 3 stands square to the base: bin x is base x
+        self.assertAlmostEqual(after[1] - before[1], -0.5, places=2)
+        self.assertEqual(PIPE.bin_drop_map_cm(PIPE.BINS.bins[2], 0), PIPE.bin_drop_map_cm(PIPE.BINS.bins[2], 0))
+
+    def test_a_full_count_closes_the_bin_for_its_category(self):
+        PIPE.STATE_FILE.write_text('{"bins_acrylic_v2_pair": {"2": 4, "3": 0}}')
+        job = self.decide(self.cube('kitchen', (0.5, 15.1)))[(0.5, 15.1)]
+        self.assertIn('full', job['skip'])
+        self.assertIn('bin_full', [e for e, _ in self.events])
 
 
 if __name__ == '__main__':

@@ -98,16 +98,28 @@ def grip_state(reading: Optional[float], gripper: dict) -> str:
     return "holding"
 
 
+# What Arm_serial_servo_write6 accepts at most per servo (it only refuses values above these; the console's own
+# limits let J2-J4 go below zero). A joint can *read* past it -- the folded arm reads J2 = 183 -- and the first step
+# back towards its range is then the value just inside the call's range, not one more degree outside it:
+# 2026-11-06, the console's folded-to-observe plan began [.., 181, ..] and the library refused it.
+WRITE_MAX = (180, 180, 180, 180, 270, 180)
+
+
 def plan_segments(current: Sequence[int], target: Sequence[int], max_step: float) -> list[list[int]]:
-    """Linear interpolation so that no joint moves more than max_step per segment."""
+    """Linear interpolation so that no joint moves more than max_step per segment (apart from the step that
+    brings a joint from outside what the servo call accepts to its edge, WRITE_MAX)."""
     largest = max(abs(t - c) for c, t in zip(current, target))
     if largest == 0:
         return []
     count = math.ceil(largest / max_step)
-    return [
-        [round(c + (t - c) * i / count) for c, t in zip(current, target)]
-        for i in range(1, count + 1)
-    ]
+
+    def value(j: int, c: int, t: int, i: int) -> int:
+        v = round(c + (t - c) * i / count)
+        # only a joint heading for a target the call accepts is held to its edge on the way; a target beyond it is left
+        # as it is, for validate_target to refuse
+        return min(v, WRITE_MAX[j]) if j < len(WRITE_MAX) and t <= WRITE_MAX[j] else v
+
+    return [[value(j, c, t, i) for j, (c, t) in enumerate(zip(current, target))] for i in range(1, count + 1)]
 
 
 def resolve_target(current: Sequence[Optional[int]], base: Sequence[Optional[int]],

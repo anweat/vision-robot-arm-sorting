@@ -792,6 +792,23 @@ def can_put(grasp_pitch: float, where_: str, pose: list[int], drop_tip_z: float 
     return plan_put(grasp_pitch, where_, list(pose), drop_tip_z) is not None
 
 
+def drop_photo(where_: str, wait_s: float = 0.8) -> None:
+    """Save the wrist camera's frame a moment after a block was let go over a bin (data/runs/.../drops/): the block's
+    bounce and where it comes to rest are what the readbacks cannot tell. A picture that cannot be taken is no reason
+    to stop: it is a record, not a requirement."""
+    import urllib.request
+    time.sleep(wait_s)
+    try:
+        jpeg = urllib.request.urlopen(f"{BASE}/api/frame", timeout=4).read()
+        folder = RUNS / "drops"
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / f"{time.strftime('%Y%m%d_%H%M%S')}.jpg"
+        path.write_bytes(jpeg)
+        log("drop_photo", target=where_, file=str(path.relative_to(ROOT) if path.is_relative_to(ROOT) else path))
+    except Exception as e:      # noqa: BLE001
+        log("drop_photo_failed", target=where_, reason=str(e))
+
+
 def put(where_: str, session: Session | None = None, drop_tip_z: float | None = None) -> dict:
     """Carry the held block so its centre lands on a marker centre (or map x,y cm): retract and rise at the
     grasp pitch, turn only the base, reach out at a pitch within 15 deg of the grasp pitch (the block tilts
@@ -823,6 +840,8 @@ def put(where_: str, session: Session | None = None, drop_tip_z: float | None = 
             time.sleep(0.4)                # let the arm settle (it sags near full reach) before letting go
             released_at = status()["pose"]
         sess.grip("open")
+        if drop_tip_z is not None:
+            drop_photo(where_)            # a bin: what the camera sees just after letting go, before the arm lifts away
         lift(sess, hover_pose if drop_tip_z is None else b)   # a bin: back to the carry height, not straight up
     result = dict(target=where_, target_map_cm=steps["target_map_cm"], released_at=released_at)
     log("put", **result)
