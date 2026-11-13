@@ -10,7 +10,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from core import Controller, ROOT, safe_arm
+from core import Controller, ROOT, safe_arm, RevisionConflict
 from camera import Camera
 from calibration import fit, project
 
@@ -304,7 +304,12 @@ def handler(app):
                     raise ValueError('请求必须是 JSON 对象')
                 self.send(app.action(urlsplit(self.path).path,body))
             except (ValueError, TypeError, KeyError, safe_arm.MotionError) as e:
-                self.send({'error':str(e)},status=409)
+                # revision 冲突单独标 reason，网关据此重读 revision 重试；其余错误不带 reason，
+                # 网关会原样把消息传给页面，不再被改写成"revision 反复过期"
+                payload = {'error': str(e)}
+                if isinstance(e, RevisionConflict):
+                    payload['reason'] = 'revision_conflict'
+                self.send(payload, status=409)
             except Exception:
                 import traceback
                 traceback.print_exc()   # the lock-out below is silent otherwise: say what raised and on which request

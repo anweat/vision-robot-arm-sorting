@@ -52,3 +52,15 @@ footer{padding:10px 16px 20px;color:var(--dim);font-size:12px}
 #eventFeed{margin:0;padding-left:34px;max-height:300px;overflow:auto;font:12px ui-monospace,Menlo,monospace;color:var(--dim)}
 #eventFeed li.rec{color:var(--text)}
 #records{margin-top:0}
+
+/* 嵌入模式（?embed=scene）：只留 3D 视图那一块，其余面板由父页面提供，不再重复 */
+html.embed body{overflow:hidden}
+html.embed header,
+html.embed footer,
+html.embed main > section:not(#scenePanel){display:none !important}
+html.embed main{display:block;padding:0;gap:0}
+html.embed #scenePanel{height:100vh;box-sizing:border-box;margin:0;border:0;border-radius:0;padding:8px;
+  display:flex;flex-direction:column}
+html.embed #scenePanel h2{display:none}          /* 父页面已有“仿真工作台”标题 */
+html.embed #scene{flex:1 1 auto;height:auto;min-height:280px}
+html.embed .readout{margin-top:6px}

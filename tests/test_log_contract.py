@@ -62,7 +62,8 @@ class ContractTest(unittest.TestCase):
             self.assertEqual(L.read(Path(tmp) / 'missing.jsonl'), ([], 0))
 
     def test_the_checked_in_schema_is_the_one_the_code_generates(self):
-        on_disk = json.loads((ROOT / 'docs/contracts/log_event.schema.json').read_text())
+        # 必须显式写 utf-8：Windows 默认 locale 是 GBK，不写会 UnicodeDecodeError（2026-10-22）
+        on_disk = json.loads((ROOT / 'docs/contracts/log_event.schema.json').read_text(encoding='utf-8'))
         self.assertEqual(on_disk, L.schema())
 
 
