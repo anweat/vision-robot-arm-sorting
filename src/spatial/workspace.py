@@ -16,6 +16,13 @@ the folded "servo resting on the platform" [90,102,-5,-1] (2026-09-25 19:00) -- 
 [71,94,5,5] are the closest). The earlier cylinder (10.5 cm, above +4 cm, one +-2.5 cm band) put the
 folded contact 3.7 cm inside and blocked the near-field views that ran safely.
 
+Platform shape (2026-11-14): with `platform_shape` = "rounded_square" the same hull points are also
+placed at the arm's azimuth (J1) and checked against the rounded-square lid of config/platform_model.json
+(src/spatial/platform_model.py, from the operator's photo, corners fitted to the hardware log). The
+platform term is the worse of the cylinder and the square, so the square only ever adds caution: it
+matters away from J1 = 90, where the lid reaches 2-3 cm further out than the 8 cm cylinder. Both use
+`platform_min_z_m` as the top, so the profiles that lower or disable it keep working.
+
 The table term keeps that +-2.5 cm band (`hull_half_width_m`): `table_z_m` was fitted with it.
 Joint-space moves are checked on interpolated samples, because a path can dip even when both ends
 are clear.
@@ -29,12 +36,13 @@ from pathlib import Path
 from typing import Sequence
 
 import dofbot_kinematics as kin
+import platform_model
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULTS = {"platform_radius_m": 0.08, "platform_min_z_m": 0.076, "platform_margin_m": 0.004,
             "servo_half_width_m": 0.035, "servo_length_m": 0.04, "servo_back_m": 0.02,
             "finger_half_width_m": 0.015, "table_z_m": -0.045, "table_margin_m": 0.025,
-            "hull_half_width_m": 0.025}
+            "hull_half_width_m": 0.025, "platform_shape": "cylinder"}
 
 
 def load(path: Path = ROOT / "config" / "arm_limits.json") -> dict:
@@ -44,6 +52,10 @@ def load(path: Path = ROOT / "config" / "arm_limits.json") -> dict:
 def load_keep_out(arm_limits: dict) -> dict:
     cfg = dict(DEFAULTS)
     cfg.update({k: v for k, v in arm_limits.get("keep_out", {}).items() if not k.startswith("_")})
+    if cfg["platform_shape"] == "rounded_square" and "platform_square" not in cfg:
+        cfg["platform_square"] = platform_model.load()
+    elif cfg["platform_shape"] not in ("cylinder", "rounded_square"):
+        raise ValueError(f"unknown platform_shape {cfg['platform_shape']!r}")
     return cfg
 
 
@@ -82,11 +94,20 @@ def platform_hull(servos: Sequence[float], cfg: dict, samples: int = 41) -> list
 
 
 def platform_clearance(servos: Sequence[float], cfg: dict) -> float:
-    """Distance (m) of the gripper out of the platform box, less the platform margin."""
+    """Distance (m) of the gripper out of the platform, less the platform margin (worse of the
+    cylinder and, if configured, the rounded-square lid)."""
     worst = float("inf")
-    for r, z in platform_hull(servos, cfg):
+    hull = platform_hull(servos, cfg)
+    for r, z in hull:
         dr, dz = r - cfg["platform_radius_m"], z - cfg["platform_min_z_m"]
         worst = min(worst, math.hypot(dr, dz) if dr > 0 and dz > 0 else max(dr, dz))
+    square = cfg.get("platform_square") if cfg["platform_shape"] == "rounded_square" else None
+    if square is not None:
+        square = dict(square, top_z_m=cfg["platform_min_z_m"])     # profiles move/disable the top
+        yaw = math.radians(list(servos)[0] - 90.0)
+        sx, cy = -math.sin(yaw), math.cos(yaw)
+        for r, z in hull:
+            worst = min(worst, -platform_model.depth(r * sx, r * cy, z, square))
     return worst - cfg["platform_margin_m"]
 
 

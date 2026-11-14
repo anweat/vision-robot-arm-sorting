@@ -83,8 +83,13 @@ class KeepOutTest(unittest.TestCase):
     SAFE = [([90, 105, 5, 5], [90, 105, 5, 5]), ([70, 105, 5, 5], [110, 105, 5, 5]),
             ([84, 108, 5, 8], [96, 102, 8, 5]), ([93, 133, 2, 3], [90, 105, 5, 5]),
             ([90, 105, 5, 5], [90, 130, 5, 5]),
-            # near-strip refine views of 2026-09-25
-            ([71, 94, 5, 5], [71, 94, 5, 5]), ([51, 99, 5, 5], [51, 99, 5, 5])]
+            # near-strip refine view of 2026-09-25
+            ([71, 94, 5, 5], [71, 94, 5, 5]),
+            # field_scan near views since 2026-11-14 (rounded-square platform)
+            ([40, 90, 30, 0], [62, 106, 5, 0]), ([62, 106, 5, 0], [90, 105, 5, 0]), ([90, 105, 5, 0], [118, 106, 5, 0])]
+    # ran without contact on the arm, but refused since the rounded-square platform (2026-11-14): the fitted
+    # hull is fatter than the real gripper and these pass over the lid's front corners
+    RAN_BUT_REFUSED = [[51, 99, 5, 5], [49, 105, 5, 0], [50, 105, 5, 0], [124, 105, 5, 0], [125, 105, 5, 0]]
     # "close to the platform, no contact" (2026-09-25 00:50); the fingertips were near the table, so
     # only the platform term applies
     PLATFORM_CLEAR = [[99, 72, 13, 12], [93, 81, 23, -2]]
@@ -101,6 +106,32 @@ class KeepOutTest(unittest.TestCase):
         ko = safe_arm.workspace.load_keep_out(CFG)
         for pose in self.PLATFORM_CLEAR:
             self.assertGreaterEqual(safe_arm.workspace.platform_clearance(pose, ko), 0, pose)
+
+    def test_square_platform_is_only_stricter_than_the_cylinder(self):
+        import copy
+        ko = safe_arm.workspace.load_keep_out(CFG)
+        self.assertEqual(ko["platform_shape"], "rounded_square")
+        cyl = copy.deepcopy(ko)
+        cyl["platform_shape"] = "cylinder"
+        for pose in self.RAN_BUT_REFUSED:
+            self.assertGreaterEqual(safe_arm.workspace.platform_clearance(pose, cyl), 0, pose)
+            self.assertLess(safe_arm.workspace.platform_clearance(pose, ko), 0, pose)
+        for j1 in range(20, 161, 5):
+            for rest in ([105, 5, 0], [99, 5, 5], [90, 30, 0], [125, 0, 0]):
+                pose = [j1] + rest
+                self.assertLessEqual(safe_arm.workspace.platform_clearance(pose, ko),
+                                     safe_arm.workspace.platform_clearance(pose, cyl) + 1e-12, pose)
+
+    def test_folded_view_beside_the_lid_is_refused(self):
+        # the cylinder let [30,105,5,0] through with +0.7 cm; the lid's side reaches 11 cm out there
+        ko = safe_arm.workspace.load_keep_out(CFG)
+        for j1 in (20, 30, 40, 140, 150, 160):
+            self.assertLess(safe_arm.workspace.platform_clearance([j1, 105, 5, 0], ko), 0, j1)
+
+    def test_profiles_that_move_the_top_move_the_square_too(self):
+        ko = safe_arm.workspace.load_keep_out(CFG)
+        ko["platform_min_z_m"] = -1.0          # explore profile: the platform term only informs
+        self.assertGreater(safe_arm.workspace.platform_clearance([30, 105, 5, 0], ko), 0)
 
     def test_known_contacts_are_inside(self):
         ko = safe_arm.workspace.load_keep_out(CFG)

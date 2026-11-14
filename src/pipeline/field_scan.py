@@ -2,8 +2,8 @@
 
 Five high views chosen from the calibrated camera model (docs/05, 2026-09-26) cover the far grasp band
 (map y 10-17 cm, |x| <= 13 cm) with a 30 px image margin; three folded near views (camera looking down in
-front of the platform, 1.1 cm clear of the platform box refitted 2026-09-25) add the near strip, so 91 % of
-the map points a block can be grasped at are seen (the rest is the row right at the platform edge). At each view the arm must be at rest; the frame and the console's
+front of the platform, clear of the rounded-square platform keep-out of 2026-11-14) add the near strip (the side
+ones moved from J1 50/125 to 62/118 on 2026-11-14, which leaves the near corners of the map less covered). At each view the arm must be at rest; the frame and the console's
 official-model detections are taken from a board result computed after the stop.
 
     python3 src/pipeline/field_scan.py [run_dir]      # moves the arm; operator watching
@@ -24,7 +24,10 @@ import console_grasp as G  # noqa: E402
 from console_step import BASE, Session, status  # noqa: E402
 
 SCAN_POSES = [[100, 125, 0, 0], [70, 125, 0, 0], [110, 105, 15, 0], [80, 120, 0, 0], [40, 90, 30, 0],
-              [50, 105, 5, 0], [90, 105, 5, 0], [125, 105, 5, 0]]      # near views
+              [62, 106, 5, 0], [90, 105, 5, 0], [118, 106, 5, 0]]      # near views
+# 2026-11-14: the side near views were [50,105,5,0] / [125,105,5,0] (ran 32/34 times without contact); the
+# rounded-square platform keep-out refuses them, so they moved inwards to +0.3 cm clearance. Camera-model
+# coverage of the near strip (base y < 15 cm) drops from 38 % to 30 % of the map grid, the whole map from 78 to 75 %.
 RUNS = ROOT / "data" / "runs" / "pipeline"
 
 

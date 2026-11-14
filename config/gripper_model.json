@@ -104,7 +104,7 @@
   "max_gap_m": 0.064,
   "min_gap_m": 0.0,
   "source": "https://www.yahboom.net/study/Dofbot-Pi/15480 (table reproduced verbatim on https://www.yahboom.net/study/DOFBOT-Pro/17606/)",
-  "evidence": "official document table; one local confirmation: 3 cm block grips at command 133 deg, table says 134 deg",
+  "evidence": "official document table; two local confirmations: 3 cm block grips at command 133 deg (table 134), and the fully-open jaw measures 64 mm (2026-11-13, operator)",
   "local_check": {
    "3cm_block_command_deg": 133,
    "official_deg": 134,
@@ -115,8 +115,10 @@
    "source": "config/arm_limits.json gripper + data/runs/gripper_calibration.jsonl",
    "evidence": "measured on this arm"
   },
-  "uncertainty": "The Isaac USD variant of the same robot cannot open past 44.7 mm, and its pads are 35.9 mm apart in the default pose. If this unit is that smaller variant, everything above ~45 mm is unavailable and the 55-64 mm part of the official table does not apply. For the 3 cm blocks used here the two only differ above 45 mm. A caliper reading at 0/30/60/90/120/150/180 deg settles it (see doc, calibration step 1).",
-  "effect_on_this_project": "3 cm blocks need 30 mm (+1 cm localisation margin = 40 mm); both variants provide that at <= 115 deg, i.e. every open pose the project uses (11-30 deg) is safe under either model."
+  "uncertainty": "RESOLVED for the endpoints: the fully-open jaw measures 64 mm, so the official table's 0 deg row is this unit's real maximum and the 55-64 mm rows apply. The Isaac USD mesh cannot open past 44.7 mm, so that mesh is a smaller / different gripper variant and its finger geometry is only indicative (see geometry.variant_caveat). Still official-table-only: the intermediate rows (e.g. 5.5 cm -> 80 deg); a caliper set at 30/60/90/120/150 deg would make the curve measured end to end.",
+  "effect_on_this_project": "3 cm blocks need 30 mm (+1 cm localisation margin = 40 mm), i.e. the least-open safe command is 115 deg and the 11-30 deg poses the project uses leave 62-63 mm: the block never binds on the way in. The 45 mm question no longer limits anything.",
+  "max_gap_confirmed_mm": 64.0,
+  "max_gap_confirmed_source": "operator measurement 2026-11-13 (fully open jaw)"
  },
  "geometry": {
   "source": "Isaac Sim Yahboom Dofbot USD, extracted by scripts/extract_isaac_dofbot.py (data/reference/isaac_dofbot/geometry.json)",
@@ -160,7 +162,8 @@
     0.069
    ],
    "source": "Wrist_Twist world AABB"
-  }
+  },
+  "variant_caveat": "The real gripper opens 64 mm; the Isaac USD gripper stops at 44.7 mm, so the USD finger mesh is a smaller variant. Its pad/fingertip numbers below are indicative (a few mm), not this arm's truth; the arm link lengths from the same USD do agree with the URDF to 0.3 mm."
  },
  "tcp": {
   "_note": "Four different 'tips' exist and must not be mixed. New code should use grasp_centre; the verified console path uses the empirical offset until a 3-pose recalibration is done.",

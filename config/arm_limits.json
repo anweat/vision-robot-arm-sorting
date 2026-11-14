@@ -70,6 +70,8 @@
     "platform_min_z_m": 0.076,
     "platform_margin_m": 0.004,
     "_platform_note": "radius: operator-measured 8 cm turntable centre to platform edge (map laid against it registers at y 7.5-7.7 cm); top: 9 cm chassis over the table at -1.42 cm. Housing sizes fitted: contacts <= +0.1 cm, contact-free moves >= +0.6 cm.",
+    "platform_shape": "rounded_square",
+    "_platform_shape_note": "2026-11-14: the platform term is the worse of the r 8 cm cylinder above and the rounded-square lid of config/platform_model.json (operator photo; corners and rolled edge fitted to 1080 hardware poses with the link meshes, docs/atlas-200i-dk-a2/28 section 6). Same hull points, placed at the J1 azimuth. Away from J1 = 90 the lid reaches 2-3 cm further than the cylinder. Cost: the near views [49,105,5,0] / [124,105,5,0] and [51,99,5,5], which ran without contact, are now refused (the fitted hull is fatter than the real gripper); field_scan uses [62,106,5,0] / [118,106,5,0] instead. 'cylinder' restores the old check.",
     "servo_half_width_m": 0.035,
     "servo_length_m": 0.04,
     "servo_back_m": 0.02,

@@ -19,6 +19,11 @@ class JawCurveTest(unittest.TestCase):
         self.assertAlmostEqual(gm.jaw_gap_m(0.0), 0.064, places=6)
         self.assertAlmostEqual(gm.jaw_gap_m(180.0), 0.0, places=6)
 
+    def test_the_fully_open_jaw_was_measured_at_64_mm(self):
+        # 2026-11-13: operator measured 64 mm fully open, so the 0 deg row is this unit's truth
+        self.assertEqual(MODEL["jaw"]["max_gap_confirmed_mm"], 64.0)
+        self.assertAlmostEqual(gm.jaw_gap_m(0.0), MODEL["jaw"]["max_gap_confirmed_mm"] / 1000.0, places=9)
+
     def test_a_3cm_block_grips_at_134_deg_officially(self):
         # documented: 3 cm -> 134 deg; this arm gripped a 3 cm block at command 133 deg
         self.assertAlmostEqual(gm.servo6_for_gap(0.030), 134.0, delta=0.5)
