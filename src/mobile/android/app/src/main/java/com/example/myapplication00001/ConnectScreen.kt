@@ -21,6 +21,9 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -44,6 +47,7 @@ fun ConnectScreen(onGatewayChanged: () -> Unit, modifier: Modifier = Modifier) {
     var url by remember { mutableStateOf(ArmClient.savedUrl(context)) }
     var token by remember { mutableStateOf(ArmClient.savedToken(context)) }
     var saved by remember { mutableStateOf("") }
+    var showToken by remember { mutableStateOf(false) }
 
     val initial = remember { RelayConfig.load(context) }
     var boardHost by remember { mutableStateOf(initial.boardHost) }
@@ -80,7 +84,15 @@ fun ConnectScreen(onGatewayChanged: () -> Unit, modifier: Modifier = Modifier) {
             style = MaterialTheme.typography.bodySmall,
         )
         OutlinedTextField(url, { url = it }, label = { Text("网关地址") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(token, { token = it }, label = { Text("口令（网关用 --lan 时必填）") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(
+            token, { token = it },
+            label = { Text("口令（网关用 --lan 时必填）") },
+            singleLine = true,
+            // 口令默认遮住：截屏、旁人看屏幕都不该看到
+            visualTransformation = if (showToken) VisualTransformation.None else PasswordVisualTransformation(),
+            trailingIcon = { TextButton(onClick = { showToken = !showToken }) { Text(if (showToken) "隐藏" else "显示") } },
+            modifier = Modifier.fillMaxWidth(),
+        )
         Button(onClick = {
             saved = try {
                 ArmClient(url, token)

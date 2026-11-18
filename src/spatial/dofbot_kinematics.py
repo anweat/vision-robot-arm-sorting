@@ -112,6 +112,33 @@ def inverse(x: float, y: float, z: float, pitch_deg: float,
     return [round(s1, 1), round(s2, 1), round(s3, 1), round(s4, 1)]
 
 
+def inverse_j2_fixed(s1: float, s2: float, x: float, y: float, z: float,
+                     near: Sequence[float]) -> Optional[list[float]]:
+    """Servos 3-4 (unrounded) putting the tip at (x, y, z) with servos 1-2 held at s1, s2; the pitch follows.
+    Of the two bends, the one closer to `near` (servos 1-4). For the touch probe (doc 33): J2 moves in jumps
+    of its 1.5-2 deg dead band, so a descent that leaves it alone is far steadier. None if out of reach or
+    the tip is off the J1 ray."""
+    r = math.hypot(x, y)
+    p2 = math.radians(90 - s2)
+    er, ez = UPPER_ARM * math.sin(p2), BASE_TO_SHOULDER + UPPER_ARM * math.cos(p2)
+    a, b = FOREARM, WRIST_TO_SERVO5 + GRIPPER
+    dr, dz = r - er, z - ez
+    d2 = dr * dr + dz * dz
+    c = (d2 - a * a - b * b) / (2 * a * b)
+    if not -1 <= c <= 1:
+        return None
+    best = None
+    for sign in (1, -1):
+        bend = sign * math.acos(c)
+        p3 = math.atan2(dr, dz) - math.atan2(b * math.sin(bend), a + b * math.cos(bend))
+        p4 = p3 + bend
+        q = [s1, s2, 90 - math.degrees(p3 - p2), 90 - math.degrees(p4 - p3)]
+        cost = abs(q[2] - near[2]) + abs(q[3] - near[3])
+        if best is None or cost < best[0]:
+            best = (cost, q)
+    return best[1]
+
+
 def inverse_within(x: float, y: float, z: float, limits: dict[int, Sequence[float]],
                    pitches: Sequence[float] = tuple(range(180, 89, -1))) -> Optional[dict]:
     """First solution inside the joint limits, trying the most vertical approach first."""

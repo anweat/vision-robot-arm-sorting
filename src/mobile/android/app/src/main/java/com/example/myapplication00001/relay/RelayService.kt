@@ -39,13 +39,24 @@ class RelayService : Service() {
         @Volatile var instance: RelayService? = null
             private set
 
+        private const val PREFS = "relay"
+        private const val KEY_WANTED = "relay_wanted"
+
         fun start(context: Context) {
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_WANTED, true).apply()
             val intent = Intent(context, RelayService::class.java)
             if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent) else context.startService(intent)
         }
 
         fun stop(context: Context) {
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_WANTED, false).apply()
             context.startService(Intent(context, RelayService::class.java).setAction(ACTION_STOP))
+        }
+
+        /** 跳板手机是唯一链路：重装或进程被杀后，打开 App 就按上次的开关恢复跳板。 */
+        fun restoreIfWanted(context: Context) {
+            val wanted = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_WANTED, false)
+            if (wanted && instance == null) start(context)
         }
     }
 

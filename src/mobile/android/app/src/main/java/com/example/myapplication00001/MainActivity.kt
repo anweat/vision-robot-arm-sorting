@@ -78,10 +78,13 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        com.example.myapplication00001.relay.RelayService.restoreIfWanted(this)
         val preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         setContent {
             MyApplication00001Theme {
-                var tab by remember { mutableStateOf(if (ArmClient.savedUrl(this) == ArmClient.DEFAULT_URL) 3 else 0) }
+                // 配过网关（改过地址或填了口令）就直接进控制页；全新安装才先去「连接」
+                val configured = ArmClient.savedUrl(this) != ArmClient.DEFAULT_URL || ArmClient.savedToken(this).isNotBlank()
+                var tab by remember { mutableStateOf(if (configured) 0 else 3) }
                 var gatewayVersion by remember { mutableStateOf(0) }
                 val client = remember(gatewayVersion) {
                     runCatching { ArmClient(ArmClient.savedUrl(this), ArmClient.savedToken(this)) }.getOrNull()
@@ -90,14 +93,15 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     bottomBar = {
                         NavigationBar {
-                            listOf("控制", "任务", "网页", "连接", "旧版").forEachIndexed { index, label ->
-                                NavigationBarItem(
-                                    selected = tab == index,
-                                    onClick = { tab = index },
-                                    icon = { Text(label.take(1)) },
-                                    label = { Text(label) },
-                                )
-                            }
+                            listOf("🕹" to "控制", "☰" to "任务", "◎" to "网页", "⇄" to "连接", "…" to "旧版")
+                                .forEachIndexed { index, (icon, label) ->
+                                    NavigationBarItem(
+                                        selected = tab == index,
+                                        onClick = { tab = index },
+                                        icon = { Text(icon) },
+                                        label = { Text(label) },
+                                    )
+                                }
                         }
                     },
                 ) { padding ->

@@ -215,6 +215,114 @@ class ControllerTest(unittest.TestCase):
         self.assertFalse(self.c.status()['armed'])
 
 
+class TableArm(SimArm):
+    """A simulated arm resting on a table at `table_z` (FK tip): a command below it stops where the tip meets it,
+    the way a real servo stalls. Precise reads return the float pose."""
+    def __init__(self, pose, table_z, soft=0.0):
+        super().__init__()
+        self.pose, self.table_z, self.commands, self.soft = list(pose), table_z, [], soft
+        sys.path.insert(0, str(ROOT/'src/spatial'))
+        import dofbot_kinematics
+        self.kin = dofbot_kinematics
+
+    def z(self, q):
+        return self.kin.forward(list(q)[:4])['tip'][2]
+
+    def write6(self, pose, duration_ms):
+        self.commands.append(list(pose))
+        goal = list(pose)
+        if self.z(goal) >= self.table_z:
+            self.pose = goal
+            return
+        # stop on the segment where the tip meets the table; a soft one gives way by `soft` of the overshoot
+        floor = self.table_z - self.soft * (self.table_z - self.z(goal))
+        a, b = 0.0, 1.0
+        for _ in range(30):
+            m = (a + b) / 2
+            q = [x + (y - x) * m for x, y in zip(self.pose, goal)]
+            a, b = (m, b) if self.z(q) >= floor else (a, m)
+        self.pose = [x + (y - x) * a for x, y in zip(self.pose, goal)]
+
+    def read(self):
+        return [int(round(v)) for v in self.pose]
+
+    def read_precise(self, joints=(1, 2, 3, 4)):
+        return {j: round(self.pose[j-1], 2) for j in joints}
+
+
+class TouchTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def run_touch(self, table_z, **kw):
+        arm = TableArm([90, 60, 30, 30, 92, 133], table_z)   # tip at z 1.14 cm, pitch 150
+        c = Controller(self.tmp.name, arm)
+        with patch('core.time.sleep'):
+            return c, arm, c.touch('a', **kw)
+
+    def test_stops_on_the_table_and_holds_at_the_precise_readback(self):
+        c, arm, r = self.run_touch(-0.005, max_cm=3, step_mm=1, stall_mm=1.5)
+        self.assertTrue(r['contacted'], r['why'])
+        self.assertAlmostEqual(r['tip'][2], -0.005, delta=0.0003)
+        self.assertAlmostEqual(r['pitch'], 150, delta=0.5)
+        self.assertEqual(arm.commands[-1][:4], r['pose'][:4])     # last command = where it rests: not pressing
+        self.assertEqual(arm.commands[-1][4:], [92, 133])         # wrist and gripper untouched
+        self.assertLessEqual(r["steps"], 16 + 3)                  # 1.64 cm free, one partial step, two stalled
+        xs = {round(arm.kin.forward(q[:4])['tip'][0], 4) for q in arm.commands}
+        self.assertEqual(xs, {0.0})                               # straight down
+
+    def test_a_sticky_j2_running_below_its_command_is_not_contact(self):
+        # 2026-11-18 on the board: free in the air J2 stays put while J3/J4 move, the readback tip runs 5-8 mm
+        # below the command; only a rise above that running lag is contact
+        arm = TableArm([90, 60, 30, 30, 92, 133], -0.005)
+        stuck = arm.read_precise
+        arm.read_precise = lambda joints=(1, 2, 3, 4): {**stuck(joints), 2: 60.0}
+        c = Controller(self.tmp.name, arm)
+        with patch('core.time.sleep'):
+            r = c.touch('a', max_cm=1, step_mm=1, stall_mm=3)
+        self.assertFalse(r['contacted'], r['why'])
+        self.assertGreater(abs(r['trace'][-1]['lag_mm']), 1)          # the readback did drift off its command
+
+    def test_a_soft_surface_is_found_by_the_lag_trend(self):
+        # the desk mat on 2026-11-18: pressed, the tip kept sinking at about half the commanded rate
+        arm = TableArm([90, 60, 30, 30, 92, 133], -0.005, soft=0.5)
+        c = Controller(self.tmp.name, arm)
+        with patch('core.time.sleep'):
+            r = c.touch('a', max_cm=4, step_mm=1, stall_mm=3, after=3)
+        self.assertTrue(r['contacted'], r['why'])
+        self.assertIn('soft', r['why'])
+        free = sum(1 for t in r['trace'] if t['z_cmd'] >= -0.005)
+        self.assertLessEqual(len(r['trace']) - free, 7 + 3)     # detected within the slope window, then `after`
+        self.assertGreater(r['tip'][2], -0.005 - 0.006)         # pressed in by a few mm at most
+
+    def test_a_step_past_the_limits_ends_the_probe_without_a_fault(self):
+        # 2026-11-18: a J2-held probe at 23 cm took J3 past -10 and the console locked up instead of stopping
+        arm = TableArm([90, 59, -8, 77, 92, 168], -0.10)
+        c = Controller(self.tmp.name, arm)
+        with patch('core.time.sleep'):
+            r = c.touch('a', max_cm=3, step_mm=1, lock_j2=True)
+        self.assertFalse(r['contacted'])
+        self.assertIn('限位', r['why'])
+        self.assertEqual(c.status()['error'], '')
+
+    def test_no_contact_stops_after_max_travel(self):
+        c, arm, r = self.run_touch(-0.10, max_cm=1, step_mm=1)
+        self.assertFalse(r['contacted'])
+        self.assertEqual(r['steps'], 10)
+        self.assertAlmostEqual(r['tip'][2], 0.0114 - 0.01, delta=0.0003)
+
+    def test_arguments_and_lease(self):
+        c = Controller(self.tmp.name, TableArm([90, 60, 30, 30, 92, 133], -0.005))
+        for bad in (dict(max_cm=9), dict(step_mm=0), dict(stall_mm=True)):
+            with self.assertRaises(ValueError):
+                c.touch('a', **bad)
+        with patch('core.time.sleep'):
+            c.touch('a', max_cm=.3)
+        with self.assertRaises(ValueError):
+            c.touch('b', max_cm=.3)                               # someone else holds control
+
+
 class CalibrationTest(unittest.TestCase):
     def test_independent_point_and_distance(self):
         h=fit([[0,0,0,0],[640,0,32,0],[640,480,32,24],[0,480,0,24]])['h']

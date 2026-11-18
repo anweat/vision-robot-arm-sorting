@@ -46,6 +46,17 @@ class SimArm:
         self.pose = list(pose)
 
 
+SLOPE_STEPS = 7         # touch: window for the lag's trend (doc 33)
+SLOPE_CONTACT = 4e-4    # m per step: the lag growing this fast means the tip is held back (soft surface)
+
+
+def _slope(ys):
+    n = len(ys)
+    mx = (n - 1) / 2
+    my = sum(ys) / n
+    return sum((i - mx) * (y - my) for i, y in enumerate(ys)) / sum((i - mx) ** 2 for i in range(n))
+
+
 LEASE_S = 2.0           # control lapses this long after the last command or heartbeat
 DRIVE_TIMEOUT_S = 0.3   # stick driving stops this long after the last stick update
 DRIVE_SETTLE_MS = 60
@@ -84,6 +95,7 @@ class Controller:
         self.drive_cmd = None   # latest stick update: dict(owner, mode, v, wrist, at)
         self.driving = False
         self.drive_reason = ''
+        self.last_touch = None  # result of the last touch probe (doc 33)
         self.time_scale = 1.0   # simulation only: segment times and waits are divided by this (sim_server --speed)
         self.refresh()
 
@@ -352,6 +364,177 @@ class Controller:
                 self.driving = False
                 self.drive_cmd = None
             self.log('drive_end', owner=owner, reason=self.drive_reason)
+
+    def precise(self):
+        """Read-only: J1-J6 from the raw servo position next to the whole-degree readback, while nothing moves."""
+        fn = getattr(self.arm, 'read_precise', None)
+        with self.gate:
+            if self.busy:
+                raise ValueError('正在运动；停稳后再读')
+        with self.io:
+            whole = self.arm.read()
+            fine = fn((1, 2, 3, 4, 5, 6)) if fn else {j: (None if v is None else float(v)) for j, v in zip(range(1, 7), whole)}
+        return dict(pose=whole, precise=[fine.get(j) for j in range(1, 7)], raw=fn is not None, t=time.time())
+
+    # ---- touch probe (doc 33) ----------------------------------------------------------------------------
+    def touch(self, owner, max_cm=3.0, step_mm=1.0, stall_mm=3.0, after=3, lock_j2=False):
+        """Lower the tip straight down at its current x, y and pitch in sub-degree steps until something holds it.
+
+        After every step the joints are read from the raw servo position (`read_precise`, ~0.08 deg a count;
+        the usual readback is whole degrees, 3-4 mm at the tip) and the tip height they give is compared
+        with the commanded one. Free in the air that difference is not zero: J2 has a dead band of 1.5-2 deg
+        against gravity and moves in jumps, so the readback tip runs 5-8 mm below its command and wanders by
+        ~2 mm (2026-11-18, doc 33). Contact is therefore read relative to the lowest difference of the last
+        few steps (a slow drift of the dead band is not a contact; a tip that stops while the command goes on
+        rises ~1 mm a step): `stall_mm` above that baseline on two steps running, or twice that on one. A soft
+        surface (the desk mat) never stops the tip: pressed, it sinks at about half the commanded rate, so a
+        lag that grows by >= 0.4 mm a step over the last 7 steps (free: <= 0.12 in the air, <= 0.29 before
+        contact; 0.5 pressed, 2026-11-18) and stands 1.5 mm above its low counts too. After that `after`
+        more steps are taken so the onset can be fitted offline (src/tools/fit_touch.py), then:
+        `lock_j2`: J2 keeps its command and J3/J4 alone take the tip straight down (the pitch drifts a few
+        degrees): J2's jumps are the main noise in the lag (doc 33 §3).
+        a tip that rises `stall_mm` above that baseline on two steps running, or twice that on one, has met
+        something: the arm is commanded to that precise readback, so the servos stop
+        pressing, and the readback is the contact pose. No contact within `max_cm`: it stops there.
+
+        Every step passes the same limit and keep-out checks as any move; a joint off its command by more
+        than the readback tolerance holds and raises as usual. Returns the result (also in `last_touch`)."""
+        kin = safe_arm.workspace.kin
+        if not isinstance(lock_j2, bool):
+            raise ValueError('lock_j2 须为布尔值')
+        for name, v, lo, hi in (('max_cm', max_cm, .2, 5), ('step_mm', step_mm, .3, 3), ('stall_mm', stall_mm, .5, 5),
+                                ('after', after, 0, 6)):
+            if isinstance(v, bool) or not isinstance(v, (int, float)) or not lo <= v <= hi:
+                raise ValueError(f'{name} 须在 {lo}–{hi}')
+        with self.gate:
+            if self.busy:
+                raise ValueError('正在运动；指令不排队')
+            self._claim(owner)
+            if self.hardware and not self.camera.fresh():
+                self.deadline = 0
+                raise ValueError('画面过期，已锁定控制')
+            self.busy = True
+            self.revision += 1
+        precise = getattr(self.arm, 'read_precise', None)
+
+        def read4():
+            if precise:
+                got = precise((1, 2, 3, 4))
+                if any(got.get(j) is None or not math.isfinite(got[j]) for j in (1, 2, 3, 4)):
+                    raise ValueError('精确回读失败；停止后续指令')
+                return [float(got[j]) for j in (1, 2, 3, 4)]
+            got = self.arm.read()
+            if len(got) != 6 or any(v is None for v in got[:4]):
+                raise ValueError('关节回读失败')
+            return [float(v) for v in got[:4]]
+
+        motion = self.cfg['motion']
+        seg_ms, settle_ms = 250, 150
+        tolerance = motion['readback_tolerance_deg']
+        trace, result = [], None
+        try:
+            with self.io:
+                current = self.arm.read()
+                if len(current) != 6 or any(v is None or not math.isfinite(v) for v in current):
+                    raise ValueError('关节回读失败')
+                synced = self.command is not None and all(abs(c-r) <= tolerance for c, r in zip(self.command, current))
+                tail = list(self.command[4:6]) if synced else list(current[4:6])   # J5/J6 keep their command
+                q0 = read4()
+                j2 = (float(self.command[1]) if synced else q0[1]) if lock_j2 else None
+                fk = kin.forward(q0 if j2 is None else [q0[0], j2, q0[2], q0[3]])
+                x, y, z0 = fk['tip']
+                pitch = fk['tip_pitch_deg'][0]
+                prev, stalls, contact, qr, lags, seen, extra, last = q0 + tail, 0, None, q0, [], None, 0, None
+                self.log('touch_start', start=q0, tip=[x, y, z0], pitch=pitch, max_cm=max_cm, step_mm=step_mm, stall_mm=stall_mm, lock_j2=lock_j2)
+                for k in range(1, int(max_cm * 10 / step_mm + 1e-9) + 1):
+                    zc = z0 - k * step_mm / 1000
+                    q = kin.inverse(x, y, zc, pitch) if j2 is None else \
+                        kin.inverse_j2_fixed(q0[0] if not synced else float(self.command[0]), j2, x, y, zc, prev)
+                    if q is None:
+                        contact = None
+                        reason = '下方超出可达范围'
+                        break
+                    goal = [float(v) for v in q] + tail
+                    jump = max(abs(a - b) for a, b in zip(goal[:4], (last or prev)[:4]))   # vs the last command
+                    last = goal
+                    if jump > 4:              # near the end of reach: steps grow; stop where it is, not a fault
+                        reason = f'下方接近伸展极限（一步需转 {jump:.1f}°）'
+                        break
+                    try:
+                        safe_arm.validate_target(prev, goal, self.cfg)
+                        safe_arm.check_keep_out(prev, goal, self.cfg, recover=True)
+                    except safe_arm.MotionError as exc:   # the next step would leave the limits: stop here
+                        reason = f'下一步超出限位或禁入区：{exc}'
+                        break
+                    with self.gate:
+                        if self.owner != owner or time.monotonic() >= self.deadline:
+                            raise ValueError('已停止或操作权超时')
+                        self.target = goal
+                        self.arm.write6(goal, int(seg_ms / self.time_scale))
+                        self.command = list(goal)
+                    time.sleep((seg_ms + settle_ms) / 1000 / self.time_scale)
+                    qr = read4()
+                    zr = kin.forward(qr)['tip'][2]
+                    lag = zr - zc
+                    lags.append(lag)
+                    rise = lag - min(lags[-6:])
+                    trace.append(dict(k=k, z_cmd=round(zc, 5), z_read=round(zr, 5), lag_mm=round(lag * 1000, 2),
+                                      rise_mm=round(rise * 1000, 2), q=qr))
+                    off = [f'servo {j}: expected {g:.1f}, read {o:.1f}' for j, g, o in zip((1, 2, 3, 4), goal, qr)
+                           if abs(g - o) > tolerance]
+                    if off:
+                        hold = qr + tail
+                        self.arm.write6(hold, int(motion['segment_ms'] / self.time_scale))
+                        self.command = list(hold)
+                        self.log('hold_at_readback', hold=hold)
+                        contact = 'resistance: ' + '; '.join(off)
+                        break
+                    stalls = stalls + 1 if rise >= stall_mm / 1000 else 0
+                    slope = _slope(lags[-SLOPE_STEPS:]) if len(lags) >= SLOPE_STEPS else 0.0
+                    trace[-1]['slope_mm'] = round(slope * 1000, 3)
+                    if seen is None and (stalls >= 2 or rise >= 2 * stall_mm / 1000):
+                        seen = f'tip {rise * 1000:.1f} mm above its lowest lag ({lag * 1000:+.1f} mm vs command)'
+                        extra = 0                  # rigid: nothing more to learn by pressing
+                    elif seen is None and slope >= SLOPE_CONTACT and rise >= 1.5e-3:
+                        seen = f'lag rising {slope * 1000:.2f} mm/step (soft surface)'
+                        extra = after
+                    if seen is not None:
+                        if extra <= 0:
+                            hold = qr + tail
+                            self.arm.write6(hold, int(seg_ms / self.time_scale))
+                            self.command = list(hold)
+                            contact = seen
+                            break
+                        extra -= 1
+                    prev = qr + tail
+                else:
+                    reason = f'下探 {max_cm} cm 未接触'
+                if contact:
+                    time.sleep(seg_ms / 1000 / self.time_scale)
+                    qr = read4()          # after the hold: the pose resting on whatever it met, servos not pressing
+                    reason = contact
+                full = self.arm.read()
+                with self.gate:
+                    if len(full) == 6 and all(v is not None for v in full):
+                        self.pose, self.observed_at = list(full), time.time()
+                fk_r = kin.forward(qr)
+                result = dict(contacted=contact is not None, why=reason, pose=qr + tail,
+                              tip=fk_r['tip'], pitch=fk_r['tip_pitch_deg'][0], start=q0 + tail,
+                              start_tip=[x, y, z0], steps=len(trace), trace=trace, precise=precise is not None,
+                              t=time.time())
+                with self.gate:
+                    self.last_touch = result
+                self.log('touch', **{k: v for k, v in result.items() if k not in ('trace', 't')}, trace=trace)
+        except Exception as exc:
+            with self.gate:
+                self.error, self.deadline = str(exc), 0
+                self.observed_at = 0
+                self.log('fault', error=str(exc), during='touch', trace=trace)
+            raise
+        finally:
+            with self.gate:
+                self.busy = False
+        return result
 
     def _move(self, owner, revision=None, joint=None, delta=None, plan=None, kind='jog', skip=(), timing=None, claim=True):
         """`timing`: segment length in s for drive segments (their settle is short); else the speed's timing.

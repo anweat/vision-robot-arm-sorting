@@ -132,6 +132,9 @@ class App:
             c.goto(owner, body.get('pose'), body.get('named'))
         elif path == '/api/drive':
             c.drive(owner, body.get('mode', 'cartesian'), body.get('v'), body.get('wrist', 0))
+        elif path == '/api/touch':
+            return c.touch(owner, body.get('max_cm', 3.0), body.get('step_mm', 1.0), body.get('stall_mm', 3.0), body.get('after', 3),
+                           body.get('lock_j2', False))
         elif path == '/api/cartesian':
             c.cartesian(owner, body.get('axis'), body.get('amount'), body.get('revision'))
         elif path == '/api/gripper':
@@ -273,6 +276,8 @@ def handler(app):
                     self.send(dict(token=app.token, scene=app.scene(), status=app.status()))
                 elif path == '/api/status':
                     self.send(app.status())
+                elif path == '/api/precise':
+                    self.send(app.control.precise())
                 elif path == '/api/export':
                     self.send(dict(schema_version=1,session=app.control.directory.name,
                                    config_sha256=app.control.config_hash,mode=app.control.mode,samples=app.samples,measurements=app.measurements,

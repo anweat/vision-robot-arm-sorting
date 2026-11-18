@@ -222,8 +222,9 @@ fun ControlScreen(client: ArmClient?, foreground: Boolean, modifier: Modifier = 
             frame?.let {
                 Image(it.asImageBitmap(), "腕部相机", Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
             } ?: Text("没有画面", color = Color.Gray, modifier = Modifier.align(Alignment.Center))
-            // 控制台的 drive.reason 在摇杆停下后不清空，只在正推着时显示
-            val reason = reject.ifBlank { if (pushing) v?.driveReason.orEmpty() else "" }.ifBlank { v?.error.orEmpty() }
+            // 红条只放「当前」的拒绝：本机刚发的指令被拒，或正推摇杆时控制台的原因。
+            // drive.reason 与 status.error 在动作成功后都不清空（error 只在取得操作权时清），不能当成当前故障。
+            val reason = reject.ifBlank { if (pushing) v?.driveReason.orEmpty() else "" }
             if (reason.isNotBlank()) {
                 Text(
                     reason,
@@ -237,13 +238,23 @@ fun ControlScreen(client: ArmClient?, foreground: Boolean, modifier: Modifier = 
             buildString {
                 append(linkText)
                 v?.let {
-                    append(" · 关节 ").append(it.joints.joinToString(",") { j -> j?.toString() ?: "—" })
                     it.clearanceCm?.let { c -> append(" · 余量 %.1f cm".format(c)) }
+                    if (it.busy) append(" · 运动中")
                     if (it.flowRunning) append(" · 流程运行中")
                 }
             },
             style = MaterialTheme.typography.bodySmall,
         )
+        v?.let {
+            Text(
+                it.joints.mapIndexed { i, j -> "J${i + 1} ${j?.toString() ?: "—"}" }.joinToString("  "),
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+            )
+            if (it.error.isNotBlank()) {
+                Text("控制台上次故障：${it.error}", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+            }
+        }
 
         // 摇杆区：左右摇杆按宽度自适应，中间一窄列放旋腕与模式
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {

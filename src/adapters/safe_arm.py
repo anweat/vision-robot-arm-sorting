@@ -179,6 +179,14 @@ class Arm:
     def read_unclamped(self, joint: int) -> Optional[int]:
         """Same conversion as Arm_Lib but without its 0-180 (0-270) cut-off, which returns None
         for a joint pushed a few degrees past its end. Values far outside stay None."""
+        angle = self.raw_angle(joint)
+        return None if angle is None else int(round(angle))
+
+    def raw_angle(self, joint: int) -> Optional[float]:
+        """The servo's position register as a float angle (Arm_Lib's conversion without its int()):
+        2200 counts per 180 deg on servos 1-4 and 6, 3320 per 270 deg on 5, about 0.08 deg per count.
+        Arm_Lib truncates towards zero before 2-4 are mirrored (180 - pos), so its whole degrees sit on
+        average 0.5 deg high on J2-J4 and 0.5 deg low on J1/J6 compared with this."""
         try:
             self.dev.bus.write_byte_data(self.dev.addr, joint + 0x30, 0x0)
             time.sleep(0.005)
@@ -196,7 +204,22 @@ class Arm:
             ok = -15 <= angle <= 195
         if joint in (2, 3, 4):
             angle = 180 - angle
-        return int(round(angle)) if ok else None
+        return angle if ok else None
+
+    def read_precise(self, joints: Sequence[int] = (1, 2, 3, 4)) -> dict[int, Optional[float]]:
+        """Float angles (0.01 deg) of `joints` from the raw position, with the same retries as read().
+        For the touch probe: one whole degree of J2 is 3-4 mm at the tip."""
+        out: dict[int, Optional[float]] = {}
+        for joint in joints:
+            value = None
+            for _ in range(self.attempts):
+                value = self.raw_angle(joint)
+                if value is not None:
+                    break
+                time.sleep(0.05)
+            out[joint] = None if value is None else round(value, 2)
+            time.sleep(0.02)
+        return out
 
     def write6(self, pose: Sequence[int], duration_ms: int) -> None:
         buf = io.StringIO()
