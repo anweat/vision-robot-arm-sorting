@@ -5,6 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>机械臂仿真工作台</title>
 <link rel="stylesheet" href="/sim/style.css">
+<script>
+  // 嵌入模式：手动操作页以 <iframe src="/sim/?embed=scene"> 引它时，只给 3D 视图那一块。
+  // 其余面板（腕部相机、关节控制、桌面场景、分拣日志、接口）手动操作页自己都有，
+  // 整页嵌进来会变成两套控件。在 head 里尽早打标，免得先画出整页再收起的闪烁。
+  if (new URLSearchParams(location.search).get('embed') === 'scene') {
+    document.documentElement.classList.add('embed');
+  }
+</script>
 </head>
 <body>
 <header>

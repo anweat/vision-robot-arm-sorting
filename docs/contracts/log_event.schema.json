@@ -859,7 +859,7 @@
     ]
    },
    "then": {
-    "description": "[planned] 作业模式切换（W1）",
+    "description": "[stable] 作业模式切换（W1）",
     "properties": {
      "mode": {
       "type": "string"

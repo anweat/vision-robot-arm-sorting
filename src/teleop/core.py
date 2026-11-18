@@ -27,6 +27,11 @@ class PlanRejected(safe_arm.MotionError):
     """A plan failed its checks before any command was sent; the operator keeps control."""
 
 
+class RevisionConflict(ValueError):
+    """客户端带的 revision 与控制台当前 revision 不一致：说明有人（或另一页面）在此
+    期间动过臂。调用方（网关/前端）应重读 revision 再重试，而不是把它当普通错误。"""
+
+
 class SimArm:
     def __init__(self):
         self.pose = [90, 105, 5, 5, 95, 30]
@@ -283,7 +288,7 @@ class Controller:
             if self.busy or self.owner != owner or time.monotonic() >= self.deadline:
                 raise ValueError('未使能、连接超时或正在运动；指令不排队')
             if revision != self.revision:
-                raise ValueError('状态已变化，请刷新后重新点动')
+                raise RevisionConflict('状态已变化，请刷新后重新点动')
             if self.hardware and not self.camera.fresh():
                 self.deadline = 0
                 raise ValueError('画面过期，已锁定控制')

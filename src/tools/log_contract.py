@@ -70,7 +70,7 @@ EVENTS: dict[str, dict] = {
     "interaction": dict(status="stable", meaning="手势或语音触发、且已被受理执行的指令（E1、E7）；被忽略或拒绝的不写；语音没有 confidence",
                         required=dict(source="str", command="str"), optional=dict(confidence="num", detail="str")),
     # ---- planned: no writer yet
-    "mode_changed": dict(status="planned", meaning="作业模式切换（W1）",
+    "mode_changed": dict(status="stable", meaning="作业模式切换（W1）",
                          required=dict(mode="str", source="str"), optional=dict(previous="str")),
     "unknown_object": dict(status="planned", meaning="发现不属于四类的物体，不抓取（E6）",
                            required=dict(cube="xy", image="str"), optional=dict(votes="obj")),
