@@ -59,7 +59,7 @@ class App:
             time.sleep(.05)
             jpeg, meta = self.camera.snapshot()
         index = ep['steps'] = ep['steps'] + 1
-        item = dict(index=index, t=done, kind=kind, goal=goal, observed=observed, profile=self.control.profile,
+        item = dict(index=index, t=done, kind=kind, goal=goal, observed=observed, speed=self.control.speed,
                     fk=safe_arm.workspace.kin.forward(observed), grip=self.control.grip,
                     board=dict(meta, after_step=(meta.get('stamp') or 0) > done))
         if jpeg:
@@ -121,10 +121,17 @@ class App:
         elif path == '/api/jog':
             c.jog(owner, body.get('joint'), body.get('delta'), body.get('revision'))
         elif path == '/api/profile':
-            name = body.get('name')
-            if name is None and type(body.get('boundary')) is not bool:
-                raise ValueError('测试档参数必须是布尔值')
-            c.set_profile(owner,bool(body.get('boundary')),body.get('onsite'),name)
+            raise ValueError('限位档已取消：控制台只有一套限位，速度用 /api/speed 调（文档 32 §1）')
+        elif path == '/api/takeover':
+            c.take_over(owner)
+        elif path == '/api/speed':
+            c.set_speed(body.get('speed'), owner)
+        elif path == '/api/goto':
+            if body.get('dry'):
+                return c.plan_goto(body.get('pose'), body.get('named'))
+            c.goto(owner, body.get('pose'), body.get('named'))
+        elif path == '/api/drive':
+            c.drive(owner, body.get('mode', 'cartesian'), body.get('v'), body.get('wrist', 0))
         elif path == '/api/cartesian':
             c.cartesian(owner, body.get('axis'), body.get('amount'), body.get('revision'))
         elif path == '/api/gripper':
@@ -329,9 +336,6 @@ def main():
     source.add_argument('--camera-url',help='HTTP snapshot or RTSP URL; prefer env ARM_CAMERA_URL for credentials')
     source.add_argument('--replay',type=Path,help='offline JPEG; never enables hardware')
     p.add_argument('--output',type=Path)
-    p.add_argument('--default-profile',choices=('explore','normal'),default='explore',
-                   help='explore (default): course limits, platform keep-out shown but not enforced, small steps; '
-                        'normal: the standard soft limits and keep-out used by the automatic tasks')
     args = p.parse_args()
     if args.hardware != args.execute:
         p.error('实机必须同时指定 --hardware --execute')
@@ -346,7 +350,7 @@ def main():
         if args.hardware:
             stack.enter_context(safe_arm.exclusive_lock())
             arm = safe_arm.Arm(safe_arm.load_config(safe_arm.DEFAULT_CONFIG))
-        control = Controller(folder,arm=arm,hardware=args.hardware,camera=camera,default_profile=args.default_profile)
+        control = Controller(folder,arm=arm,hardware=args.hardware,camera=camera)
         app = App(control,camera,phone)
         if app.locator:stack.callback(app.locator.closed.set)
         stack.callback(app.closed.set)

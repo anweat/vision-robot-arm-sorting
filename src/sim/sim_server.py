@@ -486,22 +486,17 @@ def handler(app: SimApp):
     return Handler
 
 
-def build(folder: Path, blocks: int = 4, seed: int = 0, default_profile: str = "explore", model: Path | None = None,
+def build(folder: Path, blocks: int = 4, seed: int = 0, default_profile: str | None = None, model: Path | None = None,
           map_name: str | None = W.DEFAULT_MAP.stem, bins: str | None = None, speed: float = 1.0):
-    """(app, camera) ready to be served; the caller closes camera and sets app.closed / app.locator.closed."""
+    """(app, camera) ready to be served; the caller closes camera and sets app.closed / app.locator.closed.
+    `default_profile` is ignored (the console has one set of limits since doc 32)."""
     world = W.World(seed, map_name)
     if bins:
         world.load_bins(bins)
     world.reset(blocks)
     camera = SimCamera(world, seed)
-    control = Controller(folder, arm=W.WorldArm(world), hardware=False, camera=camera, default_profile=default_profile)
-    if speed != 1.0:                    # the simulated servos arrive at once; only the waiting is shortened
-        from motion_policy import profile_config
-        for key in ("motion", "motion_explore"):
-            for name in ("segment_ms", "settle_ms"):
-                if name in control.base_cfg.get(key, {}):
-                    control.base_cfg[key][name] = control.base_cfg[key][name] / speed
-        control.cfg = profile_config(default_profile, control.base_cfg)
+    control = Controller(folder, arm=W.WorldArm(world), hardware=False, camera=camera)
+    control.time_scale = speed          # the simulated servos arrive at once; only the waiting is shortened
     return SimApp(control, camera, world, model), camera
 
 
@@ -515,11 +510,10 @@ def main():
     p.add_argument("--map", default=W.DEFAULT_MAP.stem, help="config/map_*.json name, or 'none' for a bare table")
     p.add_argument("--bins", help="config/bins_*.json name: stand its bins at their planned places")
     p.add_argument("--model", type=Path, help="ONNX block detector (default: src/vision/blocks_detector.py's own)")
-    p.add_argument("--default-profile", choices=("explore", "normal"), default="explore")
     p.add_argument("--output", type=Path)
     args = p.parse_args()
     folder = args.output or ROOT / "data" / "sim" / (time.strftime("%Y%m%d_%H%M%S") + "_" + secrets.token_hex(2))
-    app, camera = build(folder, args.blocks, args.seed, args.default_profile, args.model, args.map, args.bins, args.speed)
+    app, camera = build(folder, args.blocks, args.seed, None, args.model, args.map, args.bins, args.speed)
     threading.Thread(target=app.poll, daemon=True).start()
     host = "0.0.0.0" if args.lan else "127.0.0.1"
     httpd = console.ThreadingHTTPServer((host, args.port), handler(app))

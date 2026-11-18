@@ -19,6 +19,9 @@ export class Store {
     this.historyRounds = 0;      // 无任务的 pipeline_end 计数：日志历史，只读
     this.connection = "connecting";
     this.latency = null;
+    this.flow = { session: null, running: false, steps: {}, log: [] };   // 分步流程（文档 32 §2）
+    this.alarms = [];            // 还没确认的报警（alarm 减去之后的 alarm_ack）
+    this.alarmSeq = 0;           // 见过的最新一条报警的 seq，页面据此判断"新来的"要不要响
     this._roundNo = 0;
     this._lastSeq = 0;
     this._listeners = new Set();
@@ -64,11 +67,27 @@ export class Store {
       }
     } else if (name === "stopped") {
       if (this.current && !this.current.ended) this.current.unfinished = true;
+    } else if (name === "step") {
+      // 新会话（新一轮，或单步执行起了新会话）就换一张步骤条；同一会话里的单步接着记
+      if (e.session !== this.flow.session || (e.step === "flow" && e.state === "started")) {
+        this.flow = { session: e.session, running: false, steps: {}, log: [] };
+      }
+      const g = this.flow;
+      if (e.step === "flow") g.running = e.state === "started";
+      else g.steps = { ...g.steps, [e.step]: e };
+      if (e.state !== "started" || e.step === "retry") g.log = [...g.log, e].slice(-60);
+    } else if (name === "alarm") {
+      if (e.needs_ack !== false) this.alarms = [...this.alarms, e];
+      this.alarmSeq = Math.max(this.alarmSeq, e.seq ?? 0);
+      this.flow.log = [...this.flow.log, e].slice(-60);
+    } else if (name === "alarm_ack") {
+      this.alarms = this.alarms.filter((a) => e.kind !== "*" && a.kind !== e.kind);
     } else if (name === "mode_changed") {
       this.status = { ...this.status, mode: e.mode };
     }
     const result = EVENTS[name]?.record;
     if (result && this.current) this.current[result] += 1;
+    if (result && this.flow.session) this.flow.log = [...this.flow.log, e].slice(-60);
   }
 
   setStatus(status) {

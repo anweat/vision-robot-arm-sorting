@@ -71,13 +71,36 @@ export const EVENTS = {
   bin_full: { status: "stable", meaning: "容器已满，停止投放", record: null },
   stall: { status: "planned", meaning: "舵机堵转，已停止后续指令", record: null },
   interaction: { status: "stable", meaning: "手势、表情或语音触发且已受理执行的指令", record: null },
+  step: { status: "stable", meaning: "分步流程的一步开始或结束", record: null },
+  alarm: { status: "stable", meaning: "需要人确认的报警", record: null },
+  alarm_ack: { status: "stable", meaning: "报警已确认", record: null },
+  speed: { status: "stable", meaning: "控制台速度改动", record: null },
+};
+
+// 分步流程（文档 32 §2）：步骤名、显示名、要不要选块、会不会动臂
+export const FLOW_STEPS = [
+  { key: "scan", label: "扫描识别", block: false, moves: true },
+  { key: "plan", label: "解算验证", block: true, moves: false },
+  { key: "grasp", label: "抓取", block: true, moves: true },
+  { key: "check", label: "抓后检查", block: true, moves: false },
+  { key: "retry", label: "空爪重试", block: true, moves: true },
+  { key: "place", label: "放置", block: true, moves: true },
+  { key: "verify", label: "核对", block: false, moves: false },
+];
+export const FLOW_EXTRA_STEPS = [
+  { key: "back_off", label: "张爪退回", block: true, moves: true },
+  { key: "home", label: "回观察位", block: false, moves: true },
+];
+export const ALARM_NAMES = {
+  grip_failed: "重试用尽仍空爪", jammed: "夹爪卡在块上", grasp_failed: "抓取中途停止",
+  place_failed: "放置中途停止", stall: "堵转",
 };
 
 // 异常日志页关心的事件：出问题的都在这里，其余进实时状态页的事件流
 export const FAULT_EVENTS = [
   "pipeline_missed", "pipeline_skip", "pipeline_approach_failed", "pipeline_put_failed",
   "pipeline_stuck", "gripper_not_closed", "gripper_still_asleep", "gripper_wake_refused",
-  "stopped", "table_z_disagrees", "stall", "bin_full", "unknown_object",
+  "stopped", "table_z_disagrees", "stall", "bin_full", "unknown_object", "alarm",
 ];
 
 export const isFault = (event) => FAULT_EVENTS.includes(event);

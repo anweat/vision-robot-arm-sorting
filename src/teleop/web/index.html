@@ -2,7 +2,7 @@
 <div class="top">
 <header>
   <div class="brand"><span class="eyebrow">ATLAS / DOFBOT</span><strong>遥控操作台</strong></div>
-  <div class="chips"><span id="mode" class="chip">正在连接</span><span id="connection" class="chip">等待回读</span><span id="profileChip" class="chip">—</span><span id="armState" class="chip">已锁定</span><span id="recChip" class="chip" hidden>● 录制中</span></div>
+  <div class="chips"><span id="mode" class="chip">正在连接</span><span id="connection" class="chip">等待回读</span><span id="profileChip" class="chip">—</span><span id="armState" class="chip">空闲</span><span id="recChip" class="chip" hidden>● 录制中</span></div>
   <button id="stop" class="danger">停止后续指令 · Esc</button>
 </header>
 <div id="notice" role="status" aria-live="polite">正在载入本地配置…</div>
@@ -11,12 +11,12 @@
 <main class="console">
 <!-- 1. 关节 -->
 <section class="panel">
-  <div class="section-title"><h2>关节</h2><label class="inline">步长 <select id="step"><option value="1">1°</option><option value="2">2°</option><option value="5" selected>5°</option><option value="10">10°（分两段）</option></select></label></div>
-  <label id="onsiteLabel" class="inline"><input type="checkbox" id="onsite">人在现场，周围安全且可立即断电</label>
-  <button id="enable" class="primary full">使能模拟点动</button>
+  <div class="section-title"><h2>关节</h2><label class="inline">步长 <select id="step"><option value="1">1°</option><option value="2">2°</option><option value="5" selected>5°</option><option value="10">10°</option><option value="20">20°</option></select></label></div>
+  <label class="inline">速度 <input type="range" id="speed" min="3" max="40" step="1" value="20" aria-label="速度"> <strong id="speedVal">20°/s</strong></label>
+  <p class="hint">不用使能：第一次点动即取得操作权，本页有焦点时自动续期，切走或失焦即停。</p>
   <div class="pose-mode"><label class="inline"><input type="checkbox" id="preview"><strong>姿态模式</strong>：拖动滑块在三维模型上摆好 J1–J5，再一次执行</label>
     <div id="poseTools" hidden><div class="toolbar"><button id="poseReset">重置为当前姿态</button><button id="posePlan">预览路径</button><button id="poseGo" class="primary" disabled>执行到该姿态</button></div>
-    <p id="posePlanText" class="hint">三维视图中灰色为当前实际姿态，青色为目标。先预览路径，再执行；执行时按 5° 一段走并逐段读回，遇阻停在读回位置。J6 用夹爪按钮控制。</p></div></div>
+    <p id="posePlanText" class="hint">三维视图中灰色为当前实际姿态，青色为目标。先预览路径，再执行；执行时按速度对应的段长分段走并逐段读回，遇阻停在读回位置。J6 用夹爪按钮控制。</p></div></div>
   <div id="joints"></div>
   <div class="toolbar"><button id="planHome">预览归位路径</button><button id="home" disabled>归位 observe_v1</button></div>
   <p id="homePlan" class="hint">归位只在标准档下预览，保留旋腕和夹爪当前角度。</p>
@@ -51,8 +51,7 @@
 
 <!-- 3. 档位与记录 -->
 <section class="panel">
-  <h2>档位</h2>
-  <div class="profiles"><button id="normalProfile">恢复默认档</button><button id="strictProfile">标准档（严格）</button><button id="graspProfile">抓取档 60 s</button><button id="recoverProfile">脱困档 60 s</button><button id="testProfile">边界测试档 60 s</button></div>
+  <h2>限位</h2>
   <p id="profileInfo" class="hint">—</p>
   <h2>录制与记录 <small id="recState">未录制</small></h2>
   <div class="rec-row"><input id="recLabel" placeholder="试验名称，如 blue-grasp-01" aria-label="试验名称"><button id="recStart" class="primary">开始录制</button><button id="recStop">结束</button></div>

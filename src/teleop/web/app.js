@@ -19,7 +19,7 @@ function buildJoints(limits){
   });
   document.querySelectorAll('[data-joint]').forEach(button=>button.onclick=action(async()=>{
     if(preview||localBusy)return;localBusy=true;renderState();
-    try{state=await api('/api/jog',{joint:Number(button.dataset.joint),delta:Number(button.dataset.delta)*Number($('step').value),revision:state.revision});lastOk=Date.now();notify('单步完成；回读已更新。');}
+    try{state=await api('/api/jog',{joint:Number(button.dataset.joint),delta:Number(button.dataset.delta)*Number($('step').value)});lastOk=Date.now();notify('单步完成；回读已更新。');}
     finally{localBusy=false;renderState();}
   }));
 }
@@ -28,7 +28,7 @@ function renderGeometry(){
   $('tip').textContent=fmt(g.tip);$('cameraPosition').textContent=fmt(g.cam);
   scene.q.forEach((q,i)=>$(`q${i}`).textContent=`${q}°`);
   $('sceneLabel').textContent=preview?'姿态模式 · 青色目标 / 灰色当前':state?.mode==='hardware'?(state.age_s==null||state.age_s>2?'回读过期 · 旧姿态，仅供参考':'实机回读 · 几何估计'):'模拟姿态 · 未连接实机';
-  $('margin').textContent=preview?'预演未做路径检查':state?.clearance_cm!=null?`${state.clearance_cm.toFixed(1)} cm${state.clearance_cm<0?(state.profile==='explore'?' · 已进入禁入区（探索档不拦截）':' · 已进入禁入区'):''}`:'未知';
+  $('margin').textContent=preview?'预演未做路径检查':state?.clearance_cm!=null?`${state.clearance_cm.toFixed(1)} cm${state.clearance_cm<0?(state.runtime?.enforce_platform?' · 已进入禁入区':' · 已进入禁入区（只提示）'):''}`:'未知';
   $('margin').classList.toggle('warn',!preview&&state?.clearance_cm!=null&&state.clearance_cm<0);
 }
 function chip(id,text,kind){$(id).textContent=text;$(id).className='chip'+(kind?' '+kind:'');}
@@ -39,33 +39,22 @@ function renderState(){
   chip('connection',fresh?`回读 ${state.age_s==null?'未知':state.age_s.toFixed(1)+' s 前'}`:'连接中断 · 操作锁定',fresh?'ok':'bad');
   state.pose.forEach((_,i)=>{const c=state.command?.[i];$(`target${i}`).textContent=preview?`· 当前 ${state.pose[i]}°`:c==null?'':`· 指令 ${c}°${c!==state.pose[i]?`（读回 ${state.pose[i]}°）`:''}`;});
   if(state.error)notify(`控制已锁定：${state.error}`,true);
-  chip('armState',state.busy?'正在执行一步':state.armed&&fresh?'已使能':state.error?'已锁定 · 有错误':'已锁定',state.busy?'warn':state.armed&&fresh?'ok':state.error?'bad':'');
-  const profileName={explore:'探索档',normal:'标准档',grasp:'抓取档',recover:'脱困档',boundary:'边界测试档'}[state.profile]||state.profile;
-  chip('profileChip',profileName+(state.profile_remaining_s?` · ${Math.ceil(state.profile_remaining_s)} s`:''),['grasp','recover','boundary'].includes(state.profile)?'warn':'');
-  const activeButton={explore:'normalProfile',normal:state.default_profile==='normal'?'normalProfile':'strictProfile',grasp:'graspProfile',recover:'recoverProfile',boundary:'testProfile'}[state.profile];
-  ['normalProfile','strictProfile','graspProfile','recoverProfile','testProfile'].forEach(id=>$(id).classList.toggle('active',id===activeButton));
-  $('enable').textContent=state.mode==='hardware'?'现场确认后使能':'使能模拟点动';
-  $('onsiteLabel').hidden=state.mode!=='hardware';
-  $('enable').disabled=localBusy||state.busy||!fresh;
-  $('posePlan').disabled=!preview||localBusy||state.busy||!fresh||!['explore','normal'].includes(state.profile);
-  $('poseGo').disabled=!preview||localBusy||state.busy||!fresh||!state.armed||!posePlan||posePlan.revision!==state.revision;
-  document.querySelectorAll('[data-joint]').forEach(b=>b.disabled=preview||localBusy||state.busy||!state.armed||!fresh);
+  chip('armState',state.busy?'正在执行一步':others?'另一端持有操作权':state.armed&&fresh?'持有操作权':state.error?'有错误':'空闲',state.busy?'warn':others?'warn':state.armed&&fresh?'ok':state.error?'bad':'');
+  const others=state.armed&&state.owner&&state.owner!==owner;
+  chip('profileChip',state.speed?`${Math.round(state.speed.value)}°/s · 每段 ≤${Math.round(state.speed.step_deg)}°`:'—','');
+  if(state.speed&&document.activeElement!==$('speed')){$('speed').min=state.speed.min;$('speed').max=state.speed.max;$('speed').value=state.speed.value;$('speedVal').textContent=`${Math.round(state.speed.value)}°/s`;}
+  $('posePlan').disabled=!preview||localBusy||state.busy||!fresh;
+  $('poseGo').disabled=!preview||localBusy||state.busy||!fresh||others||!posePlan;
+  document.querySelectorAll('[data-joint]').forEach(b=>b.disabled=preview||localBusy||state.busy||others||!fresh);
   $('sample').disabled=preview||localBusy||state.busy||!fresh;
   $('freeze').disabled=preview||localBusy||state.busy||!fresh||!state.camera.seq;
   $('sampleCount').textContent=`${state.samples??0} 条采样`;
-  $('planHome').disabled=preview||localBusy||state.busy||!fresh||state.profile!=='normal';
-  $('home').disabled=preview||localBusy||state.busy||!fresh||!state.armed||!homePlan||homePlan.revision!==state.revision;
-  $('testProfile').disabled=preview||localBusy||state.busy||!fresh||!state.armed;
-  $('normalProfile').disabled=state.busy||state.profile===state.default_profile;
-  $('strictProfile').disabled=state.busy||state.profile==='normal';
-  $('normalProfile').textContent=`恢复默认档（${state.default_profile==='explore'?'探索':'标准'}）`;
-  const profileText={explore:'探索档（默认）：关节可用课程限位（1–4、6 号 0–180°，5 号 90–270°），平台禁入区只提示不拦截，桌面余量 0.5 cm；关节点动最大 10°（按 5° 一段执行并逐段读回），直角最大 3 cm / 俯仰 5°。碰到阻力会停在读回位置并锁定。',normal:'标准档：与自动扫描/抓取相同的软限位和禁入区；步长同探索档，逆解跳变上限 15°。'};
-  $('profileInfo').textContent=profileText[state.profile]||(state.profile==='recover'?`临时脱困档：剩余 ${Math.ceil(state.profile_remaining_s)} 秒；只允许模型禁入区余量不变差的动作（关节 ≤2°，直角 ≤1 cm），越界关节可逐步退回限位内。模型余量变好不代表实际不接触，请盯着画面。`:state.profile==='grasp'?`临时抓取档：剩余 ${Math.ceil(state.profile_remaining_s)} 秒；桌面余量 0.5 cm，平台禁入区不变；关节点动 ≤2°，直角点动 ≤1 cm / 1°，不能归位。`:state.profile==='boundary'?`临时边界测试档：剩余 ${Math.ceil(state.profile_remaining_s)} 秒；仅 1° 点动，J3/J4 ≥2°，桌面余量 1.5 cm，平台阈值 3.5 cm。`:'');
+  $('planHome').disabled=preview||localBusy||state.busy||!fresh;
+  $('home').disabled=preview||localBusy||state.busy||!fresh||others||!homePlan;
+  $('profileInfo').textContent=`一套限位：关节为课程限位（J2–J4 可到 −10°，J5 90–270°）；平台与桌面禁入区${state.runtime?.enforce_platform?'拦截':'只提示不拦截'}。整条路径先检查再动，逐段读回，遇阻停在读回位置。速度只影响段长和节奏。`;
   document.querySelectorAll('[data-verify]').forEach(b=>b.disabled=preview||!fresh);
-  const canMove=!preview&&!localBusy&&!state.busy&&state.armed&&fresh;
+  const canMove=!preview&&!localBusy&&!state.busy&&!others&&fresh;
   document.querySelectorAll('[data-grip],[data-cart]').forEach(b=>b.disabled=!canMove);
-  $('graspProfile').disabled=preview||localBusy||state.busy||!fresh||!state.armed;
-  $('recoverProfile').disabled=preview||localBusy||state.busy||!fresh||!state.armed;
   const g=state.grip,q6=state.pose[5];
   $('gripState').textContent=g?`${{wide:'全开',open:'张开',grip:'夹取'}[g.action]} ${g.command}° → 读回 ${g.readback}°${g.action==='grip'?({holding:' · 已夹住',empty:' · 空夹',not_closed:' · 夹爪没收拢'}[g.result]||(g.holding?' · 已夹住':' · 未夹住')):''}`:(Number.isFinite(q6)?`当前 ${q6}°`:'—');
   $('gripState').className=g&&g.action==='grip'?(g.holding?'holding':'empty'):'';
@@ -99,8 +88,7 @@ $('stop').onclick=stop;
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();stop();}});
 document.addEventListener('visibilitychange',()=>{if(document.hidden)stop();});
 window.addEventListener('blur',()=>{if(state?.armed)stop();});
-$('enable').onclick=action(async()=>{homePlan=null;state=await api('/api/enable',{onsite:$('onsite').checked});renderState();notify(state.mode==='hardware'?'已使能。一次点击只移动一个关节的小步。':'已使能模拟点动，可观察相机与关节几何变化。');});
-setInterval(()=>{if(state?.armed&&!document.hidden&&document.hasFocus()&&Date.now()-lastOk<2500)api('/api/heartbeat',{}).catch(()=>{});},600);
+setInterval(()=>{if(state?.armed&&state.owner===owner&&!document.hidden&&document.hasFocus()&&Date.now()-lastOk<2500)api('/api/heartbeat',{}).catch(()=>{});},600);
 function resetPose(){if(state?.pose.every(Number.isFinite))scene.q=[...state.pose];scene.q.forEach((q,i)=>$(`slider${i}`).value=q);posePlan=null;}
 $('preview').onchange=()=>{preview=$('preview').checked;$('joints').classList.toggle('previewing',preview);$('poseTools').hidden=!preview;resetPose();
   // the 3D view is the point of this mode: move it next to the sliders, and back into its drawer after
@@ -112,7 +100,7 @@ $('poseReset').onclick=()=>{resetPose();$('posePlanText').textContent='已重置
 $('posePlan').onclick=action(async()=>{posePlan=null;const target=scene.q.slice(0,5).map(v=>Math.round(v));const p=await api('/api/pose/plan',{target});posePlan=p;
   $('posePlanText').textContent=`目标 ${p.target.slice(0,5).join(' / ')}°：${p.segments} 段，约 ${p.seconds} 秒，最大转动 ${p.largest_deg}°${p.margin_cm!=null?`，当前档模型最小余量 ${p.margin_cm} cm`:''}。30 秒内有效。`;renderState();});
 $('poseGo').onclick=action(async()=>{if(!posePlan)return;localBusy=true;renderState();
-  try{state=await api('/api/pose/execute',{plan_id:posePlan.id,revision:posePlan.revision});lastOk=Date.now();notify('已执行到目标姿态；读回已更新。');}
+  try{state=await api('/api/pose/execute',{plan_id:posePlan.id});lastOk=Date.now();notify('已执行到目标姿态；读回已更新。');}
   finally{localBusy=false;posePlan=null;$('posePlanText').textContent='执行结束。可继续拖动滑块设置下一个目标。';renderState();}});
 $('resetView').onclick=()=>{scene.yaw=-.65;scene.pitch=.55;scene.scale=850;scene.draw();};
 $('frustum').onchange=()=>{scene.showFrustum=$('frustum').checked;scene.draw();};
@@ -145,9 +133,7 @@ for(const id of ['drawerScene','drawerVision','drawerCal']){
 }
 
 $('planHome').onclick=action(async()=>{homePlan=null;$('homePlan').textContent='正在检查归位轨迹；若被拒绝，原因显示在顶部。';homePlan=await api('/api/home/plan',{});$('homePlan').textContent=`目标 ${homePlan.target.join(' / ')}°；${homePlan.segments.length} 段，约 ${homePlan.seconds} 秒，模型最小余量 ${homePlan.margin_cm} cm。30 秒内有效。`;renderState();});
-$('home').onclick=action(async()=>{if(!homePlan)return;localBusy=true;renderState();try{state=await api('/api/home/execute',{plan_id:homePlan.id,revision:homePlan.revision});notify('归位结束，检查当前画面与读数。');}finally{localBusy=false;homePlan=null;renderState();}});
-$('testProfile').onclick=action(async()=>{state=await api('/api/profile',{boundary:true,onsite:$('onsite').checked||state.mode==='simulation'});$('step').value='1';homePlan=null;renderState();notify('临时测试档已启用，只允许现场 1° 小步接近；接触后立即停止并记录。');});
-$('normalProfile').onclick=action(async()=>{state=await api('/api/profile',{boundary:false});homePlan=null;renderState();});
+$('home').onclick=action(async()=>{if(!homePlan)return;localBusy=true;renderState();try{state=await api('/api/home/execute',{plan_id:homePlan.id});notify('归位结束，检查当前画面与读数。');}finally{localBusy=false;homePlan=null;renderState();}});
 document.querySelectorAll('[data-verify]').forEach(b=>b.onclick=action(async()=>{const r=await api('/api/verify',{kind:b.dataset.verify,note:$('note').value});notify(`人工校验已保存：${r.label}。它是观察记录，不代表自动检测结论。`);}));
 $('saveLocalization').onclick=action(async()=>{await api('/api/localization/save',{});notify('已保存本次定位与标注图，原始坐标和误差指标一并归档。');});
 let imageTimes={};
@@ -170,7 +156,7 @@ function renderLocalization(){
 
 async function step(path,data,done){
   if(preview||localBusy)return;localBusy=true;renderState();
-  try{state=await api(path,{...data,revision:state.revision});lastOk=Date.now();notify(done(state));}
+  try{state=await api(path,data);lastOk=Date.now();notify(done(state));}
   finally{localBusy=false;renderState();}
 }
 function cartesian(axis,sign){
@@ -182,7 +168,6 @@ function gripper(action){
 }
 document.querySelectorAll('[data-cart]').forEach(b=>b.onclick=action(()=>cartesian(b.dataset.cart,Number(b.dataset.sign))));
 document.querySelectorAll('[data-grip]').forEach(b=>b.onclick=action(()=>gripper(b.dataset.grip)));
-$('graspProfile').onclick=action(async()=>{state=await api('/api/profile',{name:'grasp',onsite:$('onsite').checked||state.mode==='simulation'});if(Number($('step').value)>2)$('step').value='2';$('cartStep').value='1';$('pitchStep').value='1';homePlan=null;renderState();notify('抓取档已启用 60 秒：夹爪尖可下到离桌面 0.5 cm，平台禁入区不变。完成后恢复默认限位。');});
 $('recStart').onclick=action(async()=>{state=await api('/api/record',{on:true,label:$('recLabel').value,note:$('note').value});renderState();notify('开始录制：之后每一步都会保存两路画面和读数。');});
 $('recStop').onclick=action(async()=>{state=await api('/api/record',{on:false,note:$('note').value});renderState();notify('录制已结束并写入 episode.json。');});
 const keyMap={w:['y',1],s:['y',-1],a:['x',-1],d:['x',1],r:['z',1],f:['z',-1],t:['pitch',1],g:['pitch',-1]};
@@ -194,5 +179,6 @@ document.addEventListener('keydown',e=>{
   else if(k==='o'){e.preventDefault();action(()=>gripper('open'))();}
   else if(k==='c'){e.preventDefault();action(()=>gripper('grip'))();}
 });
-$('recoverProfile').onclick=action(async()=>{state=await api('/api/profile',{name:'recover',onsite:$('onsite').checked||state.mode==='simulation'});if(Number($('step').value)>2)$('step').value='2';$('cartStep').value='1';homePlan=null;renderState();notify('脱困档已启用 60 秒：只允许让模型余量不变差的动作。先试“上 +Z”或“前 +Y”，每步看画面。');});
-$('strictProfile').onclick=action(async()=>{state=await api('/api/profile',{name:'normal'});homePlan=null;renderState();notify('已切换到标准档：与自动任务相同的限位和禁入区。');});
+
+$('speed').oninput=()=>{$('speedVal').textContent=`${$('speed').value}°/s`;};
+$('speed').onchange=action(async()=>{state=await api('/api/speed',{speed:Number($('speed').value)});renderState();notify(`速度 ${state.speed.value}°/s：每段 ≤${Math.round(state.speed.step_deg)}°，${state.speed.segment_ms}+${state.speed.settle_ms} ms。`);});

@@ -289,8 +289,7 @@ class _FakeConsole(BaseHTTPRequestHandler):
 
 
 class ConsoleMoveTest(unittest.TestCase):
-    """1.4：只有 reason=revision_conflict 的 409 才重读 revision 重试；其余 409 原样上抛，
-    不能把'未使能/正在运动/画面过期'改写成'revision 反复过期'吞掉真因。"""
+    """控制台的 409 一律原样上抛，不改写真因（画面过期、另一端持有操作权、正在运动）。"""
 
     def setUp(self):
         self.cfg = {"revision": 18, "status_calls": 0, "move_calls": 0, "move_queue": []}
@@ -314,25 +313,17 @@ class ConsoleMoveTest(unittest.TestCase):
         self.assertEqual(cm.exception.status, 409)
         self.assertEqual(self.cfg["move_calls"], 1)       # 没有重试
 
-    def test_revision_conflict_retries_then_succeeds(self):
+    def test_no_revision_retry_any_more(self):
+        """文档 32：控制台不再要求 revision，网关也不再重读重试；连 revision_conflict 也原样上抛。"""
         self.cfg["move_queue"] = [
             (409, {"error": "状态已变化，请刷新后重新点动", "reason": "revision_conflict"}),
             (200, {"ok": True}),
         ]
-        out = self.console.move("/api/move", {"joints": [90, 90, 90, 90, 90, 90]})
-        self.assertEqual(out, {"ok": True})
-        self.assertEqual(self.cfg["move_calls"], 2)       # 重读 revision 后重试了一次
-        self.assertGreaterEqual(self.cfg["status_calls"], 2)
-
-    def test_repeated_revision_conflict_gives_up_after_two_attempts(self):
-        self.cfg["move_queue"] = [
-            (409, {"error": "状态已变化，请刷新后重新点动", "reason": "revision_conflict"}),
-            (409, {"error": "状态已变化，请刷新后重新点动", "reason": "revision_conflict"}),
-        ]
         with self.assertRaises(S.ConsoleError) as cm:
             self.console.move("/api/move", {"joints": [90, 90, 90, 90, 90, 90]})
         self.assertEqual(cm.exception.reason, "revision_conflict")
-        self.assertEqual(self.cfg["move_calls"], 2)
+        self.assertEqual(self.cfg["move_calls"], 1)
+        self.assertEqual(self.cfg["status_calls"], 0)      # 不再为了 revision 先读状态
 
 
 class PerceptionEndpointTest(unittest.TestCase):
@@ -407,3 +398,64 @@ class PerceptionEndpointTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class FlowEndpointTest(unittest.TestCase):
+    """文档 32：任务页与报警红条用的 /api/flow、alarm_ack、release；不接控制台也要答得上来。"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.log = Path(self.tmp.name) / 'log.jsonl'
+        sess = ROOT / 'data' / 'flow' / f'_test_{time.time_ns()}'
+        (sess / 'scan_01').mkdir(parents=True)
+        self.addCleanup(lambda: __import__('shutil').rmtree(sess, ignore_errors=True))
+        (sess / 'scan_01' / 'located.json').write_text(json.dumps(dict(objects=[
+            dict(name='b1', kind='block', centre_m=[0.0, 0.2], **{'class': 'kitchen'}),
+            dict(name='b2', kind='block', centre_m=[0.095, 0.14], **{'class': 'kitchen'}),
+            dict(name='bin2', kind='bin', centre_m=[0.095, 0.14], yaw_deg=0, size_m=[0.084, 0.084, 0.042],
+                 **{'class': 'kitchen'})])), encoding='utf-8')
+        lines = [dict(t=1.0, event='step', session=sess.name, step='scan', state='done'),
+                 dict(t=2.0, event='alarm', kind='grip_failed', summary='空爪', block='b1', needs_ack=True),
+                 dict(t=3.0, event='alarm', kind='jammed', summary='卡住', needs_ack=True),
+                 dict(t=4.0, event='alarm_ack', kind='jammed', by='web')]
+        self.log.write_text(''.join(json.dumps(x, ensure_ascii=False) + '\n' for x in lines), encoding='utf-8')
+        self.state = S.State(self.log)
+        self.server = ThreadingHTTPServer(('127.0.0.1', 0), S.Handler)
+        self.server.state = self.state
+        self.port = self.server.server_address[1]
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+
+    def call(self, path, body=None):
+        req = urllib.request.Request(f'http://127.0.0.1:{self.port}{path}',
+                                     data=json.dumps(body).encode() if body is not None else None,
+                                     headers={'Content-Type': 'application/json'})
+        try:
+            with urllib.request.urlopen(req, timeout=5) as r:
+                return r.status, json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            return e.code, json.loads(e.read())
+
+    def test_flow_summary_lists_table_blocks_bins_and_open_alarms(self):
+        status, flow = self.call('/api/flow')
+        self.assertEqual(status, 200)
+        self.assertEqual(flow['scan'], 'scan_01')
+        self.assertEqual([(b['name'], b['in_bin']) for b in flow['blocks']], [('b1', None), ('b2', 'bin2')])
+        self.assertEqual([a['kind'] for a in flow['alarms']], ['grip_failed'])     # jammed was acknowledged
+        self.assertFalse(flow['process']['running'])
+
+    def test_ack_all_and_events_keep_the_contract(self):
+        self.assertEqual(self.call('/api/cmd', {'cmd': 'alarm_ack', 'kind': '*'})[0], 200)
+        self.assertEqual(self.call('/api/flow')[1]['alarms'], [])
+        events, _ = L.read(self.log)
+        self.assertTrue(all(not L.validate(e) for e in events))
+
+    def test_voice_cannot_start_while_an_alarm_is_open_and_release_does_not_stop(self):
+        reply = self.state.start_task(source='voice')
+        self.assertFalse(reply['ok'])
+        self.assertIn('报警', reply['error'])
+        status, body = self.call('/api/cmd', {'cmd': 'release'})
+        self.assertEqual((status, body['ok']), (200, True))
+        self.assertFalse(any(e['event'] == 'stopped' for e in L.read(self.log)[0]))

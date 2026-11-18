@@ -23,11 +23,13 @@ async function cmd(payload, okMessage) {
 export function createControlView(root) {
   root.innerHTML = `
     <section class="panel">
-      <h2>操作权与夹爪 <small>控制台每次只认一个持有者；使能有时限，多步运动期间由服务端续期</small></h2>
+      <h2>速度与夹爪 <small>不用使能：第一条运动指令即取得操作权，本页可见期间自动续期；关页即停</small></h2>
       <div class="row">
-        <button id="enableBtn" class="primary">使能</button>
-        <button id="disarmBtn" class="danger">解除</button>
+        <span class="dim">速度</span>
+        <input type="range" id="speedRange" min="3" max="40" step="1" value="20" aria-label="速度">
+        <strong id="speedValue">20°/s</strong>
         <span class="chip" id="armChip">—</span>
+        <button id="takeoverBtn" hidden>接管</button>
         <span class="sep"></span>
         <button id="stopBtn" class="danger">停止</button>
       </div>
@@ -180,8 +182,22 @@ export function createControlView(root) {
   $("poseUpright").addEventListener("click", () => applyPose(NAMED_POSES.upright));
   $("poseObserve").addEventListener("click", () => applyPose(NAMED_POSES.observe));
   $("stopBtn").addEventListener("click", () => cmd({ cmd: "stop" }, "已停止"));
-  $("enableBtn").addEventListener("click", () => cmd({ cmd: "enable" }, "已取得操作权"));
-  $("disarmBtn").addEventListener("click", () => cmd({ cmd: "stop" }, "已解除操作权"));
+  $("takeoverBtn").addEventListener("click", () => cmd({ cmd: "takeover" }, "已接管操作权"));
+  // 速度：拖动时只改显示，松手才下发；运动中改也行，从下一段起生效（文档 32 §1.3）
+  const speedRange = $("speedRange");
+  let speedDragging = false;
+  speedRange.addEventListener("input", () => {
+    speedDragging = true;
+    $("speedValue").textContent = `${speedRange.value}°/s`;
+  });
+  speedRange.addEventListener("change", async () => {
+    await cmd({ cmd: "speed", speed: +speedRange.value }, `速度 ${speedRange.value}°/s`);
+    speedDragging = false;
+  });
+  // 心跳：页面可见时每 0.8 s 一次；网关只在收到心跳时替本页续控制台租约，关页/切后台即停
+  setInterval(() => {
+    if (document.visibilityState === "visible") sendCmd("heartbeat", {}).catch(() => {});
+  }, 800);
   root.querySelectorAll("button[data-grip]").forEach((btn) =>
     btn.addEventListener("click", () =>
       cmd({ cmd: "gripper", action: btn.dataset.grip }, `夹爪“${btn.textContent}”已下发`)));
@@ -348,18 +364,23 @@ export function createControlView(root) {
 
       const arm = store.status.arm ?? {};
       const chip = $("armChip");
-      chip.textContent = !arm.attached ? "未接控制台" : arm.armed ? "已使能" : "未使能";
-      chip.className = "chip " + (arm.armed ? "on" : "warn");
-      $("enableBtn").disabled = !arm.attached || !!arm.armed || !!arm.busy;
-      $("disarmBtn").disabled = !arm.armed;
+      const others = arm.armed && arm.owner && arm.owner !== "web";
+      chip.textContent = !arm.attached ? "未接控制台" : others ? `${arm.owner} 持有操作权` : arm.busy ? "运动中" : "空闲";
+      chip.className = "chip " + (others ? "warn" : arm.busy ? "on" : "");
+      $("takeoverBtn").hidden = !others;
+      const sp = arm.speed;
+      if (sp && !speedDragging) {
+        speedRange.min = sp.min; speedRange.max = sp.max; speedRange.value = sp.value;
+        $("speedValue").textContent = `${Math.round(sp.value)}°/s`;
+      }
       $("gripState").textContent = !arm.attached ? "—"
         : `${arm.grip_action ?? "—"} · 回读 ${arm.grip_readback ?? "—"}° · ` +
           `${arm.holding ? "夹住" : arm.grip_result === "empty" ? "夹空" : arm.grip_result ?? "—"}`;
       $("opHint").textContent = !arm.attached
         ? "未接控制台，运动类指令会返回 501。启动时加 --console http://127.0.0.1:8770 接仿真，或指向实机控制台。"
         : arm.error ? `控制台错误：${arm.error}`
-        : arm.armed ? "已持有操作权，服务端每 1 s 续期。"
-        : arm.busy ? "正在运动中，等这一步结束。" : "先点“使能”取得操作权，再下发角度或坐标。";
+        : arm.busy ? "正在运动中，等这一步结束；“停止”随时有效。"
+        : "直接拖滑块下发、点夹爪或输坐标即可，不需要使能。";
 
       // 控制台给的是它自己的软限位（core.limits），收到就以它为准：滑块不再给出送不出去的角度
       const limitOf = (i) => {
@@ -394,12 +415,10 @@ export function createControlView(root) {
 
       // 限位档与两个容易误会的行为，写明白省得当故障报
       $("jointHint").textContent = !arm.attached
-        ? "未接控制台，滑块用默认限位；接上后以控制台当前档位为准。"
-        : (arm.profile === "explore"
-          ? "限位档：探索——滑块范围即舵机允许范围（J2–J4 可到 −10°，J5 90–270°）。注意实机上 J5 超过 180° 会挡住腕部相机；标准档会把各关节再收 5° 余量。"
-          : `限位档：${arm.profile ?? "标准"}——舵机允许范围向内收 5° 安全余量（J1/J5 因走线短收得更多）。`)
+        ? "未接控制台，滑块用默认限位；接上后以控制台的限位为准。"
+        : "限位只有一套：滑块范围即舵机允许范围（J2–J4 可到 −10°，J5 90–270°），平台与桌面禁入区只提示不拦。注意实机上 J5 超过 180° 会挡住腕部相机。"
           + " J6 是夹爪不是普通关节：空载完全闭合的读数约 132°，指令再大也会触发阻力保护停在原地（实机相同），不是故障。"
-          + " 运动按每段 ≤15° 分段执行、六轴同段同动，段间回读校验、遇阻力立即停——所以大角度要几秒，且一次只执行一条。";
+          + ` 运动按每段 ≤${Math.round(arm.speed?.step_deg ?? 8)}° 分段执行（随速度变）、六轴同段同动，段间回读校验、遇阻力立即停；一次只执行一条，整条路径先检查再动。`;
     },
 
     // 这个页签被切进来 / 切出去时调用：仿真页自己也占一条相机长连接，

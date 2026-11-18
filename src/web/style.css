@@ -145,3 +145,26 @@ footer{padding:10px 16px 20px;color:var(--dim);font-size:12px}
   .joint em{display:none}
   .chips{justify-content:flex-start}
 }
+
+/* 报警红条（文档 32 §2.3）：任何页签都在顶上，点“知道了”才消失 */
+.banner.bad{border-color:var(--bad);background:#3a1614}
+.banner.bad > b{color:var(--bad)}
+.alarm-item{flex-basis:100%;color:var(--text) !important;font-size:13px !important}
+.alarm-item b{font-size:13px;color:var(--bad);margin-right:2px}
+tr.bad td{color:var(--bad)} tr.mid td{color:var(--warn)} tr.good td{color:var(--good)} tr.dim td{color:var(--dim)}
+
+/* 任务页步骤条 */
+.steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin:8px 0}
+.step{display:flex;flex-direction:column;gap:4px;padding:8px;border:1px solid var(--line);border-radius:6px;
+  background:#0f1a22;min-width:0}
+.step-head{display:flex;align-items:center;gap:6px;font-size:13px}
+.step-no{font:11px ui-monospace,Menlo,monospace;color:var(--dim)}
+.step-state{font-size:13px}
+.step-sum{font-size:11px;line-height:1.35;max-height:4.1em;overflow:hidden;word-break:break-all}
+.step button{margin-top:auto;font-size:12px}
+.step.run{border-color:var(--accent)} .step.run .step-state{color:var(--accent)}
+.step.ok{border-color:var(--good)} .step.ok .step-state{color:var(--good)}
+.step.bad{border-color:var(--warn)} .step.bad .step-state{color:var(--warn)}
+.flow-out{margin:8px 0 0;padding:8px;background:#0b141b;border:1px solid var(--line);border-radius:4px;
+  font:12px ui-monospace,Menlo,monospace;color:var(--warn);white-space:pre-wrap;max-height:160px;overflow:auto}
+@media (max-width:640px){.steps{grid-template-columns:repeat(2,minmax(0,1fr))}}

@@ -39,7 +39,7 @@ const act = fn => async () => {
   try { const out = await fn(); if (out && out.revision !== undefined) setState(out); }
   catch (e) { fail(e); try { setState(await get('/api/status')); } catch (_) { /* shown by the poll */ } }
 };
-const moving = body => ({...body, revision: state.revision});
+const moving = body => body;   // revision is no longer required (doc 32 §1.2)
 
 // ---------------------------------------------------------------- state
 
@@ -54,10 +54,9 @@ function setState(s) {
   s.pose.forEach((q, i) => { $(`q${i}`).textContent = q == null ? '—' : `${q}°`; });
   const cm = p => p.map(v => (v * 100).toFixed(1)).join(' / ');
   $('readout').innerHTML = s.fk ? `<span>夹爪尖 cm <b>${cm(s.fk.tip)}</b></span><span>俯角 <b>${s.fk.tip_pitch_deg[0]}°</b></span>
-    <span>禁入区余量 <b>${s.clearance_cm.toFixed(1)} cm</b></span><span>限位档 <b>${s.profile}</b></span>
+    <span>禁入区余量 <b>${s.clearance_cm.toFixed(1)} cm</b></span><span>速度 <b>${s.speed ? Math.round(s.speed.value) + '°/s' : '—'}</b></span>
     <span>夹爪读回 <b>${s.pose[5]}°${s.grip && s.grip.result ? ' · ' + s.grip.result : ''}</b></span>
     <span>画面 <b>#${s.camera.seq} · ${s.camera.age_s == null ? '—' : s.camera.age_s.toFixed(2) + ' s'}</b></span>` : '';
-  if (!armed && beat) { clearInterval(beat); beat = null; }
   if (s.sim.revision !== worldRevision) refreshWorld();
   draw();
 }
@@ -226,13 +225,12 @@ document.querySelectorAll('#viewTabs button').forEach(b => { b.onclick = () => s
 
 // ---------------------------------------------------------------- controls
 
-$('enable').onclick = act(async () => {
-  const s = await post('/api/enable', {onsite: false});
-  if (!beat) beat = setInterval(() => post('/api/heartbeat').catch(() => {}), 600);
-  return s;
-});
+// no enable step (doc 32 §1.2): the first move takes control; heartbeats keep it while this page is visible
+if (!beat) beat = setInterval(() => { if (document.visibilityState === 'visible' && state?.armed) post('/api/heartbeat').catch(() => {}); }, 600);
+$('speed').oninput = () => { $('speedVal').textContent = `${$('speed').value}°/s`; };
+$('speed').onchange = act(() => post('/api/speed', {speed: Number($('speed').value)}));
 $('stop').onclick = act(() => post('/api/stop'));
-$('home').onclick = act(async () => { const p = await post('/api/home/plan'); return post('/api/home/execute', {plan_id: p.id, revision: p.revision}); });
+$('home').onclick = act(() => post('/api/goto', {named: 'observe_v1'}));
 document.querySelectorAll('[data-grip]').forEach(b => { b.onclick = act(() => post('/api/gripper', moving({action: b.dataset.grip}))); });
 document.querySelectorAll('[data-cart]').forEach(b => { b.onclick = act(() => post('/api/cartesian', moving({axis: b.dataset.cart, amount: Number(b.dataset.amount)}))); });
 $('reset').onclick = act(() => post('/api/sim/reset', {count: Number($('resetCount').value)}).then(refreshWorld));
@@ -271,18 +269,17 @@ const API = [
   ['GET', '/health', '', '仿板载相机服务的健康检查'],
   ['IMG', '/api/annotated/board', '', '地图定位标注图；没有定位结果时 503'],
   ['操作权'],
-  ['POST', '/api/enable', '{"onsite": false}', '取得操作权；仿真不要求现场确认'],
-  ['POST', '/api/heartbeat', '{}', '2 秒租约续期；本页使能后每 600 ms 自动发'],
-  ['POST', '/api/stop', '{}', '撤销操作权'],
+  ['POST', '/api/takeover', '{}', '先停止当前持有者再取得操作权；平时不需要：第一条运动指令即取得'],
+  ['POST', '/api/heartbeat', '{}', '2 秒租约续期；本页持有操作权时每 600 ms 自动发'],
+  ['POST', '/api/stop', '{}', '撤销操作权（任何端都可发）'],
+  ['POST', '/api/speed', '{"speed": 20}', '速度 °/s（3–40），运动中改从下一段生效'],
   ['运动'],
-  ['POST', '/api/jog', `{"joint": 1, "delta": 5, ${R}}`, '关节点动 ±1/2/5/10°'],
-  ['POST', '/api/cartesian', `{"axis": "z", "amount": 1, ${R}}`, '夹爪尖沿基座轴 ±0.5/1/2/3 cm，或 pitch ±1/2/5°'],
-  ['POST', '/api/gripper', `{"action": "grip", ${R}}`, 'wide / open / grip；夹爪尖在物块上方且够低时会夹起它'],
-  ['POST', '/api/pose/plan', '{"target": [90, 80, 30, 20, 95]}', 'J1–J5 目标姿态预览，不需使能；返回 id 和 revision'],
-  ['POST', '/api/pose/execute', '{"plan_id": "", "revision": 0}', '填上一步返回的 id 和 revision'],
-  ['POST', '/api/home/plan', '{}', '回观察位预览'],
-  ['POST', '/api/home/execute', '{"plan_id": "", "revision": 0}', '填上一步返回的 id 和 revision'],
-  ['POST', '/api/profile', '{"name": "normal", "onsite": true}', 'normal / explore / grasp / recover / boundary'],
+  ['POST', '/api/jog', '{"joint": 1, "delta": 5}', '关节点动，±1–30° 整数'],
+  ['POST', '/api/cartesian', '{"axis": "z", "amount": 1}', '夹爪尖沿基座轴 0–5 cm，或 pitch 0–15°'],
+  ['POST', '/api/gripper', '{"action": "grip"}', 'wide / open / grip；夹爪尖在物块上方且够低时会夹起它'],
+  ['POST', '/api/goto', '{"named": "observe_v1", "dry": true}', '到命名位或 "pose": [J1..J6]（null 不动）；dry=true 只返回分段与余量'],
+  ['POST', '/api/goto', '{"pose": [90, 80, 30, 20, 95, null]}', '整条路径先检查再动'],
+  ['POST', '/api/drive', '{"mode": "cartesian", "v": [0, 0, 0.5, 0], "wrist": 0}', '摇杆：每 100 ms 刷新一次，300 ms 不刷新即停；v=[径向, J1, 上下, 俯仰] 或 joint 模式 [J1..J4]'],
   ['仿真场景与检测对照'],
   ['GET', '/api/sim/world', '', '桌面真值：每块的类别、朝上的面、位置、是否被夹着、base_T_block'],
   ['POST', '/api/sim/reset', '{"count": 4, "seed": 1}', '清空后随机放 count 块；seed 可省'],

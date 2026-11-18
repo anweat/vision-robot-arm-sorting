@@ -67,12 +67,13 @@ class StepAccumulationTest(Base):
         self.assertEqual(self.c.status()['command'][0], 111)  # built on the readback 110, not on the old command 92
 
 
-class ExploreProfileTest(unittest.TestCase):
+class RuntimeLimitsTest(unittest.TestCase):
+    """The console's one set of limits (doc 32 §1.1): what the old explore profile allowed."""
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.arm = SimArm()
-        self.c = Controller(self.tmp.name, self.arm, default_profile='explore')
+        self.c = Controller(self.tmp.name, self.arm)
         self.c.enable('a')
         patcher = patch('core.time.sleep'); patcher.start(); self.addCleanup(patcher.stop)
 
@@ -108,38 +109,21 @@ class ExploreProfileTest(unittest.TestCase):
         self.assertTrue(self.c.status()['armed'])
         self.assertEqual(self.c.status()['error'], '')
 
-    def test_large_steps_in_explore_small_in_timed_profiles(self):
+    def test_large_jog_runs_as_verified_segments(self):
         start = self.arm.read()[0]
         step = self.c.cfg['motion']['max_step_deg']
         with patch.object(self.arm, 'write6', wraps=self.arm.write6) as write:
-            self.c.jog('a', 1, 10, self.c.revision)
-        # verified segments of at most the profile's step (5 deg standard, 15 deg explore since 2026-09-27)
+            self.c.jog('a', 1, 20)
         writes = [c.args[0][0] for c in write.call_args_list]
-        self.assertEqual(writes[-1], start + 10)
-        self.assertEqual(len(writes), math.ceil(10 / step))
+        self.assertEqual(writes[-1], start + 20)
+        self.assertEqual(len(writes), math.ceil(20 / step))
         self.assertTrue(all(0 < b - a <= step for a, b in zip([start] + writes, writes)), writes)
-        self.assertEqual(self.arm.read()[0], start + 10)
-        with self.assertRaises(ValueError):
-            self.c.jog('a', 1, 3, self.c.revision)
-        self.c.set_profile('a', False, True, 'grasp')
-        with self.assertRaises(ValueError):
-            self.c.jog('a', 1, 5, self.c.revision)
-        with self.assertRaises(ValueError):
-            self.c.cartesian('a', 'y', 2, self.c.revision)
-        self.c.profile_until = time.monotonic() - 1
-        self.c.expire_profile()
-        self.assertEqual(self.c.profile, 'explore')
-        self.c.enable('a')
-        self.c.set_profile('a', False, True, 'normal')
-        self.c.jog('a', 1, -10, self.c.revision)
-        self.assertEqual(self.arm.read()[0], start)
 
-    def test_home_is_checked_against_the_standard_model(self):
+    def test_home_from_inside_the_reported_keep_out_is_allowed(self):
         self.arm.pose = [90, 85, 5, 5, 95, 30]
         self.c.refresh()
-        with self.assertRaises(ValueError) as ctx:
-            self.c.plan_home()
-        self.assertIn('标准禁入区内', str(ctx.exception))
+        self.c.home('a')
+        self.assertEqual(self.arm.read()[:4], [90, 105, 5, 5])
 
 
 class CartesianTest(Base):
@@ -166,7 +150,7 @@ class CartesianTest(Base):
         self.assertLess(sum((a - b) ** 2 for a, b in zip(after['tip'], before['tip'])) ** .5, 0.005)
 
     def test_bad_steps_rejected(self):
-        for axis, amount in (('y', 4), ('q', 1), ('z', True), ('pitch', 10), ('pitch', 3)):
+        for axis, amount in (('y', 6), ('q', 1), ('z', True), ('pitch', 16), ('y', 0)):
             with self.assertRaises(ValueError):
                 self.c.cartesian('a', axis, amount, self.c.revision)
 
@@ -178,8 +162,8 @@ class CartesianTest(Base):
 
 class WholePlanCheckTest(Base):
     def test_rejected_segment_sends_nothing(self):
-        # observe_v1: J3/J4 already at their lower limit, so moving the tip down while keeping the pitch fails
-        self.arm.pose = [90, 98, 10, 6, 95, 30]
+        # J3/J4 already at their lower limit (-10), so moving the tip down while keeping the pitch fails
+        self.arm.pose = [90, 90, -10, -10, 95, 30]
         self.c.refresh(); self.c.enable('a')
         commands = []
         original = self.arm.write6
@@ -188,7 +172,7 @@ class WholePlanCheckTest(Base):
             self.c.cartesian('a', 'z', -1, self.c.revision)
         self.assertIn('未发送任何指令', str(ctx.exception))
         self.assertEqual(commands, [])
-        self.assertEqual(self.arm.read(), [90, 98, 10, 6, 95, 30])
+        self.assertEqual(self.arm.read(), [90, 90, -10, -10, 95, 30])
         self.assertTrue(self.c.status()['armed'])  # nothing was sent, so the operator keeps control
         self.assertEqual(self.c.status()['error'], '')
 
@@ -244,49 +228,33 @@ class BlockInGripperTest(Base):
         self.assertTrue(status['armed'])
 
 
-class ProfileTest(Base):
-    def test_grasp_profile_lowers_only_the_table_margin(self):
-        self.c.set_profile('a', False, True, 'grasp')
-        self.assertEqual(self.c.cfg['keep_out']['table_margin_m'], .005)
-        self.assertEqual(self.c.cfg['keep_out']['platform_min_z_m'], self.c.base_cfg['keep_out']['platform_min_z_m'])
-        with self.assertRaises(ValueError):
-            self.c.jog('a', 1, 5, self.c.revision)
-        self.c.profile_until = time.monotonic() - 1
-        self.c.expire_profile()
-        self.assertEqual(self.c.profile, 'normal')
-
-    def test_five_degree_jog_in_normal_profile(self):
-        self.c.jog('a', 1, 5, self.c.revision)
-        self.assertEqual(self.arm.read()[0], 95)
+class StepTest(Base):
+    def test_any_integer_jog_up_to_thirty_degrees(self):
+        self.c.jog('a', 1, 7)
+        self.assertEqual(self.arm.read()[0], 97)
 
 
-class RecoverProfileTest(Base):
+class EnforcedKeepOutTest(Base):
+    """runtime.enforce_platform = true: a start inside may only move so the margin does not get worse
+    (the old recover profile, now always on when the keep-out is enforced)."""
     STUCK = [90, 108, -4, 3, 95, 133]  # board reading 2026-09-24 23:20: gripper hanging inside the platform keep-out
 
     def setUp(self):
         super().setUp()
+        self.c.cfg['keep_out'] = dict(self.c.base_cfg['keep_out'])
         self.arm.pose = list(self.STUCK)
-        self.c.refresh(); self.c.enable('a')
+        self.c.refresh()
 
-    def test_normal_profile_cannot_move_out(self):
-        with self.assertRaises(safe_arm.MotionError):
-            self.c.jog('a', 3, 2, self.c.revision)
-        self.assertEqual(self.arm.read(), self.STUCK)
-
-    def test_recover_profile_gets_out_in_small_improving_steps(self):
-        self.c.set_profile('a', False, True, 'recover')
+    def test_gets_out_in_improving_steps_and_worse_is_refused(self):
         margins = [self.c.status()['clearance_cm']]
         for joint in (3, 3, 4, 3):
-            self.c.jog('a', joint, 2, self.c.revision)
+            self.c.jog('a', joint, 2)
             margins.append(self.c.status()['clearance_cm'])
         self.assertEqual(margins, sorted(margins))
         self.assertGreaterEqual(margins[-1], 0)
-        with self.assertRaises(safe_arm.MotionError):  # a move that makes the margin worse is still refused
-            self.c.set_profile('a', False, True, 'recover')
-            self.arm.pose = list(self.STUCK); self.c.refresh()
-            self.c.jog('a', 2, -2, self.c.revision)
-        with self.assertRaises(ValueError):
-            self.c.jog('a', 3, 5, self.c.revision)
+        self.arm.pose = list(self.STUCK); self.c.refresh(); self.c.command = None
+        with self.assertRaises(safe_arm.MotionError):
+            self.c.jog('a', 2, -2)
 
 
 class RecordingTest(Base):
@@ -324,7 +292,7 @@ class PoseModeTest(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.arm = SimArm()
         self.arm.pose = [90, 90, 40, 40, 90, 30]
-        self.c = Controller(self.tmp.name, self.arm, default_profile='explore')
+        self.c = Controller(self.tmp.name, self.arm)
         self.c.refresh(); self.c.enable('a')
         patcher = patch('core.time.sleep'); patcher.start(); self.addCleanup(patcher.stop)
 
@@ -344,10 +312,6 @@ class PoseModeTest(unittest.TestCase):
 
     def test_pose_changed_after_preview_is_refused_without_locking(self):
         plan = self.c.plan_pose([100, 70, 50, 30, 90])
-        self.c.jog('a', 1, 5, self.c.revision)
-        with self.assertRaises(ValueError):  # the jog changed the revision
-            self.c.move_to_pose('a', plan['id'], plan['revision'])
-        plan = self.c.plan_pose([100, 70, 50, 30, 90])
         self.arm.pose[1] = 80  # moved by hand after the preview
         with self.assertRaises(safe_arm.MotionError):  # PlanRejected: nothing sent, control kept
             self.c.move_to_pose('a', plan['id'], self.c.revision)
@@ -365,6 +329,3 @@ class PoseModeTest(unittest.TestCase):
     def test_out_of_limit_path_is_refused_at_preview(self):
         with self.assertRaises(ValueError):
             self.c.plan_pose([90, 90, 40, 40, 300])
-        self.c.set_profile('a', False, True, 'grasp')
-        with self.assertRaises(ValueError):
-            self.c.plan_pose([100, 70, 50, 30, 90])

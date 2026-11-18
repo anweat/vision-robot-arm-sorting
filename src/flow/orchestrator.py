@@ -1,0 +1,402 @@
+"""Runs a flow script (config/flows/*.yaml) or one step on its own (docs/atlas-200i-dk-a2/32 §2–§3).
+
+    python src/flow/orchestrator.py --script config/flows/sort.yaml --console http://127.0.0.1:8770 --really
+    python src/flow/orchestrator.py --script config/flows/sort.yaml --source data/flow/x/located.json   # dry run
+    python src/flow/orchestrator.py --step plan  --session data/flow/S --block b3
+    python src/flow/orchestrator.py --step grasp --session data/flow/S --block b3 --really --console URL
+
+Without --really nothing moves: scan needs `source:` (or --source), execute runs as a dry run. With --log the
+contract events (`step`, `alarm`, `pipeline_*`, `stopped`) also go to that log, which the gateway and the
+simulator serve to the pages. The interpreter knows only the keys below; anything else is an error before
+anything runs.
+
+    - step: <name>            with: {...}            on_result: {<result>: [actions], default: [actions]}
+    - for_each: blocks        order: reach|scene     do: [actions]
+    - retry: {times: N, until: <result>, do: [actions], else: [actions]}
+        (inside do, a step result with no branch ends that attempt instead of raising an alarm)
+    - alarm: <kind>           then: skip_block|stop|continue
+    - record: sorted|missed|skipped
+    - next_block: true        - stop: <reason>
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+import time
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT / "src" / "tools"))
+
+from flow import miniyaml                       # noqa: E402
+from flow import steps as SP                    # noqa: E402
+from flow.session import FlowSession, load_json  # noqa: E402
+
+TOP_KEYS = {"name", "speed", "stop_after_alarms", "steps", "description"}
+ACTION_KEYS = {
+    "step": {"step", "with", "on_result"},
+    "for_each": {"for_each", "order", "do"},
+    "retry": {"retry"},
+    "alarm": {"alarm", "then", "summary"},
+    "record": {"record", "reason"},
+    "next_block": {"next_block"},
+    "stop": {"stop"},
+}
+RETRY_KEYS = {"times", "until", "do", "else"}
+RECORDS = ("sorted", "missed", "skipped")
+THEN = ("skip_block", "stop", "continue")
+
+
+class SkipBlock(Exception):
+    pass
+
+
+class StopFlow(Exception):
+    pass
+
+
+class AttemptFailed(Exception):
+    """Inside retry.do: a step ended with a result nobody handled; this attempt is over, the retry decides."""
+
+
+# ------------------------------------------------------------------------------------------- loading
+
+def load_script(path: str | Path) -> dict:
+    text = Path(path).read_text(encoding="utf-8")
+    script = json.loads(text) if str(path).endswith(".json") else miniyaml.load(text)
+    validate(script)
+    return script
+
+
+def validate(script) -> None:
+    if not isinstance(script, dict):
+        raise ValueError("流程脚本顶层必须是映射")
+    extra = set(script) - TOP_KEYS
+    if extra:
+        raise ValueError(f"流程脚本有未知的顶层键：{sorted(extra)}")
+    if not isinstance(script.get("steps"), list) or not script["steps"]:
+        raise ValueError("流程脚本缺少 steps 列表")
+    _check_actions(script["steps"], "steps", in_block=False)
+
+
+def _check_actions(actions, where: str, in_block: bool) -> None:
+    if not isinstance(actions, list):
+        raise ValueError(f"{where} 必须是列表")
+    for i, a in enumerate(actions):
+        at = f"{where}[{i}]"
+        if not isinstance(a, dict):
+            raise ValueError(f"{at} 必须是映射")
+        kind = next((k for k in ACTION_KEYS if k in a), None)
+        if kind is None:
+            raise ValueError(f"{at} 不认识：{a}")
+        extra = set(a) - ACTION_KEYS[kind]
+        if extra:
+            raise ValueError(f"{at}（{kind}）有未知的键：{sorted(extra)}")
+        if kind == "step":
+            if a["step"] not in SP.STEPS:
+                raise ValueError(f"{at}：没有步骤 {a['step']!r}（可用：{', '.join(SP.STEPS)}）")
+            if a.get("with") is not None and not isinstance(a["with"], dict):
+                raise ValueError(f"{at}：with 必须是映射")
+            for result, sub in (a.get("on_result") or {}).items():
+                _check_actions(sub, f"{at}.on_result.{result}", in_block)
+        elif kind == "for_each":
+            if a["for_each"] != "blocks":
+                raise ValueError(f"{at}：for_each 只支持 blocks")
+            if in_block:
+                raise ValueError(f"{at}：for_each 不能嵌套")
+            _check_actions(a.get("do"), f"{at}.do", True)
+        elif kind == "retry":
+            r = a["retry"]
+            if not isinstance(r, dict) or set(r) - RETRY_KEYS or not isinstance(r.get("times"), int) or r["times"] < 1:
+                raise ValueError(f"{at}：retry 需要 times（≥1）、until、do，可选 else")
+            _check_actions(r.get("do"), f"{at}.retry.do", in_block)
+            _check_actions(r.get("else") or [], f"{at}.retry.else", in_block)
+        elif kind == "alarm":
+            if a.get("then", "continue") not in THEN:
+                raise ValueError(f"{at}：then 只允许 {THEN}")
+            if a.get("then") == "skip_block" and not in_block:
+                raise ValueError(f"{at}：skip_block 只能在 for_each 里用")
+        elif kind == "record":
+            if a["record"] not in RECORDS:
+                raise ValueError(f"{at}：record 只允许 {RECORDS}")
+            if not in_block:
+                raise ValueError(f"{at}：record 只能在 for_each 里用")
+        elif kind == "next_block" and not in_block:
+            raise ValueError(f"{at}：next_block 只能在 for_each 里用")
+
+
+# ------------------------------------------------------------------------------------------ running
+
+class Runner:
+    def __init__(self, ctx: SP.Context, script: dict | None = None):
+        self.ctx = ctx
+        self.script = script or {}
+        self.alarm_streak = 0
+        self.block_alarmed = False
+        self.block_started = 0.0
+        self.counts = dict(sorted=0, missed=0, skipped=0, alarms=0)
+        self.last: SP.Outcome | None = None
+        self.retrying = 0
+
+    # ---- events --------------------------------------------------------------------------------------
+    def emit(self, event: str, **fields) -> None:
+        self.ctx.emit(event, **fields)
+
+    def run(self) -> dict:
+        began = time.time()
+        self.emit("step", session=self.ctx.sess.path.name, step="flow", state="started",
+                  summary=self.script.get("name", "flow"))
+        state, reason = "done", ""
+        try:
+            self.actions(self.script["steps"], in_block=False)
+        except StopFlow as exc:
+            state, reason = "stopped", str(exc)
+            self.emit("stopped", reason=reason)
+        except Exception as exc:                    # a step raised: stop where we are, say why
+            state, reason = "failed", f"{type(exc).__name__}: {exc}"
+            self.emit("stopped", reason=reason)
+        out = dict(state=state, reason=reason, seconds=round(time.time() - began, 1), session=str(self.ctx.sess.path),
+                   **self.counts)
+        self.emit("step", session=self.ctx.sess.path.name, step="flow", state=state,
+                  summary=reason or f"放好 {self.counts['sorted']}，夹空 {self.counts['missed']}，跳过 {self.counts['skipped']}")
+        self.ctx.sess.save("flow_result.json", out)
+        return out
+
+    def actions(self, actions, in_block: bool) -> None:
+        for a in actions:
+            self.action(a, in_block)
+
+    def action(self, a: dict, in_block: bool) -> None:
+        if "step" in a:
+            self.step(a, in_block)
+        elif "for_each" in a:
+            self.for_each(a)
+        elif "retry" in a:
+            self.retry(a["retry"], in_block)
+        elif "alarm" in a:
+            self.alarm(a["alarm"], a.get("then", "continue"), a.get("summary"))
+        elif "record" in a:
+            self.record(a["record"], a.get("reason"))
+        elif "next_block" in a:
+            raise SkipBlock()
+        elif "stop" in a:
+            raise StopFlow(str(a["stop"]))
+
+    def step(self, a: dict, in_block: bool) -> SP.Outcome:
+        name, params = a["step"], dict(a.get("with") or {})
+        block = self.ctx.block["name"] if self.ctx.block else None
+        self.emit("step", session=self.ctx.sess.path.name, step=name, state="started", block=block)
+        try:
+            out = SP.STEPS[name](self.ctx, **params)
+        except Exception as exc:
+            out = SP.Outcome("failed", f"{type(exc).__name__}: {exc}")
+        self.last = out
+        branches = a.get("on_result") or {}
+        # a result the script answers with an empty branch is an expected one (the closing scan finding the table
+        # empty); a result with actions behind it (plan rejected -> skip) still shows as failed
+        expected = out.result == SP.SUCCESS.get(name) or branches.get(out.result) == []
+        self.emit("step", session=self.ctx.sess.path.name, step=name, state="done" if expected else "failed",
+                  result=out.result, summary=out.summary, block=block)
+        if out.result in branches:
+            self.actions(branches[out.result], in_block)
+        elif out.result != SP.SUCCESS.get(name) and not (name == "verify" and out.result == "mismatch"):
+            if "default" in branches:
+                self.actions(branches["default"], in_block)
+            elif self.retrying:                     # inside retry.do: end this attempt, let retry judge
+                raise AttemptFailed(out.result)
+            else:                                   # nobody said what to do with this result
+                self.alarm(f"{name}_{out.result}", "skip_block" if in_block else "stop", out.summary)
+        return out
+
+    def for_each(self, a: dict) -> None:
+        if self.ctx.scene is None:
+            raise StopFlow("for_each blocks 之前没有扫描结果")
+        for block in SP.order_blocks(self.ctx.scene, a.get("order", "reach")):
+            self.ctx.block = dict(block)
+            self.block_alarmed = False
+            self.block_started = time.time()
+            try:
+                self.actions(a["do"], in_block=True)
+            except SkipBlock:
+                pass
+            self.alarm_streak = self.alarm_streak + 1 if self.block_alarmed else 0
+            limit = int(self.script.get("stop_after_alarms", 3))
+            if self.alarm_streak >= limit:
+                raise StopFlow(f"连续 {limit} 块报警，整轮停止")
+        self.ctx.block = None
+
+    def retry(self, r: dict, in_block: bool) -> None:
+        for attempt in range(1, r["times"] + 1):
+            self.emit("step", session=self.ctx.sess.path.name, step="retry", state="started",
+                      summary=f"第 {attempt}/{r['times']} 次重试",
+                      block=self.ctx.block["name"] if self.ctx.block else None)
+            self.retrying += 1
+            try:
+                self.actions(r["do"], in_block)
+            except AttemptFailed:
+                pass
+            finally:
+                self.retrying -= 1
+            if self.last is not None and self.last.result == r.get("until"):
+                return
+        self.actions(r.get("else") or [], in_block)
+
+    def alarm(self, kind: str, then: str, summary: str | None = None) -> None:
+        block = self.ctx.block["name"] if self.ctx.block else None
+        summary = summary or (self.last.summary if self.last else kind)
+        self.counts["alarms"] += 1
+        self.block_alarmed = True
+        self.emit("alarm", kind=kind, summary=summary, block=block, needs_ack=True)
+        if then == "skip_block":
+            raise SkipBlock()
+        if then == "stop":
+            raise StopFlow(f"报警 {kind}：{summary}")
+
+    def record(self, what: str, reason: str | None = None) -> None:
+        b = self.ctx.block
+        cube, cat = SP.map_cm(b), b.get("class")
+        seconds = round(time.time() - self.block_started, 1)
+        why = reason or (self.last.summary if self.last else "")
+        self.counts[what] += 1
+        if what == "sorted":
+            self.emit("pipeline_sorted", cube=cube, category=cat, bin=b.get("bin", "table"), seconds=seconds,
+                      source="flow")
+        elif what == "missed":
+            self.emit("pipeline_missed", cube=cube, category=cat, reason=why, seconds=seconds)
+        else:
+            self.emit("pipeline_skip", cube=cube, category=cat, reason=why)
+
+
+# -------------------------------------------------------------------------------------------- sinks
+
+def make_sink(sess: FlowSession, log: Path | None, echo: bool = True):
+    """Every event into <session>/flow.jsonl; contract events also into `log` (validated first: an event
+    that does not keep the contract is kept in the session log and reported on stderr, not written to `log`)."""
+    import log_contract as L
+
+    def sink(event: str, **fields) -> None:
+        fields = {k: v for k, v in fields.items() if v is not None}
+        sess.log(event, **fields)
+        line = dict(t=time.time(), event=event, **fields)
+        if echo:
+            print(json.dumps(line, ensure_ascii=False), flush=True)
+        if log is None:
+            return
+        problems = L.validate(line)
+        if problems:
+            print(f"[contract] {event}: {problems}", file=sys.stderr, flush=True)
+            return
+        log.parent.mkdir(parents=True, exist_ok=True)
+        with log.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(line, ensure_ascii=False) + "\n")
+    return sink
+
+
+def set_speed(console: str | None, speed) -> None:
+    """The script's speed, through the console (any client may set it)."""
+    if not console or speed is None:
+        return
+    import console_step
+    console_step.BASE = console.rstrip("/")
+    boot = console_step.call("/api/bootstrap")
+    console_step.call("/api/speed", dict(speed=speed), token=boot.get("token", ""), owner="flow")
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    what = ap.add_mutually_exclusive_group(required=True)
+    what.add_argument("--script", help="flow script, e.g. config/flows/sort.yaml")
+    what.add_argument("--step", choices=sorted(SP.STEPS) + ["retry"], help="run one step on its own")
+    ap.add_argument("--session", help="session directory (default: a new data/flow/<stamp>)")
+    ap.add_argument("--block", help="--step: the block (name in the session's latest scan)")
+    ap.add_argument("--with", dest="params", default="{}", help="--step: JSON parameters")
+    ap.add_argument("--console", help="console URL (simulator http://127.0.0.1:8770)")
+    ap.add_argument("--really", action="store_true", help="move the arm (else: dry run)")
+    ap.add_argument("--source", help="use this located.json for every scan instead of scanning")
+    ap.add_argument("--log", type=Path, help="contract log to append events to (gateway / simulator log)")
+    ap.add_argument("--check", action="store_true", help="--script: only load and validate the script")
+    args = ap.parse_args(argv)
+
+    if args.script and args.check:
+        load_script(args.script)
+        print("ok")
+        return 0
+    sess = FlowSession(args.session)
+    ctx = SP.Context(sess=sess, console=args.console, really=args.really, sink=make_sink(sess, args.log))
+    if args.script:
+        script = load_script(args.script)
+        if args.source:
+            _with_source(script["steps"], args.source)
+        if args.really:
+            set_speed(args.console, script.get("speed"))
+        out = Runner(ctx, script).run()
+        return 0 if out["state"] == "done" else 1
+    params = json.loads(args.params) or default_params(args.step)
+    if args.step == "scan" and args.source:
+        params.setdefault("source", args.source)
+    if args.block:
+        ctx.load_latest()
+        ctx.block = next((b for b in SP.blocks(ctx.scene) if b["name"] == args.block), None)
+        if ctx.block is None:
+            raise SystemExit(f"最新一次扫描里没有 {args.block}")
+        prior = sess.path / "blocks" / args.block / "plan.json"
+        if prior.exists():
+            ctx.block["bin"] = (load_json(prior)["task"]["to"]).get("bin", "table")
+    if args.step == "retry":                    # S5 alone: the retry script, with its alarm
+        script = load_script(ROOT / "config" / "flows" / "retry.yaml")
+        if args.source:
+            _with_source(script["steps"], args.source)
+        out = Runner(ctx, script).run()
+        return 0 if out["state"] == "done" else 1
+    ctx.emit("step", session=sess.path.name, step=args.step, state="started",
+             block=ctx.block["name"] if ctx.block else None)
+    try:
+        out = SP.STEPS[args.step](ctx, **params)
+    except Exception as exc:
+        out = SP.Outcome("failed", f"{type(exc).__name__}: {exc}")
+    ok = out.result == SP.SUCCESS.get(args.step)
+    ctx.emit("step", session=sess.path.name, step=args.step, state="done" if ok else "failed", result=out.result,
+             summary=out.summary, block=ctx.block["name"] if ctx.block else None)
+    print(json.dumps(dict(result=out.result, summary=out.summary, data=out.data, session=str(sess.path)),
+                     ensure_ascii=False, default=str))
+    return 0 if ok else 1
+
+
+def default_params(step: str, script: Path = ROOT / "config" / "flows" / "sort.yaml") -> dict:
+    """A step run on its own takes the `with:` it has in the default flow (e.g. scan locates the same bins)."""
+    def walk(actions):
+        for a in actions or []:
+            if a.get("step") == step and a.get("with"):
+                return dict(a["with"])
+            for sub in [a.get("do"), *(a.get("on_result") or {}).values(),
+                        (a.get("retry") or {}).get("do"), (a.get("retry") or {}).get("else")]:
+                found = walk(sub)
+                if found is not None:
+                    return found
+        return None
+    try:
+        return walk(load_script(script)["steps"]) or {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _with_source(actions, source: str) -> None:
+    """--source: every scan step reads this located.json instead of moving the arm."""
+    for a in actions:
+        if a.get("step") == "scan":
+            a.setdefault("with", {})
+            a["with"] = dict(a["with"] or {}, source=source)
+        for sub in (a.get("on_result") or {}).values():
+            _with_source(sub, source)
+        for key in ("do",):
+            if isinstance(a.get(key), list):
+                _with_source(a[key], source)
+        if "retry" in a:
+            _with_source(a["retry"].get("do") or [], source)
+            _with_source(a["retry"].get("else") or [], source)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -10,29 +10,28 @@ from unittest.mock import patch
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'src/teleop'))
 from core import Controller,SimArm,safe_arm
-from motion_policy import home_plan,test_config
+from motion_policy import home_plan,runtime_config,motion_for
 
 class MotionPolicyTest(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
         self.c=Controller(self.temp.name)
 
-    def test_profile_is_bounded_and_does_not_mutate_default(self):
-        cfg=test_config(self.c.base_cfg)
-        self.assertEqual(cfg['soft_limits_deg'][3][0],2)
-        self.assertEqual(self.c.base_cfg['soft_limits_deg'][3][0],5)
-        self.assertEqual(cfg['course_limits_deg'],self.c.base_cfg['course_limits_deg'])
-        self.assertEqual(cfg['soft_limits_deg'][5],self.c.base_cfg['soft_limits_deg'][5])
+    def test_runtime_config_does_not_mutate_the_base(self):
+        cfg=runtime_config(self.c.base_cfg)
+        self.assertEqual(cfg['soft_limits_deg'][3],(-10,180))
+        self.assertEqual(self.c.base_cfg['soft_limits_deg'][3],(5,175))
+        self.assertEqual(cfg['soft_limits_deg'][1],tuple(self.c.base_cfg['course_limits_deg'][1]))
+        self.assertEqual(cfg['keep_out']['platform_min_z_m'],-1.0)       # reported only (2026-11-18)
+        self.assertNotEqual(self.c.base_cfg['keep_out']['platform_min_z_m'],-1.0)
+        base=dict(self.c.base_cfg,runtime=dict(enforce_platform=True,enforce_table=True,table_margin_m=.005))
+        cfg=runtime_config(base)
+        self.assertEqual(cfg['keep_out']['platform_min_z_m'],self.c.base_cfg['keep_out']['platform_min_z_m'])
+        self.assertEqual(cfg['keep_out']['table_margin_m'],.005)
 
-    def test_profile_requires_enable_and_expires_disarmed(self):
-        with self.assertRaises(ValueError):self.c.set_profile('a',True,True)
-        self.c.enable('a');self.c.set_profile('a',True,True)
-        self.assertEqual(self.c.profile,'boundary')
-        with self.assertRaises(ValueError):self.c.jog('a',1,2,self.c.revision)
-        self.c.profile_until=time.monotonic()-1
-        self.assertEqual(self.c.status()['profile'],'normal')
-        self.assertFalse(self.c.status()['armed'])
-        self.assertEqual(self.c.cfg['keep_out']['table_margin_m'],.025)
+    def test_profile_endpoint_is_gone(self):
+        self.assertFalse(hasattr(self.c,'set_profile'))
+        self.assertNotIn('profile',self.c.status())
 
     def test_home_from_out_of_course_start_only_steps_back(self):
         # a start past the course limit may be brought home as long as every segment moves the
@@ -49,12 +48,12 @@ class MotionPolicyTest(unittest.TestCase):
         self.assertEqual(p['target'],[90,105,5,5,120,133])
         previous=p['start']
         for q in p['segments']:
-            self.assertLessEqual(max(abs(a-b) for a,b in zip(previous,q)),2)
+            self.assertLessEqual(max(abs(a-b) for a,b in zip(previous,q)),self.c.cfg['motion']['max_step_deg'])
             self.assertGreaterEqual(safe_arm.check_keep_out(previous,q,self.c.cfg),0)
             previous=q
 
     def test_home_stop_cancels_all_remaining_segments(self):
-        self.c.arm.pose=[92,110,8,8,120,133];self.c.refresh();self.c.enable('a')
+        self.c.arm.pose=[92,135,8,8,120,133];self.c.refresh()
         p=self.c.plan_home();written=[]
         def write(q,duration):
             written.append(q);self.c.arm.pose=q;self.c.stop()
@@ -64,9 +63,10 @@ class MotionPolicyTest(unittest.TestCase):
         self.assertEqual(len(written),1)
         self.assertFalse(self.c.status()['armed'])
 
-    def test_home_stale_preview_is_rejected(self):
-        self.c.enable('a');p=self.c.plan_home();p['created_at']-=31
-        with self.assertRaises(ValueError):self.c.home('a',p['id'],p['revision'])
+    def test_home_needs_no_preview_id(self):
+        self.c.arm.pose=[92,110,8,8,120,133];self.c.refresh()
+        with patch('core.time.sleep'):self.c.home('a')
+        self.assertEqual(self.c.arm.read(),[90,105,5,5,120,133])
 
 
 class PhoneLocalizationTest(unittest.TestCase):

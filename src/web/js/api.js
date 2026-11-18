@@ -28,6 +28,9 @@ export const fetchRecords = () => json("/api/log/records");
 /** 统计：GET /api/log/summary */
 export const fetchSummary = () => json("/api/log/summary");
 
+/** 分步流程：进程、会话、最新扫描的块与桶、未确认报警（文档 32 §2） */
+export const fetchFlow = () => json("/api/flow");
+
 /** 当前状态：GET /api/status */
 export const fetchStatus = () => json("/api/status");
 
@@ -62,9 +65,10 @@ export const sendCmd = async (cmd, extra = {}) => {
   return body;
 };
 
-/** 页面关闭/切后台时释放操作权（sendBeacon 在 unload 期间也能发出去） */
+/** 页面关闭/切后台时放开操作权（sendBeacon 在 unload 期间也能发出去）；控制台 2 s 内自停 */
 export const releaseControl = () => {
-  const blob = new Blob([JSON.stringify({ cmd: "stop", source: "web" })],
+  // 只停续租（release），不发 stop：stop 会连正在跑的分拣流程一起停，切个浏览器标签不该停机械臂
+  const blob = new Blob([JSON.stringify({ cmd: "release", source: "web" })],
                         { type: "application/json" });
   navigator.sendBeacon(authUrl("/api/cmd"), blob);
 };

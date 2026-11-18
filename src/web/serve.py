@@ -36,6 +36,8 @@ import argparse
 import datetime
 import json
 import secrets
+import shlex
+import subprocess
 import sys
 import threading
 import time
@@ -55,8 +57,11 @@ MODES = ("manual", "preset", "auto")
 PRESETS = ("dance", "stack", "carry")
 SOURCES = ("web", "mobile", "voice", "gesture", "timer", "button")
 CMDS = ("start", "stop", "set_mode", "run_preset", "set_joints", "move_to", "unlock_bin",
-        "enable", "gripper")
-MOTION_CMDS = ("start", "run_preset", "set_joints", "move_to", "unlock_bin", "gripper")
+        "enable", "gripper", "heartbeat", "takeover", "speed", "drive", "goto", "flow_step", "alarm_ack", "release")
+FLOW_STEPS = ("scan", "relocate", "plan", "grasp", "check", "retry", "back_off", "place", "verify", "home")
+FLOW_SCRIPT = "config/flows/sort.yaml"
+MOTION_CMDS = ("start", "run_preset", "set_joints", "move_to", "unlock_bin", "gripper", "drive", "goto")
+CLIENT_LEASE_S = 2.5     # the gateway keeps the console lease only while a page heartbeats this recently
 GRIPPER_ACTIONS = ("grip", "open", "wide")
 
 MIME = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8",
@@ -104,9 +109,8 @@ def safe_under(root: Path, name: str) -> Path | None:
 
 
 class ConsoleError(ValueError):
-    """控制台返回的业务错误。status 是 HTTP 状态码；reason 是控制台对错误的分类，
-    目前只有 revision_conflict 会让调用方重读 revision 后重试，其余一律原样上抛，
-    避免把"画面过期 / 未使能 / 正在运动"这些真原因改写成"revision 反复过期"。"""
+    """控制台返回的业务错误。status 是 HTTP 状态码；reason 是控制台对错误的分类。
+    一律原样上抛：控制台给的中文原因（画面过期、另一端持有操作权、正在运动……）就是页面该显示的。"""
 
     def __init__(self, message: str, status: int | None = None, reason: str | None = None):
         super().__init__(message)
@@ -129,22 +133,19 @@ class Console:
     控制台可以是仿真（src/sim/sim_server.py，默认 8770）也可以是实机（src/teleop/server.py）；
     两边答同一套 /api/*（接口文档 §4），所以换目标这里一行都不用改。
 
-    控制台只接受小步：关节点动 ±1/2/5/10°（core.jog），直角点动每步 ≤ 3 cm（core.cartesian），
-    每次还要带上新鲜读到的 revision。所以绝对目标在这里被拆成一串小步，一步一步交控制台校验
-    后再执行——限位、禁区、堵转全由控制台把关，本服务只是把网页的意图翻译成它的语言。
+    自文档 32 起控制台没有使能和档位：第一条运动指令就取得操作权，本服务用固定 owner 代表所有页面，
+    只在页面还在发心跳时续租（State.keep_alive）。六轴绝对角度一次交给 /api/goto（整条路径先检查再动）；
+    坐标移动仍拆成直角小步（core.cartesian 每步 ≤ 5 cm）。限位、禁区、堵转全由控制台把关。
     """
 
-    JOINT_STEPS = (10, 5, 2, 1)                  # core.jog 允许的步长
-    CARTESIAN_STEPS = (3.0, 2.0, 1.0, 0.5)       # core.cartesian 允许的步长（厘米）
-    JOINT_DEADBAND_DEG = 1                       # 不到最小步长就不动
+    CARTESIAN_STEPS = (5.0, 3.0, 2.0, 1.0, 0.5)  # core.cartesian 允许 0–5 cm
     CARTESIAN_DEADBAND_CM = 0.25
     MAX_MOVES = 60                               # 一条指令最多拆多少小步，防失控
 
-    def __init__(self, base: str, owner: str = "web", timeout: float = 30.0, onsite: bool = False):
+    def __init__(self, base: str, owner: str = "web", timeout: float = 30.0):
         self.base = base.rstrip("/")
         self.owner = owner
         self.timeout = timeout
-        self.onsite = onsite                     # 实机 enable 要求 onsite=true（接口文档 §4）
         self.token: str | None = None
 
     @property
@@ -209,23 +210,24 @@ class Console:
         return self.request("/api/sim/world")
 
     def move(self, path: str, body: dict) -> dict:
-        """动作都要新鲜的 revision；只有控制台明确标 reason=revision_conflict 时才重读再试。
-
-        其余 409（画面过期、未使能、正在运动、预览过期等）原样上抛——控制台给出的中文
-        原因就是页面该显示的原因，不能在这里改写成"revision 反复过期"把真相吞掉。
-        """
-        for _ in range(2):
-            revision = self.status()["revision"]
-            try:
-                return self.request(path, dict(body, owner=self.owner, revision=revision))
-            except ConsoleError as exc:
-                if exc.reason != "revision_conflict":
-                    raise                         # 不是 revision 冲突：保留原消息
-        raise ConsoleError("姿态已改变（revision 反复过期），请重试",
-                           status=409, reason="revision_conflict")
+        """运动指令带上 owner 转给控制台；不再需要 revision，错误原样上抛。"""
+        return self.request(path, dict(body, owner=self.owner))
 
     def enable(self) -> dict:
-        return self.request("/api/enable", dict(owner=self.owner, onsite=self.onsite))
+        """旧接口：等同于取得操作权。"""
+        return self.request("/api/enable", dict(owner=self.owner))
+
+    def takeover(self) -> dict:
+        return self.request("/api/takeover", dict(owner=self.owner))
+
+    def speed(self, value) -> dict:
+        return self.request("/api/speed", dict(owner=self.owner, speed=value))
+
+    def drive(self, mode, v, wrist=0) -> dict:
+        return self.request("/api/drive", dict(owner=self.owner, mode=mode, v=v, wrist=wrist))
+
+    def goto(self, pose=None, named=None, dry=False) -> dict:
+        return self.request("/api/goto", dict(owner=self.owner, pose=pose, named=named, dry=dry))
 
     def heartbeat(self) -> dict:
         return self.request("/api/heartbeat", dict(owner=self.owner))
@@ -249,22 +251,15 @@ class Console:
         return out
 
     def set_joints(self, targets, pose) -> int:
-        """六个绝对角度 -> 一串关节点动。返回实际走了几步。"""
+        """六个绝对角度 -> 一次 /api/goto。返回控制台分了几段。"""
         if not pose or len(pose) != 6:
             raise ValueError("控制台还没有六轴回读，无法下发角度")
-        moves = [(i + 1, d) for i in range(6)
-                 for d in self._chunks(round(targets[i] - pose[i]), self.JOINT_STEPS, self.JOINT_DEADBAND_DEG)]
-        if len(moves) > self.MAX_MOVES:
-            raise ValueError(f"这一步要拆 {len(moves)} 个点动，超过 {self.MAX_MOVES} 步上限，请分几次下发")
-        done = 0
-        try:
-            for joint, delta in moves:
-                self.move("/api/jog", dict(joint=joint, delta=int(delta)))
-                done += 1
-        except ValueError as exc:
-            raise MotionError(f"{exc}（已走 {done}/{len(moves)} 步，机械臂可能停在中间姿态）",
-                              steps_done=done, steps_total=len(moves)) from exc
-        return done
+        target = [int(round(t)) for t in targets]
+        if all(abs(t - p) < 1 for t, p in zip(target, pose)):
+            return 0
+        plan = self.goto(pose=target, dry=True)
+        self.goto(pose=target)
+        return len(plan.get("segments") or [])
 
     def move_to(self, target_cm, status: dict) -> int:
         """目标坐标（厘米）-> 一串直角点动。当前位置取控制台回读的 fk.tip（米）。"""
@@ -439,9 +434,13 @@ class State:
         self.console_error: str | None = None
         self.console_observed_at: float | None = None   # 最近一次成功回读的本地墙钟，算 age_s 用
         self.keep_alive_on = False
+        self.client_seen = 0.0                   # last page heartbeat (monotonic)
         self.motion_lock = threading.Lock()      # 运动串行化：同一时刻只执行一条运动指令
         self.replay = False                      # --replay 时为真：页面据此标"回放"，不冒充实时
         self._sim_hint = None                    # 控制台是不是仿真：探到一次就记住
+        self.flow = None                         # 编排器子进程（src/flow/orchestrator.py）
+        self.flow_python = [sys.executable]      # 跑编排器的解释器（要 numpy 等；--flow-python 改）
+        self.flow_out = None
         self.lock = threading.Lock()
 
     def console_sim(self) -> bool:
@@ -475,18 +474,23 @@ class State:
             self.joints, self.joints_t = pose, t
 
     def keep_alive(self) -> None:
-        """使能只有 2 s（core.enable），而一次布防往往要走几十个小步。
-
-        多步运动期间由后台线程每隔 1 s 续一次；控制权被抢或不使能时自动停下，
-        把失败留给下一次下发给用户一个明确原因，而不是在这里静默重试。
+        """控制台的操作权租约只有 2 s。运动期间由后台线程每隔 0.5 s 续一次——但只在页面最近
+        CLIENT_LEASE_S 内发过心跳（cmd=heartbeat）时才续：关页、断网、手机退后台后页面不再发，
+        这里也就停续，控制台 2 s 后自停。死人开关因此一直通到页面，而不是停在本服务。
         """
         while self.keep_alive_on and self.console is not None:
+            if time.monotonic() - self.client_seen > CLIENT_LEASE_S:
+                self.keep_alive_on = False
+                return
             try:
                 self.console.heartbeat()
             except Exception:
                 self.keep_alive_on = False
                 return
-            time.sleep(1.0)
+            time.sleep(0.5)
+
+    def client_beat(self) -> None:
+        self.client_seen = time.monotonic()
 
     def arm_on(self) -> None:
         if self.console is None or self.keep_alive_on:
@@ -514,7 +518,7 @@ class State:
                     self.note_pose(status.get("pose"), status.get("observed_at") or time.time())
                 except Exception as exc:
                     self.console_error = str(exc)
-                    if "操作权" in str(exc) or "另一页面" in str(exc):
+                    if "操作权" in str(exc) or "另一端" in str(exc):
                         self.keep_alive_on = False
             time.sleep(every)
 
@@ -541,7 +545,8 @@ class State:
             joints_deg=status.get("pose"),
             target_deg=status.get("command"),
             armed=bool(status.get("armed")), busy=bool(status.get("busy")),
-            revision=status.get("revision"), profile=status.get("profile"),
+            revision=status.get("revision"), owner=status.get("owner"),
+            speed=status.get("speed"), drive=status.get("drive"),
             age_s=age_s, observed_at=status.get("observed_at"),
             clearance_cm=status.get("clearance_cm"),
             tip_cm=chain.get("tip"),
@@ -554,26 +559,126 @@ class State:
             limits=status.get("limits"),
         )
 
-    def start_task(self, source: str = "web") -> dict:
-        """启动一整轮分拣：W4 的输出端，也是 `start` 指令的实现。
+    def _spawn_flow(self, args: list[str], source: str, command: str) -> dict:
+        """Run src/flow/orchestrator.py against the console as a child process (文档 32 §3)。
 
-        目前只有仿真真的有入口（POST /api/sim/sort）；实机的任务启停等 H1-3，接不上时明确
-        说接不上，不假装启动。审计痕迹写 `interaction` 事件——契约里 source 已经预留了 timer。
-        """
+        同一时刻只跑一个流程；页面持有的操作权先放掉（流程用自己的 owner 取得），
+        事件按日志契约写进本服务的活日志，页面经 SSE 直接看到 step / alarm / pipeline_* 。"""
         console = self.console
         if console is None:
             return dict(ok=False, error="未接控制台，没有可启动的任务执行侧")
+        if self.flow and self.flow.poll() is None:
+            return dict(ok=False, error="已有流程在运行；先停止")
         try:
-            reply = console.request("/api/sim/sort", dict(rounds=1))
-        except ValueError as exc:
-            if "sim/sort" in str(exc) or "404" in str(exc):
-                return dict(ok=False, error="控制台没有任务启动入口（实机的任务启停待 H1-3）")
-            return dict(ok=False, error=str(exc))
-        try:
-            self.append(dict(t=time.time(), event="interaction", source=source, command="start"))
-        except ValueError:                              # 事件不合契约时别连累启动本身
+            console.stop()
+        except ValueError:
             pass
-        return dict(ok=True, started=True, reply=reply if isinstance(reply, dict) else {})
+        self.arm_off()
+        cmd = [*self.flow_python, str(ROOT / "src" / "flow" / "orchestrator.py"), *args,
+               "--console", console.base, "--really", "--log", str(self.log_path)]
+        self.flow_out = ROOT / "data" / "flow" / "gateway_last.out"
+        self.flow_out.parent.mkdir(parents=True, exist_ok=True)
+        self.flow = subprocess.Popen(cmd, cwd=ROOT, stdout=self.flow_out.open("w"), stderr=subprocess.STDOUT)
+        try:
+            self.append(dict(t=time.time(), event="interaction", source=source, command=command))
+        except ValueError:
+            pass
+        return dict(ok=True, started=True, pid=self.flow.pid, args=args)
+
+    def start_task(self, source: str = "web") -> dict:
+        """启动一整轮分拣：按 config/flows/sort.yaml 跑编排器（按钮、语音、手势、定时都走这里）。
+        有没确认的报警时，只有人在页面上点的「开始」能启动；语音、手势、定时一律拒绝（文档 32 §3.2）。"""
+        if source not in ("web", "mobile", "button") and self.alarms():
+            return dict(ok=False, error="有未确认的报警，先在页面上点“知道了”")
+        return self._spawn_flow(["--script", FLOW_SCRIPT], source, "start")
+
+    def run_step(self, step: str, block: str | None, session: str | None, source: str = "web") -> dict:
+        """单独执行一步（文档 32 §2）：不给 session 时用最近一次流程的会话目录。"""
+        if step not in FLOW_STEPS:
+            return dict(ok=False, error=f"step 应为 {'/'.join(FLOW_STEPS)}")
+        session = session or self.flow_session or None
+        args = ["--step", step] + (["--session", session] if session else []) + (["--block", block] if block else [])
+        out = self._spawn_flow(args, source, f"step:{step}")
+        return out
+
+    def flow_state(self) -> dict:
+        """编排器子进程：在不在跑、退出码、输出最后几行（起不来时页面能看到原因，不只是没动静）。"""
+        p = self.flow
+        tail: list[str] = []
+        if self.flow_out is not None:
+            try:
+                tail = [ln[:300] for ln in self.flow_out.read_text(encoding="utf-8", errors="replace").splitlines()[-8:]
+                        if not ln.startswith('{"t"')]
+            except OSError:
+                pass
+        return dict(running=bool(p and p.poll() is None), exit_code=None if p is None else p.poll(),
+                    pid=None if p is None else p.pid, output=tail)
+
+    def alarms(self) -> list[dict]:
+        """还没确认的报警：日志里的 alarm 减去之后的 alarm_ack（同 kind，或 kind="*" 全部）。"""
+        try:
+            events, _ = L.read(self.log_path)
+        except OSError:
+            return []
+        open_: list[dict] = []
+        for e in events:
+            if e.get("event") == "alarm" and e.get("needs_ack", True):
+                open_.append(dict(kind=e.get("kind"), summary=e.get("summary"), block=e.get("block"),
+                                  t=e.get("t"), seq=e.get("seq")))
+            elif e.get("event") == "alarm_ack":
+                open_ = [a for a in open_ if e.get("kind") not in ("*", a["kind"])]
+        return open_
+
+    def flow_scene(self) -> dict:
+        """最近一次流程会话的最新扫描：桌上的块（单步执行要选块）和桶。只读文件，不依赖 numpy。"""
+        session = self.flow_session
+        out = dict(session=Path(session).name if session else None, scan=None, blocks=[], bins=[])
+        if not session:
+            return out
+        scans = sorted(Path(session).glob("scan_*/located.json"))
+        if not scans:
+            return out
+        try:
+            located = json.loads(scans[-1].read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return out
+        objs = located.get("objects", [])
+        bins = [o for o in objs if o.get("kind") == "bin"]
+
+        def in_bin(o):
+            import math
+            for b in bins:
+                a = math.radians(-b.get("yaw_deg", 0.0))
+                dx, dy = o["centre_m"][0] - b["centre_m"][0], o["centre_m"][1] - b["centre_m"][1]
+                x, y = dx * math.cos(a) - dy * math.sin(a), dx * math.sin(a) + dy * math.cos(a)
+                if abs(x) <= b["size_m"][0] / 2 and abs(y) <= b["size_m"][1] / 2:
+                    return b.get("name")
+            return None
+        out["scan"] = scans[-1].parent.name
+        out["bins"] = [dict(name=b.get("name"), category=b.get("class"),
+                            centre_cm=[round(v * 100, 1) for v in b["centre_m"]]) for b in bins]
+        out["blocks"] = [dict(name=o.get("name"), category=o.get("class"), in_bin=in_bin(o),
+                              centre_cm=[round(v * 100, 1) for v in o["centre_m"]])
+                         for o in objs if o.get("kind") == "block"]
+        return out
+
+    def stop_flow(self) -> bool:
+        if self.flow and self.flow.poll() is None:
+            self.flow.terminate()
+            return True
+        return False
+
+    @property
+    def flow_session(self) -> str | None:
+        """最近一次流程的会话目录（编排器在 step 事件里带 session 名）。"""
+        try:
+            for line in reversed(self.log_path.read_text(encoding="utf-8").splitlines()[-400:]):
+                e = json.loads(line)
+                if e.get("event") == "step" and e.get("session"):
+                    return str(ROOT / "data" / "flow" / e["session"])
+        except (OSError, ValueError):
+            return None
+        return None
 
     def status(self) -> dict:
         arm = self.arm()
@@ -584,7 +689,7 @@ class State:
                     joints_deg=None if attached else self.joints,
                     t=None if attached else self.joints_t,
                     contract_version=L.VERSION, log=str(self.log_path), arm=arm,
-                    replay=self.replay,
+                    replay=self.replay, flow=self.flow_state(),
                     timer=self.timers.status() if self.timers else dict(enabled=False))
 
 
@@ -792,6 +897,11 @@ class Handler(BaseHTTPRequestHandler):
             except (BrokenPipeError, ConnectionResetError, OSError):
                 return
 
+        if path == "/api/flow":
+            scene = self.state.flow_scene()
+            return self._send(dict(process=self.state.flow_state(), alarms=self.state.alarms(),
+                                   steps=list(FLOW_STEPS), script=FLOW_SCRIPT, **scene))
+
         if path == "/api/log/records":
             events, _ = L.read(self.state.log_path)
             return self._send(dict(contract_version=L.VERSION, records=L.records(events)))
@@ -935,6 +1045,7 @@ class Handler(BaseHTTPRequestHandler):
         if cmd == "stop":
             self.state.append(dict(t=time.time(), event="stopped", reason=f"{source} 下发停止"))
             self.state.arm_off()                       # 同时放开操作权，不再续期
+            self.state.stop_flow()                     # 正在跑的流程（编排器子进程）一并停
             if console is not None:
                 # 控制台未使能时解除操作权没有意义，事件照写，不把这种拒绝当成失败
                 try:
@@ -948,16 +1059,59 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(result) if result.get("ok") else self._fail(
                 result.get("error"), status=501)
 
-        if cmd == "enable":
-            if console is None:
-                return self._fail("未接控制台，无法使能（--console http://127.0.0.1:8770）", status=501)
+        if cmd == "flow_step":
+            result = self.state.run_step(body.get("step"), body.get("block"), body.get("session"), source=source)
+            return self._send(result) if result.get("ok") else self._fail(result.get("error"), status=409)
+
+        if cmd == "alarm_ack":
+            kind = body.get("kind")
+            if not isinstance(kind, str) or not kind:
+                return self._fail("kind 应为报警类型")
+            self.state.append(dict(t=time.time(), event="alarm_ack", kind=kind, by=source))
+            return self._send(dict(ok=True))
+
+        if cmd == "release":                          # 页面切后台/关闭：只停止续租，不停流程、不停控制台
+            self.state.arm_off()
+            return self._send(dict(ok=True))
+
+        if cmd == "heartbeat":                        # 页面可见期间每 ~0.8 s 一次（文档 32 §1.2）
+            self.state.client_beat()
+            return self._send(dict(ok=True))
+
+        if cmd in ("enable", "takeover", "speed", "drive", "goto") and console is None:
+            return self._fail(f"{cmd} 需要控制台（--console http://127.0.0.1:8770）", status=501)
+
+        if cmd in ("enable", "takeover"):              # enable：旧页面的按钮，等同取得操作权
+            self.state.client_beat()
             try:
-                console.enable()
+                console.takeover() if cmd == "takeover" else console.enable()
+            except ValueError as exc:
+                return self._fail(str(exc), status=409)
+            self.state.console_status = console.status()
+            self.state.arm_on()
+            return self._send(dict(ok=True, enabled=True))
+
+        if cmd == "speed":
+            value = body.get("speed")
+            try:
+                status = console.speed(value)
             except ValueError as exc:
                 return self._fail(str(exc))
-            self.state.console_status = console.status()
-            self.state.arm_on()                        # 使能只有 2 s，起后台线程续期
-            return self._send(dict(ok=True, enabled=True))
+            self.state.console_status = status
+            try:
+                self.state.append(dict(t=time.time(), event="speed", speed=float(value), source=source))
+            except ValueError:
+                pass
+            return self._send(dict(ok=True, speed=status.get("speed")))
+
+        if cmd == "drive":                             # 摇杆：10 Hz 刷新，不占 motion_lock（控制台自己串行）
+            self.state.client_beat()
+            try:
+                status = console.drive(body.get("mode", "cartesian"), body.get("v"), body.get("wrist", 0))
+            except ValueError as exc:
+                return self._fail(str(exc), status=409)
+            self.state.arm_on()
+            return self._send(dict(ok=True, drive=status.get("drive")))
 
         if cmd == "gripper":
             action = body.get("action")
@@ -967,6 +1121,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._fail("未接控制台，无法控制夹爪", status=501)
             if not self.state.motion_lock.acquire(blocking=False):
                 return self._fail("上一条运动指令还在执行，等它结束或用 stop 中止", status=409)
+            self.state.client_beat()
+            self.state.arm_on()
             try:
                 try:
                     result = console.gripper(action)
@@ -992,13 +1148,20 @@ class Handler(BaseHTTPRequestHandler):
         # 运动串行化：同一时刻只执行一条；上一条没走完时新指令按 409 拒绝，不排队、不混姿态
         if not self.state.motion_lock.acquire(blocking=False):
             return self._fail("上一条运动指令还在执行，等它结束或用 stop 中止", status=409)
+        self.state.client_beat()
+        self.state.arm_on()                            # 多段运动期间续租，页面停发心跳即停
         try:
-            status = console.status()                  # 最新的回读与 revision
+            status = console.status()                  # 最新的回读
             if status.get("busy"):
                 return self._fail("控制台正在运动中，等这一步结束再下发", status=409)
             try:
                 if cmd == "set_joints":
                     steps = console.set_joints(joints, status.get("pose"))
+                elif cmd == "goto":
+                    named, pose = body.get("named"), body.get("pose")
+                    plan = console.goto(pose=pose, named=named, dry=True)
+                    console.goto(pose=pose, named=named)
+                    steps = len(plan.get("segments") or [])
                 elif cmd == "move_to":
                     steps = console.move_to(target, status)
                 else:
@@ -1036,11 +1199,12 @@ def main(argv=None) -> int:
     parser.add_argument("--timers", help="启用 W4 定时启动并把任务存在这个文件里；不传则整个功能关闭（默认关闭）")
     parser.add_argument("--archive", default="data/archive",
                         help="E6 未知物体图片的存档目录（H1-6 往这里写，页面从这里读）")
+    parser.add_argument("--flow-python", default=None,
+                        help="跑编排器的命令（它要 numpy/opencv/onnxruntime），如 "
+                             "\"uv run --with 'opencv-python<5' --with numpy --with onnxruntime python\"；默认本解释器")
     parser.add_argument("--port", type=int, default=8080)
     parser.add_argument("--lan", action="store_true", help="监听所有网卡，手机可访问（强制开启 token 鉴权）")
     parser.add_argument("--token", help="开启简单鉴权，请求带 X-Token 或 ?token=")
-    parser.add_argument("--onsite", action="store_true",
-                        help="向控制台声明现场有人值守（实机 enable 的必要条件；仿真不需要）")
     args = parser.parse_args(argv)
 
     token = args.token
@@ -1049,7 +1213,7 @@ def main(argv=None) -> int:
         token = secrets.token_urlsafe(8)
         print(f"--lan 已强制开启鉴权，本次访问口令：{token}（页面用 ?token={token} 打开）")
 
-    console = Console(args.console, onsite=args.onsite) if args.console else None
+    console = Console(args.console) if args.console else None
     # 定时到点是让 Timer 回调 state.start_task：管自己和管页面走的是同一条启动路径
     timers = Timers(ROOT / args.timers, lambda _t: state.start_task(source="timer")) if args.timers else None
     state = State(ROOT / args.log, token=token, console=console, timers=timers,
@@ -1057,6 +1221,8 @@ def main(argv=None) -> int:
                   scene_json=ROOT / args.scene_json if args.scene_json else None,
                   scene_image=ROOT / args.scene_image if args.scene_image else None,
 )
+    if args.flow_python:
+        state.flow_python = shlex.split(args.flow_python)
     if console is not None:
         threading.Thread(target=state.poll_console, daemon=True).start()
     if timers is not None:
@@ -1078,8 +1244,6 @@ def main(argv=None) -> int:
     print(f"对外服务 http://{host}:{args.port}/   日志 {state.log_path}")
     if console is not None:
         print(f"控制台 {console.target}（运动指令转发过去，由它把关限位与禁区）")
-        if not args.onsite:
-            print("未声明 --onsite：实机控制台会拒绝使能（仿真不受影响）")
     else:
         print("未接控制台：运动类指令返回 501，只有日志与模式可用")
     if timers is not None:

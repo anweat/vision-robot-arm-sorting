@@ -851,6 +851,134 @@
    "if": {
     "properties": {
      "event": {
+      "const": "step"
+     }
+    },
+    "required": [
+     "event"
+    ]
+   },
+   "then": {
+    "description": "[stable] 分步流程的一步开始或结束（scan/plan/grasp/check/back_off/place/verify…，flow 为整轮）",
+    "properties": {
+     "session": {
+      "type": "string"
+     },
+     "step": {
+      "type": "string"
+     },
+     "state": {
+      "type": "string"
+     },
+     "result": {
+      "type": "string"
+     },
+     "summary": {
+      "type": "string"
+     },
+     "block": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "session",
+     "step",
+     "state"
+    ]
+   }
+  },
+  {
+   "if": {
+    "properties": {
+     "event": {
+      "const": "alarm"
+     }
+    },
+    "required": [
+     "event"
+    ]
+   },
+   "then": {
+    "description": "[stable] 需要人知道的异常：空爪重试用尽、夹爪卡住、堵转等；needs_ack 为真时要有人确认",
+    "properties": {
+     "kind": {
+      "type": "string"
+     },
+     "summary": {
+      "type": "string"
+     },
+     "needs_ack": {
+      "type": "boolean"
+     },
+     "block": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "kind",
+     "summary",
+     "needs_ack"
+    ]
+   }
+  },
+  {
+   "if": {
+    "properties": {
+     "event": {
+      "const": "alarm_ack"
+     }
+    },
+    "required": [
+     "event"
+    ]
+   },
+   "then": {
+    "description": "[stable] 报警已被确认",
+    "properties": {
+     "kind": {
+      "type": "string"
+     },
+     "by": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "kind",
+     "by"
+    ]
+   }
+  },
+  {
+   "if": {
+    "properties": {
+     "event": {
+      "const": "speed"
+     }
+    },
+    "required": [
+     "event"
+    ]
+   },
+   "then": {
+    "description": "[stable] 控制台速度改动（°/s）",
+    "properties": {
+     "speed": {
+      "type": "number"
+     },
+     "source": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "speed",
+     "source"
+    ]
+   }
+  },
+  {
+   "if": {
+    "properties": {
+     "event": {
       "const": "mode_changed"
      }
     },

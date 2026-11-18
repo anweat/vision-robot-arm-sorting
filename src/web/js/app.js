@@ -7,11 +7,13 @@ import { createFaultsView } from "./faults.js";
 import { createControlView } from "./control.js";
 import { createTimersView } from "./timers.js";
 import { createUnknownView } from "./unknown.js";
-import { MODE_NAMES } from "./contract.js";
+import { createFlowView } from "./flow.js";
+import { MODE_NAMES, ALARM_NAMES } from "./contract.js";
+import { sendCmd } from "./api.js";
 import { toast } from "./format.js";
 
 const TABS = [
-  ["live", "概览"], ["control", "手动操作"], ["faults", "告警"],
+  ["live", "概览"], ["flow", "任务"], ["control", "手动操作"], ["faults", "告警"],
   ["unknown", "告警（异常物体）"], ["timers", "任务计划"],
 ];
 const BACKFILL = 2000;                  // 首屏最多回放的历史行数
@@ -30,6 +32,7 @@ for (const [key, label] of TABS) {
 }
 views.live.view = createLiveView(views.live.section);
 views.faults.view = createFaultsView(views.faults.section);
+views.flow.view = createFlowView(views.flow.section);
 views.control.view = createControlView(views.control.section);
 views.timers.view = createTimersView(views.timers.section);
 views.unknown.view = createUnknownView(views.unknown.section);
@@ -88,6 +91,53 @@ function renderBanner() {
   });
 }
 
+// 报警：任何页签都显示，要人点"知道了"才消失（文档 32 §2.3）。新来的报警响一声、标题加 ⚠。
+const alarmBanner = document.getElementById("alarmBanner");
+let alarmHeard = 0, alarmSig = "";
+const TITLE = document.title;
+function beep() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    for (const [at, f] of [[0, 880], [0.25, 660], [0.5, 880]]) {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.frequency.value = f; g.gain.value = 0.08;
+      o.connect(g).connect(ctx.destination);
+      o.start(ctx.currentTime + at); o.stop(ctx.currentTime + at + 0.18);
+    }
+    setTimeout(() => ctx.close(), 1200);
+  } catch { /* 浏览器没允许出声：只靠红条 */ }
+}
+async function ack(kind) {
+  try {
+    await sendCmd("alarm_ack", { kind });
+    toast(kind === "*" ? "报警已全部确认" : "报警已确认", "good");
+  } catch (err) {
+    toast(err.message, "bad");
+  }
+}
+alarmBanner.addEventListener("click", (ev) => {
+  const btn = ev.target.closest("button[data-ack]");
+  if (btn) ack(btn.dataset.ack);
+});
+function renderAlarms() {
+  const list = store.alarms;
+  document.title = list.length ? `⚠ ${list.length} 条报警 · ${TITLE}` : TITLE;
+  if (store.alarmSeq > alarmHeard) {
+    if (alarmHeard && list.length) beep();      // 首屏回填的旧报警不响
+    alarmHeard = store.alarmSeq;
+  }
+  const sig = list.map((a) => a.seq).join(",");
+  if (sig === alarmSig) return;                 // 没变就不重画，免得按钮在点击间被换掉
+  alarmSig = sig;
+  alarmBanner.hidden = !list.length;
+  const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  const kinds = [...new Set(list.map((a) => a.kind))];
+  alarmBanner.innerHTML = `<b>报警 ${list.length}</b>` + list.slice(-4).map((a) => `
+      <span class="alarm-item"><b>${esc(ALARM_NAMES[a.kind] ?? a.kind)}</b>${a.block ? ` · ${esc(a.block)}` : ""} · ${esc(a.summary)}</span>`).join("")
+    + kinds.map((k) => `<button data-ack="${esc(k)}">知道了：${esc(ALARM_NAMES[k] ?? k)}</button>`).join("")
+    + (kinds.length > 1 ? `<button data-ack="*">全部知道了</button>` : "");
+}
+
 function render() {
   for (const [key, v] of Object.entries(views)) v.section.hidden = key !== active;
   // 有些视图没有 update（例如任务计划自己定时刷新），必须可选调用，
@@ -115,6 +165,7 @@ function render() {
     : (store.latency === null ? "距上次事件 —" : `距上次事件 ${store.latency.toFixed(2)} s`);
   chip("chipTotal").textContent = `${store.total} 事件`;
   renderBanner();
+  renderAlarms();
 }
 
 store.subscribe(render);

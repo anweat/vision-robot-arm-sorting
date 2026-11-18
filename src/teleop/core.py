@@ -1,5 +1,10 @@
 """One-step teleoperation. No queues, recovery moves, or automatic retreat.
 
+There is no enable step and there are no limit profiles (docs/atlas-200i-dk-a2/32-操作逻辑简化与分步任务.md
+§1): the first motion command of a client takes control if nobody else holds it, the client keeps it with
+heartbeats (a dead-man lease of LEASE_S), and `stop` from anyone ends it. Speed is one number in deg/s.
+Stick driving (`drive`) is a loop of short verified segments that ends when the stick updates stop.
+
 When a step meets resistance (a joint lags its command beyond the tolerance), the arm is
 commanded to hold at its readback so no servo keeps pushing into an obstacle; this is not a
 retreat. The gripper and Cartesian steps go through the same checks as joint jogs.
@@ -8,11 +13,9 @@ Relative steps build on the last command while the readback still agrees with it
 readback tolerance), not on the readback itself: a 1 deg change can sit inside a servo's
 deadband (2026-09-24: J1 91 -> read 90, twice), and building on the readback would resend the
 same command forever. If someone moves the arm by hand, the readback disagrees and wins."""
-import copy
 import hashlib
 import json
 import math
-import secrets
 import sys
 import threading
 import time
@@ -43,14 +46,20 @@ class SimArm:
         self.pose = list(pose)
 
 
+LEASE_S = 2.0           # control lapses this long after the last command or heartbeat
+DRIVE_TIMEOUT_S = 0.3   # stick driving stops this long after the last stick update
+DRIVE_SETTLE_MS = 60
+
+
 class Controller:
-    def __init__(self, directory, arm=None, hardware=False, camera=None, default_profile='normal'):
-        from motion_policy import profile_config
+    def __init__(self, directory, arm=None, hardware=False, camera=None, default_profile=None):
+        # default_profile is accepted and ignored: callers from before the profiles were removed still pass it
+        from motion_policy import runtime_config, speed_range
         self.base_cfg = safe_arm.load_config(safe_arm.DEFAULT_CONFIG)
-        self.default_profile = default_profile
-        self.cfg = profile_config(default_profile, self.base_cfg)
-        self.profile = default_profile
-        self.profile_until = 0
+        self.cfg = runtime_config(self.base_cfg)
+        self.speed_limits = speed_range(self.base_cfg['motion'])
+        self.speed = self.speed_limits[2]
+        self._apply_speed()
         self.command = None  # last pose sent; relative steps build on it while the readback agrees
         self.home_preview = None
         self.pose_preview = None
@@ -69,20 +78,30 @@ class Controller:
         self.pose = [None] * 6
         self.observed_at = 0
         self.target = None
-        self.revision = 0
+        self.revision = 0       # bumped on every change; reported, no longer required from clients
         self.grip = None        # last gripper action and whether the readback says it holds something
         self.on_step = None     # callback(kind, goal, observed) after every verified step (recording)
+        self.drive_cmd = None   # latest stick update: dict(owner, mode, v, wrist, at)
+        self.driving = False
+        self.drive_reason = ''
+        self.time_scale = 1.0   # simulation only: segment times and waits are divided by this (sim_server --speed)
         self.refresh()
 
+    # ---- bookkeeping ------------------------------------------------------------------------------------
     def log(self, event, **data):
         with self.gate:
             with (self.directory / 'events.jsonl').open('a') as f:
                 f.write(json.dumps(dict(t=time.time(), event=event, mode=self.mode,
-                                       config_sha256=self.config_hash, profile=self.profile, **data), ensure_ascii=False, allow_nan=False) + '\n')
+                                       config_sha256=self.config_hash, speed=self.speed, **data),
+                                   ensure_ascii=False, allow_nan=False) + '\n')
 
     @property
     def mode(self):
         return 'hardware' if self.hardware else 'simulation'
+
+    def _apply_speed(self):
+        from motion_policy import motion_for
+        self.cfg['motion'] = motion_for(self.speed, self.base_cfg['motion'])
 
     def refresh(self):
         if not self.io.acquire(blocking=False):
@@ -103,172 +122,172 @@ class Controller:
 
     def status(self):
         with self.gate:
-            self.expire_profile()
             valid = len(self.pose) == 6 and all(v is not None and math.isfinite(v) for v in self.pose)
             fk = safe_arm.workspace.kin.forward(self.pose) if valid else None
-            # always report the standard keep-out model, also in profiles that do not enforce it
+            # always report the standard keep-out model's margin, also when the runtime only reports it
             margin = safe_arm.workspace.clearance(self.pose, safe_arm.workspace.load_keep_out(self.base_cfg)) if valid else None
+            held = time.monotonic() < self.deadline
+            lo, hi, default = self.speed_limits
             return dict(mode=self.mode, pose=self.pose[:], target=self.target, observed_at=self.observed_at,
                         grip=self.grip, gripper=self.cfg.get('gripper'), command=self.command,
-                        default_profile=self.default_profile,
                         age_s=time.time()-self.observed_at if self.observed_at else None,
-                        armed=time.monotonic() < self.deadline, busy=self.busy, error=self.error,
+                        armed=held, owner=self.owner if held else None, busy=self.busy, error=self.error,
                         revision=self.revision, fk=fk, clearance_cm=margin*100 if valid else None,
                         limits=self.cfg['soft_limits_deg'], session=self.directory.name,
-                        profile=self.profile, profile_remaining_s=max(0,self.profile_until-time.monotonic()),
-                        keep_out=safe_arm.workspace.load_keep_out(self.cfg))
+                        speed=dict(value=self.speed, min=lo, max=hi, default=default,
+                                   step_deg=self.cfg['motion']['max_step_deg'],
+                                   segment_ms=self.cfg['motion']['segment_ms'], settle_ms=self.cfg['motion']['settle_ms']),
+                        drive=dict(active=self.driving, mode=(self.drive_cmd or {}).get('mode'), reason=self.drive_reason),
+                        runtime=dict(enforce_platform=self.base_cfg.get('runtime', {}).get('enforce_platform', False),
+                                     enforce_table=self.base_cfg.get('runtime', {}).get('enforce_table', False)),
+                        keep_out=safe_arm.workspace.load_keep_out(self.cfg),
+                        standard_keep_out=safe_arm.workspace.load_keep_out(self.base_cfg))
 
-    def enable(self, owner, onsite=False):
-        with self.gate:
-            if self.busy:
-                raise ValueError('动作尚未结束')
-            if self.owner != owner and time.monotonic() < self.deadline:
-                raise ValueError('另一页面持有操作权')
-            if self.hardware and (onsite is not True or not self.camera or not self.camera.fresh()):
-                raise ValueError('实机需要现场安全确认及新鲜画面')
-            if time.time() - self.observed_at > 2:
-                raise ValueError('回读过期，请等待刷新')
-            self.owner, self.deadline, self.error = owner, time.monotonic()+2, ''
+    # ---- control (no enable step) --------------------------------------------------------------------
+    def _claim(self, owner):
+        """Give `owner` control unless someone else holds a live lease. Caller holds the gate."""
+        if not isinstance(owner, str) or not owner:
+            raise ValueError('操作端标识无效')
+        now = time.monotonic()
+        if self.owner not in (None, owner) and now < self.deadline:
+            raise ValueError('另一端持有操作权；对方停止或超时后再试，或点“接管”')
+        if self.owner != owner or now >= self.deadline:
             self.revision += 1
-            self.log('enable', onsite=onsite)
+            self.log('control', owner=owner)
+        self.owner, self.deadline = owner, now + LEASE_S
+
+    def enable(self, owner, onsite=None):
+        """Kept for clients from before doc 32: the same as taking control. `onsite` is ignored."""
+        with self.gate:
+            if self.busy and self.owner != owner:
+                raise ValueError('动作尚未结束')
+            self._claim(owner)
+            self.error = ''
+
+    def take_over(self, owner):
+        """Stop whoever holds control, then hold it."""
+        self.stop()
+        with self.gate:
+            self._claim(owner)
+            self.error = ''
 
     def heartbeat(self, owner):
         with self.gate:
             if self.owner == owner and time.monotonic() < self.deadline:
-                self.deadline = time.monotonic()+2
+                self.deadline = time.monotonic()+LEASE_S
 
     def stop(self):
         with self.gate:
             self.deadline = 0
             self.owner = None
+            self.drive_cmd = None
             self.revision += 1
             self.log('stop_future_commands')
 
-    def expire_profile(self):
-        from motion_policy import TIMED_PROFILES, profile_config
-        if self.profile in TIMED_PROFILES and time.monotonic() >= self.profile_until:
-            self.cfg=profile_config(self.default_profile,self.base_cfg)
-            self.profile=self.default_profile
-            self.deadline=0
-            self.revision+=1
-            self.log('profile_expired')
-
-    def set_profile(self, owner, boundary, onsite, name=None):
-        from motion_policy import TIMED_PROFILES, profile_config
-        name = name or ('boundary' if boundary else self.default_profile)
+    def set_speed(self, speed, owner=None):
+        lo, hi, _ = self.speed_limits
+        if isinstance(speed, bool) or not isinstance(speed, (int, float)) or not math.isfinite(speed):
+            raise ValueError('速度必须是数字（°/s）')
+        if not lo <= speed <= hi:
+            raise ValueError(f'速度只允许 {lo}–{hi} °/s')
         with self.gate:
-            if self.busy:
-                raise ValueError('运动中不能切换限位')
-            cfg = profile_config(name, self.base_cfg)
-            if name in TIMED_PROFILES or (name == 'explore' and self.default_profile != 'explore'):
-                if onsite is not True or self.owner != owner or time.monotonic() >= self.deadline:
-                    raise ValueError('请先现场确认并使能')
-            self.cfg, self.profile = cfg, name
-            self.profile_until = time.monotonic()+60 if name in TIMED_PROFILES else 0
-            self.revision+=1
-            self.home_preview=None
-            self.pose_preview=None
-            self.log('profile', keep_out=self.cfg['keep_out'], limits=self.cfg['soft_limits_deg'])
+            self.speed = float(speed)
+            self._apply_speed()
+            self.revision += 1
+            self.log('speed', by=owner)
+        return self.status()
 
+    # ---- moves --------------------------------------------------------------------------------------
+    def plan_goto(self, target=None, named=None):
+        """Check the whole path to an absolute pose (None = keep that joint) or a named pose; nothing is sent."""
+        from motion_policy import path_plan
+        if named is not None:
+            poses = self.cfg.get('named_poses', {})
+            if named not in poses:
+                raise ValueError(f'没有命名位 {named}')
+            target = poses[named]
+        if not isinstance(target, list) or len(target) not in (5, 6) or \
+                any(v is not None and (isinstance(v, bool) or not isinstance(v, (int, float))) for v in target):
+            raise ValueError('目标姿态必须是 5 或 6 个角度（null 表示不动）')
+        target = list(target) + [None] * (6 - len(target))
+        with self.gate:
+            if self.busy or time.time()-self.observed_at > 2:
+                raise ValueError('需要静止且新鲜的回读')
+            plan = path_plan(self.pose, target, self.cfg)
+            plan['revision'] = self.revision
+            plan['request'] = target           # None = keep: resolved against the last command when it runs
+            return plan
+
+    def goto(self, owner, target=None, named=None):
+        """Go to an absolute or named pose in one call: the path is checked whole before the first segment."""
+        plan = self.plan_goto(target, named)
+        self.log('goto', plan=dict(plan, segments=len(plan['segments'])))
+        step = self.cfg['motion']['max_step_deg']
+
+        def segments(base):
+            near = lambda q: all(abs(a-b) <= 2 for a, b in zip(q[:5], plan['start'][:5]))
+            if not (near(base) or near(self.fresh_readback)):
+                raise ValueError('姿态已改变，请重试')
+            # a joint not asked for keeps its last command, not its readback: a gripper closed with 133 reads
+            # back 129 on a block, and sending 129 would loosen the grip (2026-11-18, simulator: block dropped)
+            target = [b if t is None else int(t) for b, t in zip(base, plan['request'])]
+            return safe_arm.plan_segments(base, target, step)
+        return self._move(owner, plan=segments, kind='goto')
+
+    # previews kept for the old console page and console_step.Session; they are goto underneath
     def plan_home(self):
-        from motion_policy import home_plan
         with self.gate:
-            self.expire_profile()
-            if self.busy or self.profile not in ('normal','explore') or time.time()-self.observed_at > 2:
-                raise ValueError('归位预览需要标准档或探索档、稳定且新鲜的回读')
-            margin=safe_arm.workspace.clearance(self.pose,safe_arm.workspace.load_keep_out(self.base_cfg))
-            if margin<0:
-                raise ValueError(f'当前在标准禁入区内（余量 {margin*100:.1f} cm），归位路线按标准模型检查；先用小步点动移出（通常是加大 J3/J4）再预览归位')
-            self.home_preview=home_plan(self.pose,self.base_cfg)  # the path home is always checked against the standard model
-            self.home_preview['revision']=self.revision
-            self.log('home_preview',plan=self.home_preview)
+            self.home_preview = self.plan_goto(named='observe_v1')
+            self.log('home_preview', plan=dict(self.home_preview, segments=len(self.home_preview['segments'])))
             return self.home_preview
 
-    def home(self, owner, plan_id, revision):
-        with self.gate:
-            p=self.home_preview
-            if not p or p['id'] != plan_id or time.time()-p['created_at'] > 30 or p['revision']!=revision:
-                raise ValueError('归位预览过期，请重新预览')
-        self._move(owner,revision,home=p)
+    def home(self, owner, plan_id=None, revision=None):
+        return self.goto(owner, named='observe_v1')
 
     def plan_pose(self, target):
-        """Preview a move of J1-J5 to a pose set on the 3D model (J6 keeps its gripper buttons).
-        The whole path is checked with the current profile; nothing is sent here."""
+        if not isinstance(target, list) or len(target) < 5 or any(type(v) is not int for v in target[:5]):
+            raise ValueError('目标姿态必须是 5 个整数角度')
         with self.gate:
-            self.expire_profile()
-            if self.busy or self.profile not in ('normal', 'explore') or time.time()-self.observed_at > 2:
-                raise ValueError('姿态模式需要探索档或标准档、稳定且新鲜的回读')
-            if not isinstance(target, list) or len(target) < 5 or any(type(v) is not int for v in target[:5]):
-                raise ValueError('目标姿态必须是 5 个整数角度')
-            start = list(self.pose)
-            goal = list(target[:5]) + [start[5]]
-            segments = safe_arm.plan_segments(start, goal, self.cfg['motion']['max_step_deg'])
-            if not segments:
+            self.pose_preview = self.plan_goto(list(target[:5]) + [None])
+            if not self.pose_preview['segments']:
+                self.pose_preview = None
                 raise ValueError('目标与当前姿态相同')
-            previous, margins = start, []
-            for step in segments:
-                try:
-                    safe_arm.validate_target(previous, step, self.cfg)
-                    margins.append(safe_arm.check_keep_out(previous, step, self.cfg))
-                except safe_arm.MotionError as exc:
-                    raise ValueError(f'路径第 {len(margins)+1}/{len(segments)} 段不可行：{exc}') from exc
-                previous = step
-            motion = self.cfg['motion']
-            self.pose_preview = dict(id=secrets.token_hex(12), created_at=time.time(), start=start, target=goal,
-                                     segments=len(segments), revision=self.revision,
-                                     largest_deg=max(abs(a-b) for a, b in zip(start, goal)),
-                                     seconds=round(len(segments)*(motion['segment_ms']+motion['settle_ms'])/1000, 1),
-                                     margin_cm=round(min(margins)*100, 1) if margins else None)
+            self.pose_preview['segments'] = len(self.pose_preview['segments'])
             self.log('pose_preview', plan=self.pose_preview)
             return self.pose_preview
 
-    def move_to_pose(self, owner, plan_id, revision):
+    def move_to_pose(self, owner, plan_id, revision=None):
         with self.gate:
             p = self.pose_preview
-            if not p or p['id'] != plan_id or time.time()-p['created_at'] > 30 or p['revision'] != revision:
+            if not p or p['id'] != plan_id or time.time()-p['created_at'] > 30:
                 raise ValueError('姿态预览过期，请重新预览')
             self.pose_preview = None
-        step = self.cfg['motion']['max_step_deg']
+        return self.goto(owner, p['target'][:5] + [None])
 
-        def plan(base):
-            # the preview starts from the readback, the step from the last command when they agree within
-            # tolerance; a sagging J2 can hold them 3 deg apart (2026-09-26), so either may match the preview
-            near = lambda q: all(abs(a-b) <= 2 for a, b in zip(q[:5], p['start'][:5]))
-            if not (near(base) or near(self.fresh_readback)):
-                raise ValueError('姿态已改变，请重新预览')
-            return safe_arm.plan_segments(base, p['target'][:5]+[base[5]], step)
-        return self._move(owner, revision, plan=plan, kind='pose')
+    def jog(self, owner, joint, delta, revision=None):
+        if type(joint) is not int or joint not in range(1, 7) or type(delta) is not int or not 1 <= abs(delta) <= 30:
+            raise ValueError('只接受 1–6 号关节、±1–30° 的整数点动')
+        return self._move(owner, joint=joint, delta=delta)
 
-    def jog(self, owner, joint, delta, revision):
-        if type(joint) is not int or joint not in range(1, 7) or type(delta) is not int or abs(delta) not in (1, 2, 5, 10):
-            raise ValueError('只接受 1–6 号关节、±1/2/5/10° 点动')
-        if abs(delta) > 2 and self.profile not in ('normal', 'explore'):
-            raise ValueError('抓取档、脱困档只允许 2° 以内的关节点动')
-        return self._move(owner,revision,joint=joint,delta=delta)
-
-    def cartesian(self, owner, axis, amount, revision):
+    def cartesian(self, owner, axis, amount, revision=None):
         """Move the gripper tip along a base axis (cm) or change its pitch (deg) about the tip,
         keeping the other of the two; joints come from the planar IK of the same model."""
         from motion_policy import cartesian_goal
         if axis not in ('x', 'y', 'z', 'pitch') or isinstance(amount, bool) or not isinstance(amount, (int, float)):
             raise ValueError('直角点动参数无效')
-        # pitch turns about the tip; with ~19 cm from wrist to tip, 5 deg already swings J3 by ~30 deg
-        # large pitch steps are still bounded by the IK jump check (15 deg standard, 30 deg explore)
-        allowed = (0.5, 1, 2, 3) if axis != 'pitch' else (1, 2, 5)
-        if abs(amount) not in allowed:
-            raise ValueError(f'步长只允许 {allowed}')
-        if self.profile not in ('normal', 'explore') and abs(amount) > 1:
-            raise ValueError('抓取档、脱困档只允许 1 cm / 1° 以内的直角点动')
-        return self._move(owner, revision, plan=lambda current: cartesian_goal(current, axis, amount, self.cfg), kind='cartesian')
+        top = 15 if axis == 'pitch' else 5
+        if not 0 < abs(amount) <= top:
+            raise ValueError(f'步长须在 0–{top}' + ('°' if axis == 'pitch' else ' cm'))
+        return self._move(owner, plan=lambda current: cartesian_goal(current, axis, amount, self.cfg), kind='cartesian')
 
-    def gripper(self, owner, action, revision):
+    def gripper(self, owner, action, revision=None):
         g = self.cfg.get('gripper')
         if not g:
             raise ValueError('配置中没有夹爪标定')
         targets = {'wide': g['open_wide_deg'], 'open': g['open_deg'], 'grip': g['grip_command_deg']}
         if action not in targets:
             raise ValueError('夹爪动作只允许 wide / open / grip')
-        status = self._move(owner, revision, plan=lambda current: [current[:5] + [targets[action]]],
+        status = self._move(owner, plan=lambda current: [current[:5] + [targets[action]]],
                             kind='gripper', skip=[6] if action == 'grip' else [])
         reading = status['pose'][5]
         result = safe_arm.grip_state(reading, g) if action == 'grip' else None
@@ -278,17 +297,73 @@ class Controller:
             self.log('gripper', **self.grip)
         return self.status()
 
-    def _move(self,owner,revision,joint=None,delta=None,home=None,plan=None,kind='jog',skip=()):
+    # ---- stick driving --------------------------------------------------------------------------------
+    def drive(self, owner, mode, v, wrist=0):
+        """Latest stick deflection (doc 32 §1.5). Starts the drive loop if it is not running; the loop stops
+        on its own DRIVE_TIMEOUT_S after the last update, on all-zero deflection, and on stop."""
+        if mode not in ('cartesian', 'joint'):
+            raise ValueError('mode 只允许 cartesian / joint')
+        if not isinstance(v, list) or len(v) != 4 or any(isinstance(x, bool) or not isinstance(x, (int, float))
+                                                          or not -1 <= x <= 1 for x in v + [wrist]):
+            raise ValueError('v 须为 4 个 −1..1 的数，wrist 为 −1..1')
         with self.gate:
-            self.expire_profile()
-            if self.profile == 'boundary' and (home or plan or abs(delta)!=1):
-                raise ValueError('临时测试档只允许 1° 关节点动，不能归位')
-            if self.profile not in ('normal', 'explore') and home:
-                raise ValueError('抓取档和脱困档不能归位；先恢复默认档')
-            if self.busy or self.owner != owner or time.monotonic() >= self.deadline:
-                raise ValueError('未使能、连接超时或正在运动；指令不排队')
-            if revision != self.revision:
-                raise RevisionConflict('状态已变化，请刷新后重新点动')
+            if self.busy and not self.driving:
+                raise ValueError('正在执行别的动作；等它结束')
+            self._claim(owner)
+            self.drive_cmd = dict(owner=owner, mode=mode, v=[float(x) for x in v], wrist=float(wrist), at=time.monotonic())
+            start = not self.driving and any(abs(x) > 1e-3 for x in v + [wrist])
+            if start:
+                self.driving = True
+                self.drive_reason = ''
+        if start:
+            threading.Thread(target=self._drive_loop, args=(owner,), daemon=True).start()
+        return self.status()
+
+    def _drive_loop(self, owner):
+        from motion_policy import drive_goal
+        residual = [0.0] * 5
+        self.log('drive_start', owner=owner)
+        try:
+            while True:
+                with self.gate:
+                    cmd = self.drive_cmd
+                    if not cmd or cmd['owner'] != owner or self.owner != owner \
+                            or time.monotonic() - cmd['at'] > DRIVE_TIMEOUT_S \
+                            or not any(abs(x) > 1e-3 for x in cmd['v'] + [cmd['wrist']]):
+                        break
+                    speed = self.speed
+                dt = max(.2, 1.0 / speed)
+
+                def segment(base, cmd=cmd, dt=dt, speed=speed):
+                    goal = drive_goal(base, cmd['mode'], cmd['v'], cmd['wrist'], dt, speed, residual, self.cfg)
+                    return [goal] if goal != list(base) else []
+                try:
+                    self._move(owner, plan=segment, kind='drive', timing=dt, claim=False)
+                    self.drive_reason = ''
+                except PlanRejected as exc:
+                    self.drive_reason = str(exc).replace('计划被拒绝，未发送任何指令：', '')
+                    residual[:] = [0.0] * 5
+                    time.sleep(.1)
+                except Exception as exc:
+                    self.drive_reason = str(exc)
+                    break
+        finally:
+            with self.gate:
+                self.driving = False
+                self.drive_cmd = None
+            self.log('drive_end', owner=owner, reason=self.drive_reason)
+
+    def _move(self, owner, revision=None, joint=None, delta=None, plan=None, kind='jog', skip=(), timing=None, claim=True):
+        """`timing`: segment length in s for drive segments (their settle is short); else the speed's timing.
+        `claim=False` (the drive loop): only an owner whose lease is still alive may move, so a stop that lands
+        between two drive segments is never undone by the next segment taking control again."""
+        with self.gate:
+            if self.busy:
+                raise ValueError('正在运动；指令不排队')
+            if claim:
+                self._claim(owner)
+            elif self.owner != owner or time.monotonic() >= self.deadline:
+                raise ValueError('已停止或操作权超时')
             if self.hardware and not self.camera.fresh():
                 self.deadline = 0
                 raise ValueError('画面过期，已锁定控制')
@@ -299,67 +374,70 @@ class Controller:
                 current = self.arm.read()
                 if len(current) != 6 or any(v is None or not math.isfinite(v) for v in current):
                     raise ValueError('关节回读失败')
-                tolerance=self.cfg['motion']['readback_tolerance_deg']
-                synced=self.command is not None and all(abs(c-r)<=tolerance for c,r in zip(self.command,current))
-                base=list(self.command) if synced else list(current)
-                check_cfg=self.base_cfg if home else self.cfg
-                if home:
-                    if any(abs(a-b)>1 for a,b in zip(current,home['start'])):
-                        raise ValueError('姿态改变，请重新预览归位')
-                    from motion_policy import home_plan
-                    goals=home_plan(current,self.base_cfg)['segments']
-                elif plan:
-                    self.fresh_readback=list(current)  # what this very move just read, for plans that check it
+                motion = self.cfg['motion']
+                tolerance = motion['readback_tolerance_deg']
+                synced = self.command is not None and all(abs(c-r) <= tolerance for c, r in zip(self.command, current))
+                base = list(self.command) if synced else list(current)
+                if plan:
+                    self.fresh_readback = list(current)  # what this very move just read, for plans that check it
                     try:
-                        goals=plan(base)
+                        goals = plan(base)
                     except ValueError as exc:  # unreachable / IK jump: nothing was sent
                         raise PlanRejected(f'计划被拒绝，未发送任何指令：{exc}') from exc
                 else:
-                    goal=list(base)
-                    goal[joint-1]+=delta
-                    # a 10 deg jog runs as 5 deg segments, each verified by readback like any other plan
-                    goals=safe_arm.plan_segments(base,goal,self.cfg['motion']['max_step_deg']) or [goal]
-                # check the whole chain before sending anything, so a later segment cannot strand the arm midway
-                previous=list(current)
+                    goal = list(base)
+                    goal[joint-1] += delta
+                    goals = safe_arm.plan_segments(base, goal, motion['max_step_deg']) or [goal]
+                if not goals:
+                    return self.status()
+                # check the whole chain before sending anything, so a later segment cannot strand the arm midway;
+                # a start already inside an enforced keep-out may only move so the margin does not get worse
+                previous = list(current)
                 for goal in goals:
                     try:
-                        safe_arm.validate_target(previous,goal,check_cfg)
-                        safe_arm.check_keep_out(previous,goal,check_cfg,recover=self.profile=='recover')
+                        safe_arm.validate_target(previous, goal, self.cfg)
+                        safe_arm.check_keep_out(previous, goal, self.cfg, recover=True)
                     except safe_arm.MotionError as exc:
-                        hint='；保持当前俯角无法到达，可先调整俯仰或前后位置' if kind=='cartesian' else ''
+                        hint = '；保持当前俯角无法到达，可先调整俯仰或前后位置' if kind == 'cartesian' else ''
                         raise PlanRejected(f'计划被拒绝，未发送任何指令：{exc}{hint}') from exc
-                    previous=goal
+                    previous = goal
                 for goal in goals:
-                    safe_arm.validate_target(current,goal,check_cfg)
-                    margin=safe_arm.check_keep_out(current,goal,check_cfg,recover=self.profile=='recover')
+                    safe_arm.validate_target(current, goal, self.cfg)
+                    margin = safe_arm.check_keep_out(current, goal, self.cfg, recover=True)
+                    motion = self.cfg['motion']          # a speed change applies from the next segment
+                    if timing:
+                        largest = max(abs(a-b) for a, b in zip(goal[:5], current[:5]))
+                        seg_ms = int(max(timing*1000, 1000*largest/self.speed))
+                        settle_ms = DRIVE_SETTLE_MS
+                    else:
+                        seg_ms, settle_ms = motion['segment_ms'], motion['settle_ms']
                     with self.gate:
-                        self.expire_profile()
-                        if self.owner!=owner or time.monotonic()>=self.deadline:
+                        if self.owner != owner or time.monotonic() >= self.deadline:
                             raise ValueError('已停止或操作权超时')
                         if self.hardware and not self.camera.fresh():
                             raise ValueError('画面过期')
-                        self.target=goal
-                        self.log('command',current=current,target=goal,margin_cm=margin*100)
-                        self.arm.write6(goal,self.cfg['motion']['segment_ms'])
-                        self.command=list(goal)
-                    time.sleep((self.cfg['motion']['segment_ms']+self.cfg['motion']['settle_ms'])/1000)
-                    observed=self.arm.read()
-                    if len(observed)!=6 or any(v is None or not math.isfinite(v) for v in observed):
+                        self.target = goal
+                        self.log('command', current=current, target=goal, margin_cm=margin*100, kind=kind)
+                        self.arm.write6(goal, int(seg_ms / self.time_scale))
+                        self.command = list(goal)
+                    time.sleep((seg_ms+settle_ms)/1000/self.time_scale)
+                    observed = self.arm.read()
+                    if len(observed) != 6 or any(v is None or not math.isfinite(v) for v in observed):
                         raise ValueError('动作后回读失败；停止后续指令，不自动退回')
-                    problems=safe_arm.check_reached(observed,goal,self.cfg['motion']['readback_tolerance_deg'],skip)
+                    problems = safe_arm.check_reached(observed, goal, tolerance, skip)
                     with self.gate:
-                        self.pose,self.observed_at=list(observed),time.time()
-                    self.log('readback',target=goal,observed=observed,problems=problems,kind=kind)
+                        self.pose, self.observed_at = list(observed), time.time()
+                    self.log('readback', target=goal, observed=observed, problems=problems, kind=kind)
                     if problems:
                         # hold where the arm actually is, so no servo keeps pushing into the obstacle
-                        hold=[o if o is not None else g for o,g in zip(observed,goal)]
-                        self.arm.write6(hold,self.cfg['motion']['segment_ms'])
-                        self.command=list(hold)
-                        self.log('hold_at_readback',hold=hold)
+                        hold = [o if o is not None else g for o, g in zip(observed, goal)]
+                        self.arm.write6(hold, int(motion['segment_ms'] / self.time_scale))
+                        self.command = list(hold)
+                        self.log('hold_at_readback', hold=hold)
                         raise ValueError('遇到阻力或偏差，已停在当前读回位置：'+'; '.join(problems))
-                    current=list(observed)
+                    current = list(observed)
                     if self.on_step:
-                        self.on_step(kind,goal,observed)
+                        self.on_step(kind, goal, observed)
         except PlanRejected as exc:
             self.log('plan_rejected', error=str(exc))
             raise

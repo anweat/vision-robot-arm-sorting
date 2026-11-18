@@ -62,7 +62,11 @@
     "segment_ms": 800,
     "settle_ms": 300,
     "readback_tolerance_deg": 4,
-    "read_attempts": 10
+    "read_attempts": 10,
+    "speed_default_deg_s": 20,
+    "speed_min_deg_s": 3,
+    "speed_max_deg_s": 40,
+    "_note": "2026-11-18 (doc 32 §1.3): speed in deg/s is the only setting; src/teleop/motion_policy.motion_for derives max_step_deg / segment_ms / settle_ms from it (6 deg/s ~ the old 5 deg 800+300 ms, 37 deg/s ~ the old explore 15 deg 400+120 ms). max_step_deg/segment_ms/settle_ms here are what safe_arm.py's own CLI uses. 40 deg/s is not measured on the arm: the failure mode of going faster is a readback that lags and reads as resistance, which stops the arm; if spurious stops appear, raise settle first."
   },
   "keep_out": {
     "_source": "src/spatial/workspace.py; platform box refitted 2026-09-25 19:00 from four platform contacts and all logged contact-free moves, in forward-kinematics coordinates (docs/05)",
@@ -131,10 +135,12 @@
     ],
     "_observe_v1_note": "2026-09-24: sees tape ~10-20 cm (base y ~18-28 cm) inside the mat-level pick zone; readback [90,105,5,6,92,11]"
   },
-  "motion_explore": {
-    "segment_ms": 400,
-    "settle_ms": 120,
-    "_note": "2026-09-27: 15 deg segments of 400 + 120 ms (was 10 deg, 500 + 150; before that 5 deg, 800 + 300). Each segment still has its readback check and hold-at-readback, and the whole path is still checked for keep-out before it starts. Measured on 2026-09-26 at the previous setting: 18.2 s median to carry and place one block, 35.5 s per block (src/tools/run_stats.py). The failure mode of going faster is a readback that lags its command and reads as resistance, which stops the arm rather than driving it into anything; if spurious stops appear, put settle_ms back first.",
-    "max_step_deg": 15
+  "runtime": {
+    "enforce_platform": false,
+    "enforce_table": false,
+    "table_margin_m": 0.005,
+    "j234_lower_deg": -10,
+    "max_ik_jump_deg": 30,
+    "_note": "2026-11-18 (doc 32 §1.1): one set of limits instead of the five profiles. Joint limits = course limits, J2-J4 down to -10. Platform and table keep-out are only reported (as the old explore profile, which the operator sessions and tasks ran under); set enforce_* true to make them refuse commands. A start already inside an enforced keep-out may only move without making the margin worse."
   }
 }

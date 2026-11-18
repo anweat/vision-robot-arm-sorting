@@ -1,0 +1,63 @@
+# 完整分拣流程（docs/atlas-200i-dk-a2/32-操作逻辑简化与分步任务.md §3.1）。
+# 编排器 src/flow/orchestrator.py 只解释这份脚本，抓取逻辑全在各步（src/flow/steps.py）里。
+# 改顺序、重试次数、核对频率、桶的对应关系都只改这里。仿真结果不代表实机。
+name: sort
+speed: 20                  # °/s，本流程期间的控制台速度（不超过 arm_limits.json 的上限）
+stop_after_alarms: 3       # 连续这么多块报警就整轮停
+
+steps:
+  - step: scan             # S1 扫描识别：扫描位姿 → 识别 → located.json → 碰撞地图
+    with: {bins: bins_acrylic_v2_pair}
+    on_result:
+      empty: [{stop: 桌上没有找到物块}]
+
+  - for_each: blocks       # 对扫描到的每一块
+    order: reach           # reach：由近及远；scene：按扫描顺序
+    do:
+      - step: plan         # S2 解算验证：抓取 + 投放 + 返回，整条路径先检查
+        with: {to: by_class}
+        on_result:
+          rejected: [{record: skipped}, {next_block: true}]
+          no_destination: [{record: skipped}, {next_block: true}]
+      - step: grasp        # S3 抓取：下探、合爪、抬起
+        on_result:
+          failed: [{alarm: grasp_failed, then: stop}]
+      - step: check        # S4 抓后检查：holding / empty / slipped / jammed
+        on_result:
+          holding: []
+          jammed: [{step: back_off}, {alarm: jammed, then: skip_block}]
+          default:         # empty、slipped：S5 空爪重试，仍不行就报警跳过
+            - retry:
+                times: 2
+                until: holding
+                do:
+                  - step: back_off       # 张爪、抬起、回观察位
+                  - step: scan           # 重扫（物块可能被碰动）
+                    with: {bins: bins_acrylic_v2_pair}
+                  - step: relocate       # 在新场景里找回这一块，找不到算 gone
+                    on_result:
+                      gone: [{record: missed}, {next_block: true}]
+                  - step: plan
+                    with: {to: by_class}
+                    on_result:
+                      rejected: [{record: skipped}, {next_block: true}]
+                  - step: grasp
+                  - step: check
+                else:
+                  - step: back_off
+                  - record: missed
+                    reason: 重试 2 次仍空爪或滑脱
+                  - alarm: grip_failed
+                    summary: 重试 2 次仍空爪或滑脱，已张爪退回观察位
+                    then: skip_block
+      - step: place        # S6 放置：投桶，松手，回观察位
+        on_result:
+          failed: [{alarm: place_failed, then: stop}]
+      - record: sorted
+
+  - step: scan             # 整轮结束后再扫一次，S7 核对
+    with: {bins: bins_acrylic_v2_pair}
+    on_result:
+      empty: []            # 桌面扫空了正是全部放走的情况，不是异常
+  - step: verify
+    with: {scope: round}

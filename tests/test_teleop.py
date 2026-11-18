@@ -41,37 +41,51 @@ class ControllerTest(unittest.TestCase):
         with patch('core.time.sleep'):
             return self.c.jog('a',joint,delta,self.c.revision if revision is None else revision)
 
-    def test_locked_start_and_owner(self):
+    def test_first_command_takes_control_and_others_wait(self):
+        self.move()                                   # no enable step (doc 32 §1.2)
+        self.assertEqual(self.c.status()['owner'],'a')
+        with patch('core.time.sleep'):
+            with self.assertRaises(ValueError):
+                self.c.jog('b',1,1)                   # 'a' holds a live lease
+        self.c.deadline=time.monotonic()-1            # the lease lapses without heartbeats
+        with patch('core.time.sleep'):
+            self.c.jog('b',1,1)
+        self.assertEqual(self.c.status()['owner'],'b')
+        self.c.take_over('a')
+        self.assertEqual(self.c.status()['owner'],'a')
+        self.assertEqual(len(self.arm.commands),2)
+
+    def test_old_enable_still_takes_control_and_ignores_onsite(self):
+        self.c.enable('a',False)
         with self.assertRaises(ValueError):
-            self.move()
-        self.c.enable('a')
-        with self.assertRaises(ValueError):
-            self.c.enable('b')
+            self.c.enable('b',True)
         self.assertEqual(self.arm.commands,[])
 
-    def test_small_step_and_no_duplicate_revision(self):
-        self.c.enable('a')
+    def test_small_step_and_revision_is_not_required(self):
         self.move()
         self.assertEqual(self.arm.commands,[[91,105,5,5,95,30]])
-        with self.assertRaises(ValueError):
-            self.move(revision=0)
-        self.assertEqual(len(self.arm.commands),1)
+        self.move(revision=0)                         # a stale revision is no longer refused
+        self.assertEqual(self.arm.commands[-1],[92,105,5,5,95,30])
 
-    def test_limits_keepout_and_bad_arguments(self):
-        self.c.enable('a')
-        with self.assertRaises(ValueError):
-            self.move(delta=100)
+    def test_limits_and_bad_arguments(self):
+        for delta in (0,31,1.5):
+            with self.assertRaises(ValueError):
+                self.move(delta=delta)
         with self.assertRaises(safe_arm.MotionError):
-            self.move(joint=3,delta=-1)
+            self.move(joint=3,delta=-16)              # J3 may go to -10, never further
         self.assertEqual(self.arm.commands,[])
-        self.arm.pose=[90,85,5,5,95,30]
-        self.c.refresh(); self.c.enable('a')
+
+    def test_keep_out_only_reported_unless_enforced(self):
+        self.move(joint=2,delta=-20)                  # into the platform keep-out: reported, not refused
+        self.assertLess(self.c.status()['clearance_cm'],0)
+        sent=len(self.arm.commands)
+        self.arm.pose=[90,105,5,5,95,30];self.c.refresh();self.c.command=None
+        self.c.cfg['keep_out']=dict(self.c.base_cfg['keep_out'])   # what runtime.enforce_* would give
         with self.assertRaises(safe_arm.MotionError):
-            self.move()
-        self.assertEqual(self.arm.commands,[])
+            self.move(joint=2,delta=-20)
+        self.assertEqual(len(self.arm.commands),sent)  # nothing more was sent
 
     def test_read_failure_never_writes(self):
-        self.c.enable('a')
         self.arm.pose[2]=None
         with self.assertRaises(ValueError):
             self.move()
@@ -81,7 +95,6 @@ class ControllerTest(unittest.TestCase):
     def test_deviation_holds_at_readback_without_retreat(self):
         self.c.cfg['motion']['readback_tolerance_deg']=.5
         self.arm.fail=True
-        self.c.enable('a')
         with self.assertRaises(ValueError):
             self.move(delta=2)
         # the step that met resistance, then one command to hold exactly where the arm is (not the start)
@@ -89,25 +102,14 @@ class ControllerTest(unittest.TestCase):
         self.assertEqual(self.arm.commands[1],self.arm.read())
         self.assertFalse(self.c.status()['armed'])
 
-    def test_stop_and_lease_expiry(self):
-        self.c.enable('a'); self.c.stop()
-        with self.assertRaises(ValueError):
-            self.move()
-        self.c.enable('a'); self.c.deadline=time.monotonic()-1
+    def test_stop_ends_control_and_heartbeat_does_not_revive_a_lapsed_lease(self):
+        self.move();self.c.stop()
+        self.assertFalse(self.c.status()['armed'])
+        self.c.deadline=time.monotonic()-1
         self.c.heartbeat('a')
-        with self.assertRaises(ValueError):
-            self.move()
-        self.assertEqual(self.arm.commands,[])
-
-    def test_old_command_cannot_resume_after_reenable(self):
-        self.c.enable('a')
-        revision=self.c.revision
-        self.c.stop();self.c.enable('a')
-        with self.assertRaises(ValueError):self.move(revision=revision)
-        self.assertEqual(self.arm.commands,[])
+        self.assertFalse(self.c.status()['armed'])
 
     def test_stop_during_read_prevents_dispatch(self):
-        self.c.enable('a')
         original=self.arm.read
         def read_and_stop():
             self.c.stop()
@@ -122,7 +124,7 @@ class ControllerTest(unittest.TestCase):
         original=self.arm.read
         def slow_read():
             entered.set();release.wait(2);return original()
-        self.c.enable('a'); self.arm.read=slow_read
+        self.arm.read=slow_read
         errors=[]
         def work():
             try:self.move()
@@ -135,17 +137,82 @@ class ControllerTest(unittest.TestCase):
         self.assertFalse(errors)
         self.assertEqual(len(self.arm.commands),1)
 
-    def test_hardware_requires_live_capture_and_onsite(self):
+    def test_hardware_needs_a_live_picture_but_no_onsite_flag(self):
         cam=Camera();self.c.hardware=True;self.c.camera=cam
-        with self.assertRaises(ValueError):self.c.enable('a',True)
-        cam.publish(b'\xff\xd8\xff\xd9',time.time(),'receive')
-        with self.assertRaises(ValueError):self.c.enable('a',True)
+        with self.assertRaises(ValueError):self.move()
         cam.publish(b'\xff\xd8\xff\xd9',time.time(),'capture')
-        with self.assertRaises(ValueError):self.c.enable('a',False)
-        self.c.enable('a',True)
+        self.move()
         cam.stamp-=10
         with self.assertRaises(ValueError):self.move()
+        self.assertEqual(len(self.arm.commands),1)
+
+    def test_speed_sets_segment_size_and_timing(self):
+        self.assertEqual(self.c.status()['speed']['value'],20)
+        with self.assertRaises(ValueError):self.c.set_speed(41)
+        with self.assertRaises(ValueError):self.c.set_speed(True)
+        self.c.set_speed(6)
+        m=self.c.cfg['motion']
+        self.assertEqual((m['max_step_deg'],m['segment_ms']),(3,500))
+        self.move(delta=10)
+        j1=[90]+[q[0] for q in self.arm.commands]
+        self.assertEqual((len(j1)-1,j1[-1]),(4,100))
+        self.assertTrue(all(0<b-a<=3 for a,b in zip(j1,j1[1:])),j1)
+        self.c.set_speed(37)
+        self.assertEqual((round(self.c.cfg['motion']['max_step_deg'],1),self.c.cfg['motion']['segment_ms'],
+                          self.c.cfg['motion']['settle_ms']),(14.8,400,120))   # the old explore timing
+
+    def test_goto_named_and_dry_run(self):
+        self.arm.pose=[92,110,8,8,120,133];self.c.refresh()
+        plan=self.c.plan_goto(named='observe_v1')
+        self.assertEqual(plan['target'],[90,105,5,5,120,133])
         self.assertEqual(self.arm.commands,[])
+        with patch('core.time.sleep'):
+            self.c.goto('a',named='observe_v1')
+        self.assertEqual(self.arm.read(),[90,105,5,5,120,133])
+        n=len(self.arm.commands)
+        with patch('core.time.sleep'):
+            self.c.goto('a',named='observe_v1')          # already there: nothing sent, no error
+        self.assertEqual(len(self.arm.commands),n)
+        with self.assertRaises(ValueError):self.c.plan_goto(named='nowhere')
+        with self.assertRaises(ValueError):self.c.plan_goto([90,90,90])
+
+    def test_goto_keeps_the_gripper_command_not_its_readback(self):
+        # closed on a block: command 133, readback 129; a move that does not name J6 must keep sending 133
+        with patch('core.time.sleep'):
+            self.c.gripper('a','grip')
+        self.arm.pose[5]=129;self.c.refresh()
+        with patch('core.time.sleep'):
+            self.c.goto('a',[90,110,5,5,95,None])
+        self.assertTrue(all(q[5]==133 for q in self.arm.commands[1:]),self.arm.commands)
+
+    def test_drive_moves_while_updates_come_and_stops_without_them(self):
+        with patch('core.time.sleep'):
+            self.c.drive('a','joint',[1,0,0,0])
+            deadline=time.time()+2
+            while len(self.arm.commands)<3 and time.time()<deadline:
+                self.c.drive('a','joint',[1,0,0,0]);time.sleep(.01)
+            self.c.drive('a','joint',[0,0,0,0])          # stick released
+            deadline=time.time()+2
+            while self.c.status()['drive']['active'] and time.time()<deadline:time.sleep(.01)
+        self.assertFalse(self.c.status()['drive']['active'])
+        j1=[q[0] for q in self.arm.commands]
+        self.assertGreaterEqual(len(j1),3)
+        self.assertEqual(j1,sorted(j1))
+        self.assertTrue(all(q[1:]==[105,5,5,95,30] for q in self.arm.commands))
+        with self.assertRaises(ValueError):self.c.drive('a','joint',[2,0,0,0])
+        with self.assertRaises(ValueError):self.c.drive('a','fly',[0,0,0,0])
+
+    def test_drive_dead_man_and_stop(self):
+        with patch('core.time.sleep'):
+            self.c.drive('a','cartesian',[0,0,1,0])
+            deadline=time.time()+2
+            while self.c.status()['drive']['active'] and time.time()<deadline:time.sleep(.01)
+        self.assertFalse(self.c.status()['drive']['active'])   # no further updates: it stopped by itself
+        sent=len(self.arm.commands)
+        self.c.drive('a','joint',[1,0,0,0]);self.c.stop()
+        time.sleep(.3)
+        self.assertLessEqual(len(self.arm.commands),sent+1)
+        self.assertFalse(self.c.status()['armed'])
 
 
 class CalibrationTest(unittest.TestCase):

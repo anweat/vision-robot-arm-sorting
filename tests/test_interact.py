@@ -88,9 +88,10 @@ class GestureTest(unittest.TestCase):
     def frames(self, label, conf, n):
         return [self.it.gesture(label, conf) for _ in range(n)]
 
-    def test_palm_releases_the_gripper_once_after_three_frames_and_carries_the_probability(self):
+    def test_like_releases_the_gripper_once_after_three_frames_and_carries_the_probability(self):
+        # 2026-11-18（文档 32 §3.2）：松爪从 palm 移到 like，palm 改为停止、ok 改为启动
         self.it.arm(True)
-        out = self.frames('palm', 0.9, 5)
+        out = self.frames('like', 0.9, 5)
         self.assertEqual([r['status'] for r in out], ['ignored', 'ignored', 'accepted', 'ignored', 'ignored'])
         self.assertEqual((out[2]['command'], out[2]['preset']), ('gripper', 'open'))
         self.assertEqual(out[2]['event']['confidence'], 0.9)
@@ -99,7 +100,7 @@ class GestureTest(unittest.TestCase):
 
     def test_every_label_is_bound_and_only_stop_works_unarmed(self):
         # 2026-11-13 需求方确认四类手势都绑动作；除 stop 外都要先武装
-        mapped = {'fist': 'gripper', 'like': 'start', 'ok': 'stop', 'palm': 'gripper'}
+        mapped = {'fist': 'gripper', 'like': 'gripper', 'ok': 'start', 'palm': 'stop'}
         for label, command in mapped.items():
             self.it.streak, self.it.latched = (None, 0), False
             self.it.last_fire.clear()
@@ -181,13 +182,13 @@ class SimEndpointTest(unittest.TestCase):
         self.assertFalse(self.get('/api/interact')['armed'])
         self.assertEqual(self.post('/api/interact/voice', text='停止')['status'], 'accepted')
         for _ in range(3):
-            r = self.post('/api/interact/gesture', label='ok', confidence=0.93)
+            r = self.post('/api/interact/gesture', label='palm', confidence=0.93)   # palm = stop since 2026-11-18
         self.assertEqual(r['status'], 'accepted')
         events = self.get('/api/log')['events']
         got = [(e['source'], e['command'], e.get('confidence')) for e in events if e['event'] == 'interaction']
         self.assertEqual(got, [('voice', 'stop', None), ('gesture', 'stop', 0.93)])
         self.assertTrue(all(not L.validate(e) for e in events))
-        self.assertEqual(self.get('/api/interact')['recent'][-1]['input'], 'ok')
+        self.assertEqual(self.get('/api/interact')['recent'][-1]['input'], 'palm')
 
     def test_refused_and_ignored_recognitions_are_shown_but_not_logged(self):
         before = len(self.get('/api/log')['events'])

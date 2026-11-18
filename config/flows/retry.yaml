@@ -1,0 +1,24 @@
+# S5 空爪重试与报警，单独执行时用（orchestrator.py --step retry --block bN）；完整流程里同样的逻辑写在 sort.yaml。
+name: retry
+steps:
+  - retry:
+      times: 2
+      until: holding
+      do:
+        - step: back_off
+        - step: scan
+          with: {bins: bins_acrylic_v2_pair}
+        - step: relocate
+          on_result:
+            gone: [{stop: 重扫后找不到这一块}]
+        - step: plan
+          with: {to: by_class}
+          on_result:
+            rejected: [{stop: 重新解算不通过}]
+        - step: grasp
+        - step: check
+      else:
+        - step: back_off
+        - alarm: grip_failed
+          summary: 重试 2 次仍空爪或滑脱，已张爪退回观察位
+          then: stop

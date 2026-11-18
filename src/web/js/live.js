@@ -12,9 +12,9 @@ const KEY_CARDS = [
 
 // 执行侧回读。tip_cm 是末端坐标（厘米），clearance_cm 是离禁入区的余量，负数是踩线。
 const ARM_CARDS = [
-  ["使能", "armed"], ["运动", "busy"], ["夹爪", "grip"], ["抓到", "holding"],
+  ["操作权", "armed"], ["运动", "busy"], ["夹爪", "grip"], ["抓到", "holding"],
   ["末端 X", "tipX"], ["末端 Y", "tipY"], ["末端 Z", "tipZ"],
-  ["安全余量", "clearance"], ["桌上物块", "blocks"], ["回读档位", "profile"],
+  ["安全余量", "clearance"], ["桌上物块", "blocks"], ["速度", "speed"],
 ];
 
 export function createLiveView(root) {
@@ -128,7 +128,7 @@ export function createLiveView(root) {
       }
 
       const arm = store.status.arm ?? {};
-      setArm("armed", !arm.attached ? "未接" : arm.armed ? "已使能" : "未使能", arm.armed ? "good" : "mid");
+      setArm("armed", !arm.attached ? "未接" : arm.armed ? (arm.owner ?? "有人持有") : "空闲", arm.armed ? "good" : "mid");
       setArm("busy", !arm.attached ? "—" : arm.busy ? "运动中" : "静止", arm.busy ? "mid" : "");
       setArm("grip", arm.grip_action ? `${arm.grip_action} · ${arm.grip_readback ?? "—"}°` : "—");
       setArm("holding", arm.holding == null ? "—" : arm.holding ? "夹住" : "夹空",
@@ -137,7 +137,7 @@ export function createLiveView(root) {
       setArm("clearance", arm.clearance_cm == null ? "—" : `${arm.clearance_cm.toFixed(1)} cm`,
              arm.clearance_cm == null ? "" : arm.clearance_cm < 0 ? "bad" : "good");
       setArm("blocks", arm.blocks ?? "—");
-      setArm("profile", arm.profile ?? "—");
+      setArm("speed", arm.speed ? `${Math.round(arm.speed.value)}°/s` : "—");
       armHint.textContent = !arm.attached
         ? "未接控制台：运动类指令按 501 返回，只有日志与模式可用。"
         : arm.error ? `控制台错误：${arm.error}`
