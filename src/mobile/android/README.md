@@ -1,19 +1,38 @@
-# Android 手机端
+# Android 手机端：跳板 + 控制
 
-这个 Android Studio 工程是电脑端网页的手机入口。首页使用 WebView 打开同一份 src/web 页面，因此页面结构、状态和控制逻辑由网页端统一维护；旧版原生状态与导出页面仍可从首页按钮进入。
+同一个 App 有两个用途（[31 §2.1](../../../docs/atlas-200i-dk-a2/31-板载端分离与中继通信.md)、[32 §4](../../../docs/atlas-200i-dk-a2/32-操作逻辑简化与分步任务.md)）：
 
-## 运行
+- **跳板**：插在板卡上的那部手机开 USB 网络共享，App 的前台服务把板卡的网关（本机 :8090）和 SSH（本机 :2222）转发给 Tailscale 上的其他设备。只放行本机、Tailscale 段（100.64.0.0/10）和本机 tun 网段；局域网可在「连接」页放行。
+- **控制**：底部五个页签——控制（双摇杆、相机、速度、夹爪、停止）、任务（开始/停止、单步、报警确认）、网页（WebView 打开 `src/web`）、连接、旧版（原生状态与导出）。
 
-1. 用 Android Studio 打开本目录，选择已开启 USB 调试的 Android 手机，运行 app。
-2. 在电脑启动仿真服务（8770）和网页服务（8080），步骤见项目的 src/web/README.md。
-3. 网页服务使用 --lan 时会在终端打印本次访问口令。在手机填写 http://电脑局域网IP:8080/?token=本次口令，点击“打开”。手机和电脑须能通过局域网互访。
-4. 网页代码更新后刷新手机页面；网页服务 serve.py 更新后先重启 8080 服务。Android 工程自身更新后重新安装 APK。
+所有指令经板载网关 `src/web/serve.py` 的 `POST /api/cmd`（`source: "mobile"`），限位、禁入、死人开关都在控制台；App 不做安全判断，网关拒绝什么就显示什么。
 
-手机拔掉 USB 线后仍可访问，但电脑和网页/仿真服务须保持运行。移动端默认不内置网页或仿真后端。
+## 编译与安装
 
-## 代码来源和边界
+```sh
+cd src/mobile/android
+echo "sdk.dir=$HOME/Library/Android/sdk" > local.properties     # 不入库
+./gradlew assembleDebug
+adb install -r -t app/build/outputs/apk/debug/app-debug.apk
+```
 
-- 网页端来自 [F1 PR #1](https://github.com/anweat/vision-robot-arm-sorting/pull/1) 的分支；本工程依赖该 PR，待其合并后即可在主仓库使用相同页面。
-- 手机窄屏 CSS 和手机可访问的仿真链接目前在本地 src/web 修改中；它们应在 F1 PR 合并后单独同步到主仓库。
-- local.properties、构建输出、IDE 缓存、运行日志和模型不入库。
-- 当前仅用于仿真演示；连接实机前须按项目硬件安全边界现场确认。
+vivo 手机每次 adb 安装都要在手机上点「授权本次安装」。调试签名换了机器会对不上，需先 `adb uninstall com.example.myapplication00001`。
+
+## 不接板卡时用 Mac 扮演板卡（仿真）
+
+```sh
+# Mac：仿真控制台 8770 + 网关 8090（.claude/launch.json 的 arm-sim、gw-dev）
+adb reverse tcp:18090 tcp:8090     # 手机 127.0.0.1:18090 → Mac 网关
+```
+
+App「连接」页：网关地址 `http://127.0.0.1:8090`；跳板的板卡地址 `127.0.0.1`、板卡网关端口 `18090`；打开跳板。其他设备用 `http://<手机 Tailscale IP>:8090/` 访问。
+
+## 接板卡
+
+步骤见 [31 §2.1c](../../../docs/atlas-200i-dk-a2/31-板载端分离与中继通信.md)：板上跑 `scripts/board_beacon.py`，App 的板卡地址留空即可自动找到；手机插板卡前先 `adb tcpip 5555`，之后经 `adb connect <手机 Tailscale IP>:5555` 调试手机。
+
+## 边界
+
+- `local.properties`、构建输出、IDE 缓存不入库。
+- 2026-11-18 只在仿真上联调过（数字见 31 §2.1b）；实机未测。动实机前按[硬件安全边界](../../../docs/05-板卡连接与硬件实测.md)。
+- 竖屏布局；32 §4.1 设计的横屏未做。

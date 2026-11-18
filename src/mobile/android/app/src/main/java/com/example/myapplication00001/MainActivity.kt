@@ -21,6 +21,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -79,24 +81,42 @@ class MainActivity : ComponentActivity() {
         val preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         setContent {
             MyApplication00001Theme {
-                var showClassic by remember { mutableStateOf(false) }
-                Scaffold(modifier = Modifier.fillMaxSize()) { padding ->
-                    if (showClassic) {
-                        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-                            Button(onClick = { showClassic = false }) { Text("返回统一网页") }
-                            StatusScreen(
-                                initialUrl = preferences.getString(URL_KEY, DEFAULT_URL) ?: DEFAULT_URL,
-                                saveUrl = { preferences.edit().putString(URL_KEY, it).apply() },
-                                inForeground = inForeground,
-                                modifier = Modifier.weight(1f),
-                            )
+                var tab by remember { mutableStateOf(if (ArmClient.savedUrl(this) == ArmClient.DEFAULT_URL) 3 else 0) }
+                var gatewayVersion by remember { mutableStateOf(0) }
+                val client = remember(gatewayVersion) {
+                    runCatching { ArmClient(ArmClient.savedUrl(this), ArmClient.savedToken(this)) }.getOrNull()
+                }
+                Scaffold(
+                    modifier = Modifier.fillMaxSize(),
+                    bottomBar = {
+                        NavigationBar {
+                            listOf("控制", "任务", "网页", "连接", "旧版").forEachIndexed { index, label ->
+                                NavigationBarItem(
+                                    selected = tab == index,
+                                    onClick = { tab = index },
+                                    icon = { Text(label.take(1)) },
+                                    label = { Text(label) },
+                                )
+                            }
                         }
-                    } else {
-                        WebConsoleScreen(
-                            initialUrl = preferences.getString(WEB_URL_KEY, DEFAULT_WEB_URL) ?: DEFAULT_WEB_URL,
+                    },
+                ) { padding ->
+                    val inner = Modifier.padding(padding)
+                    when (tab) {
+                        0 -> ControlScreen(client, inForeground, inner)
+                        1 -> TaskScreen(client, inForeground, inner)
+                        2 -> WebConsoleScreen(
+                            initialUrl = preferences.getString(WEB_URL_KEY, null) ?: (client?.base?.plus("/") ?: DEFAULT_WEB_URL),
                             saveUrl = { preferences.edit().putString(WEB_URL_KEY, it).apply() },
-                            openClassic = { showClassic = true },
-                            modifier = Modifier.padding(padding),
+                            openClassic = { tab = 4 },
+                            modifier = inner,
+                        )
+                        3 -> ConnectScreen(onGatewayChanged = { gatewayVersion++ }, modifier = inner)
+                        else -> StatusScreen(
+                            initialUrl = preferences.getString(URL_KEY, DEFAULT_URL) ?: DEFAULT_URL,
+                            saveUrl = { preferences.edit().putString(URL_KEY, it).apply() },
+                            inForeground = inForeground,
+                            modifier = inner,
                         )
                     }
                 }
