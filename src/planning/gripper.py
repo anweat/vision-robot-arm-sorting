@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import math
+
 from dataclasses import dataclass
+from functools import lru_cache
 
 from . import config as C
 import gripper_geometry as gg   # noqa: E402  (src/spatial, put on the path by config)
@@ -24,10 +27,12 @@ OPENINGS = tuple(Opening(a, float(j6), gg.delta_for_j6(j6), gg.gap_for_delta(gg.
                  for a, j6 in C.G["openings"])
 
 
+@lru_cache(maxsize=64)
 def contact(width: float = C.BLOCK) -> float:
     return gg.contact_delta(width)
 
 
+@lru_cache(maxsize=512)
 def delta_for_j6(j6: float) -> float:
     return gg.delta_for_j6(j6)
 
@@ -53,6 +58,7 @@ class Held:
     centre: list
     rot: list
     side: float = C.BLOCK
+    tilt_deg: float = 0.0          # how far the pads turned it out of level when they squared it at the grasp
 
     def points_link(self) -> list:
         h = self.side * 0.48
@@ -66,7 +72,8 @@ class Held:
 
     def to_dict(self) -> dict:
         return dict(centre_mm=[round(v * 1000, 2) for v in self.centre],
-                    rot=[[round(v, 4) for v in row] for row in self.rot], side_mm=self.side * 1000)
+                    rot=[[round(v, 4) for v in row] for row in self.rot], side_mm=self.side * 1000,
+                    tilt_deg=round(self.tilt_deg, 1))
 
 
 def held_from_grasp(q5, width: float = C.BLOCK) -> Held:
@@ -79,7 +86,8 @@ def held_from_grasp(q5, width: float = C.BLOCK) -> Held:
     z = [0.0, z[1] / n, z[2] / n]
     y = [z[1] * x[2] - z[2] * x[1], z[2] * x[0] - z[0] * x[2], z[0] * x[1] - z[1] * x[0]]
     rot = [[x[r], y[r], z[r]] for r in range(3)]
-    return Held(gg.pad_centre_link(contact(width)), rot, width)
+    tilt = math.degrees(math.acos(max(-1.0, min(1.0, sum(up[k] * z[k] for k in range(3))))))
+    return Held(gg.pad_centre_link(contact(width)), rot, width, tilt)
 
 
 def held_default(width: float = C.BLOCK) -> Held:
