@@ -36,7 +36,7 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-for sub in ("interact", "audio", "vision"):
+for sub in ("interact", "audio", "vision", "adapters"):
     sys.path.insert(0, str(ROOT / "src" / sub))
 
 import intents as I  # noqa: E402
@@ -150,6 +150,66 @@ def run_gesture(args, gw: Gateway) -> int:
     return 0
 
 
+def run_listen(args, gw) -> int:
+    """持续监听：录音 N 秒 → 转写 → 判定；每 K 轮再看一次手势。
+
+    这是答辩演示用的常驻入口：说话“开始分拣/停止”，或者对着腕部相机比 like/ok。
+    规则仍然只有一套（src/interact/intents.py），这里只负责喂数据。
+    """
+    import subprocess
+    import tempfile
+
+    import asr
+    import gesture as G
+
+    # 提示音由网关经控制台发（I2C 只能有一个进程持有，这里自己开 Arm_Device 会 I2C error）
+
+    it_v = I.Interaction(execute=make_executor(gw, "voice"))
+    it_g = I.Interaction(execute=make_executor(gw, "gesture"))
+    if args.armed:
+        it_v.arm(True)
+        it_g.arm(True)
+    model = G.Gesture(args.gesture_dir) if args.gesture else None
+    print("听写中：说话“开始分拣 / 停止”，或对相机比 like / ok；Ctrl-C 退出", flush=True)
+    i = 0
+    try:
+        while True:
+            i += 1
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+                wav = f.name
+            try:
+                subprocess.run(["arecord", "-q", "-f", "S16_LE", "-r", "16000", "-c", "1",
+                                "-d", str(max(1, int(round(args.mic)))), wav],
+                               timeout=args.mic + 10, check=False)
+                text = ""
+                if Path(wav).exists() and Path(wav).stat().st_size > 1000:
+                    text = asr.transcribe(wav, args.asr_dir).get("text", "")
+            finally:
+                Path(wav).unlink(missing_ok=True)
+            if not text:
+                print(f"[{time.strftime('%H:%M:%S')}] （这一轮没听到文字）", flush=True)
+            if text:
+                r = it_v.voice(text)
+                print(f"[{time.strftime('%H:%M:%S')}] 听到「{text}」→ {r['status']}"
+                      f"{(' / ' + r['command']) if r.get('command') else ''}"
+                      f"{('（' + r.get('reason', '') + '）') if r.get('reason') else ''}", flush=True)
+                if args.log and r.get("event"):
+                    append_event(args.log, r["event"])
+            if model is not None and i % max(1, args.gesture_every) == 0:
+                frame = G.grab(args.url)
+                if frame is not None:
+                    c = model.classify(frame)
+                    rg = it_g.gesture(c["label"], c["confidence"])
+                    if rg.get("status") == "accepted" or c["confidence"] >= 0.8:
+                        print(f"[{time.strftime('%H:%M:%S')}] 手势 {c['label']} {c['confidence']:.2f}"
+                              f" → {rg['status']}{(' / ' + rg['command']) if rg.get('command') else ''}", flush=True)
+                    if args.log and rg.get("event"):
+                        append_event(args.log, rg["event"])
+    except KeyboardInterrupt:
+        print("stop listening", flush=True)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--gateway", default="http://127.0.0.1:8081", help="对外服务地址")
@@ -160,6 +220,14 @@ def main(argv: list[str] | None = None) -> int:
     sub = p.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("arm", help="只武装一次，然后退出")
+
+    L = sub.add_parser("listen", help="持续听写 + 手势，用于演示")
+    L.add_argument("--mic", type=float, default=3.0, help="每次录音秒数")
+    L.add_argument("--asr-dir", help="语音模型目录")
+    L.add_argument("--gesture", action="store_true", help="同时看手势")
+    L.add_argument("--gesture-every", type=int, default=2, help="每几轮看一次手势")
+    L.add_argument("--url", default="http://127.0.0.1:8080/snapshot.jpg")
+    L.add_argument("--gesture-dir", help="手势模型目录")
 
     v = sub.add_parser("voice", help="转写一段 wav（或 --text）并交给规则层")
     v.add_argument("--wav", default=str(ROOT / "data" / "models" / "wenet_asr" / "sample.wav"))
@@ -179,6 +247,8 @@ def main(argv: list[str] | None = None) -> int:
         it = I.Interaction(execute=make_executor(gw, "voice"))
         print(json.dumps(it.arm(True), ensure_ascii=False))
         return 0
+    if args.cmd == "listen":
+        return run_listen(args, gw)
     return run_voice(args, gw) if args.cmd == "voice" else run_gesture(args, gw)
 
 

@@ -116,6 +116,8 @@ class App:
             c.enable(owner, body.get('onsite'))
         elif path == '/api/heartbeat':
             c.heartbeat(owner)
+        elif path == '/api/beep':
+            c.beep(int(body.get('ms', 120)))
         elif path == '/api/stop':
             c.stop()
         elif path == '/api/jog':

@@ -35,7 +35,9 @@ from __future__ import annotations
 import argparse
 import datetime
 import json
+import os
 import secrets
+import subprocess
 import sys
 import threading
 import time
@@ -68,7 +70,7 @@ def load_presets(path=None):
 PRESET_SEQ = load_presets()
 SOURCES = ("web", "mobile", "voice", "gesture", "timer", "button")
 CMDS = ("start", "stop", "set_mode", "run_preset", "set_joints", "move_to", "unlock_bin",
-        "enable", "gripper")
+        "enable", "gripper", "listen", "listen_stop")
 MOTION_CMDS = ("start", "run_preset", "set_joints", "move_to", "unlock_bin", "gripper")
 GRIPPER_ACTIONS = ("grip", "open", "wide")
 
@@ -445,6 +447,10 @@ class State:
         self.console = console
         self.timers = timers
         self.archive = archive
+        self.task = None                       # 实机分拣子进程（src/pipeline/run.py）
+        self.task_out: Path | None = None
+        self.listen = None                     # 语音/手势监听子进程（src/interact/bridge.py listen）
+        self.listen_out: Path | None = None
         self.mode = "manual"
         self.joints: list | None = None
         self.joints_t: float | None = None
@@ -567,6 +573,78 @@ class State:
             limits=status.get("limits"),
         )
 
+    def _spawn_pipeline(self, source: str) -> dict:
+        """实机分拣：直接跑已验证的 src/pipeline/run.py --bins（2026-11-19 实机两轮全中）。
+
+        只停本服务代表页面续租的线程，不 stop 控制台——一 stop 流水线第一步就会被“已停止”拒掉。
+        run.py 的事件通过 ARM_LOG 写进本服务的活日志，页面照常按日志契约显示。
+        """
+        if self.task is not None and self.task.poll() is None:
+            return dict(ok=False, error="上一轮还没结束；先点停止")
+        py = ROOT / "venv-vision" / "bin" / "python"
+        if not py.exists():
+            return dict(ok=False, error=f"找不到 {py}")
+        self.arm_off()
+        time.sleep(0.6)                        # 等续租循环退出，避免它把操作权抢回来
+        env = dict(os.environ, ARM_MAP=os.environ.get("ARM_MAP", "map_a4_v4"),
+                   ARM_LOG=str(self.log_path))
+        self.task_out = ROOT / "data" / "web" / "task.out"
+        self.task_out.parent.mkdir(parents=True, exist_ok=True)
+        self.task = subprocess.Popen(
+            [str(py), str(ROOT / "src" / "pipeline" / "run.py"), "--bins", "bins_acrylic_v2_pair"],
+            cwd=ROOT, env=env, stdout=self.task_out.open("w"), stderr=subprocess.STDOUT)
+        try:                                   # 一次 start = 一轮；页面据此算“轮次”
+            self.append(dict(t=time.time(), event="interaction", source=source, command="start"))
+        except ValueError:
+            pass
+        return dict(ok=True, started=True, pid=self.task.pid)
+
+    def start_listen(self) -> dict:
+        """起一个常驻监听：录音 → 识别 → intents → /api/cmd（页面上的「语音识别」按钮）。"""
+        if self.listen is not None and self.listen.poll() is None:
+            return dict(ok=True, already=True, pid=self.listen.pid)
+        py = ROOT / "venv-vision" / "bin" / "python"
+        if not py.exists():
+            return dict(ok=False, error=f"找不到 {py}")
+        self.listen_out = ROOT / "data" / "web" / "listen.out"
+        self.listen_out.parent.mkdir(parents=True, exist_ok=True)
+        self.listen = subprocess.Popen(
+            [str(py), str(ROOT / "src" / "interact" / "bridge.py"), "--armed", "listen",
+             "--mic", "3", "--gesture", "--gesture-every", "2"],
+            cwd=ROOT, stdout=self.listen_out.open("w"), stderr=subprocess.STDOUT)
+        try:                                   # 提示音走控制台（I2C 的唯一持有者）
+            if self.console is not None:
+                self.console.request("/api/beep", {"ms": 150})
+        except Exception:
+            pass
+        try:
+            self.append(dict(t=time.time(), event="interaction", source="web", command="listen"))
+        except ValueError:
+            pass
+        return dict(ok=True, started=True, pid=self.listen.pid)
+
+    def stop_listen(self) -> bool:
+        p = self.listen
+        if p is None or p.poll() is not None:
+            return False
+        p.terminate()
+        try:
+            p.wait(timeout=8)
+        except Exception:
+            p.kill()
+        return True
+
+    def stop_task(self) -> bool:
+        p = self.task
+        if p is None or p.poll() is not None:
+            return False
+        p.terminate()
+        try:
+            p.wait(timeout=8)
+        except Exception:
+            p.kill()
+        return True
+
     def start_task(self, source: str = "web") -> dict:
         """启动一整轮分拣：W4 的输出端，也是 `start` 指令的实现。
 
@@ -576,11 +654,11 @@ class State:
         console = self.console
         if console is None:
             return dict(ok=False, error="未接控制台，没有可启动的任务执行侧")
+        if not self.console_sim():                 # 实机：直接跑已验证的 src/pipeline/run.py
+            return self._spawn_pipeline(source)
         try:
             reply = console.request("/api/sim/sort", dict(rounds=1))
         except ValueError as exc:
-            if "sim/sort" in str(exc) or "404" in str(exc):
-                return dict(ok=False, error="控制台没有任务启动入口（实机的任务启停待 H1-3）")
             return dict(ok=False, error=str(exc))
         try:
             self.append(dict(t=time.time(), event="interaction", source=source, command="start"))
@@ -598,6 +676,11 @@ class State:
                     t=None if attached else self.joints_t,
                     contract_version=L.VERSION, log=str(self.log_path), arm=arm,
                     replay=self.replay,
+                    listen=dict(running=bool(self.listen and self.listen.poll() is None),
+                                pid=self.listen.pid if self.listen else None),
+                    task=dict(running=bool(self.task and self.task.poll() is None),
+                              pid=self.task.pid if self.task else None,
+                              exit_code=self.task.poll() if self.task else None),
                     timer=self.timers.status() if self.timers else dict(enabled=False))
 
 
@@ -945,7 +1028,14 @@ class Handler(BaseHTTPRequestHandler):
 
         console = self.state.console
 
+        if cmd in ("listen", "listen_stop"):
+            if cmd == "listen":
+                r = self.state.start_listen()
+                return self._send(r) if r.get("ok") else self._fail(r.get("error"))
+            return self._send(dict(ok=True, stopped=self.state.stop_listen()))
+
         if cmd == "stop":
+            self.state.stop_task()
             self.state.append(dict(t=time.time(), event="stopped", reason=f"{source} 下发停止"))
             self.state.arm_off()                       # 同时放开操作权，不再续期
             if console is not None:

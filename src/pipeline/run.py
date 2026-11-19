@@ -564,33 +564,77 @@ def execute(run, scene: dict, jobs: list[dict], sess, rng=None) -> dict:
                       reason=f"bin {n} is full ({BINS.given[n]} blocks)")
                 counts["skipped"] += 1
                 return False
-        plan = plan_for(j["cube"])
-        if plan is None:
+        started = time.time()
+
+        def one_attempt(cube):
+            """规划 + 接近 + 合爪；返回 (ok|no_plan|approach_failed|missed, 原因)。"""
+            plan = plan_for(cube)
+            if plan is None:
+                return "no_plan", None
+            G.PLAN.write_text(json.dumps(plan, indent=1, ensure_ascii=False))
+            try:
+                G.hover(sess)
+            except G.ConsoleError as e:
+                # resistance on the way in: one block's approach failing must not end the round, and the arm
+                # may have stopped somewhere the next approach could not plan a path out of
+                if "阻力" in str(e):
+                    log_stall(e, "hover", cube=cube["map_cm"], category=cube["category"])
+                return "approach_failed", e
+            try:
+                G.grasp(sess)
+            except G.GripMissed as e:
+                return "missed", e
+            return "ok", None
+
+        status, err = one_attempt(j["cube"])
+
+        if status == "missed":
+            # S5 空爪重试：退开 → 重扫 → 3 cm 内同类找回 → 重规划 → 再抓一次（仍失败才记 missed）
+            G.log("pipeline_retry", cube=j["cube"]["map_cm"], category=j["cube"]["category"],
+                  attempt=1, reason=f"空爪，退回后重扫找回：{err}")
+            if FEEDBACK is not None:
+                FEEDBACK.warn()
+            G.back_off(sess)
+            found = None
+            try:
+                import field_scan as SC          # 这版 run.py 把它放在函数里导入
+                run2 = Path(run) / f"retry_{time.strftime('%H%M%S')}"
+                SC.scan(run=run2, session=sess)
+                scene2 = build_scene(run2)
+                here = j["cube"]["map_cm"]
+                for c in scene2["cubes"]:
+                    d = math.hypot(c["map_cm"][0] - here[0], c["map_cm"][1] - here[1])
+                    if d <= 3.0 and (c["category"] or None) == (j["cube"]["category"] or None):
+                        if found is None or d < found[0]:
+                            found = (d, c)
+            except Exception as e:                     # 重扫失败不能把整轮带崩
+                G.log("pipeline_retry_failed", cube=j["cube"]["map_cm"], reason=str(e))
+            if found is None:
+                G.log("pipeline_retry_failed", cube=j["cube"]["map_cm"],
+                      reason="重扫没找回这一块（3 cm 内同类没有）")
+            else:
+                j["cube"] = found[1]
+                by_cube[id(found[1])] = dict(map_cm=list(found[1]["map_cm"]), cube=found[1])
+                G.log("pipeline_retry", cube=j["cube"]["map_cm"], category=j["cube"]["category"],
+                      attempt=1, reason=f"重扫找回，距原坐标 {found[0]:.1f} cm")
+                status, err = one_attempt(j["cube"])
+
+        if status == "no_plan":
             counts["skipped"] += 1
             G.log("pipeline_skip", cube=j["cube"]["map_cm"], category=j["cube"]["category"],
                   reason="no reachable grasp")
             return False
-        G.PLAN.write_text(json.dumps(plan, indent=1, ensure_ascii=False))
-        started = time.time()
-        try:
-            G.hover(sess)
-        except G.ConsoleError as e:
-            # resistance on the way in: one block's approach failing must not end the round, and the arm
-            # may have stopped somewhere the next approach could not plan a path out of
-            if "阻力" in str(e):
-                log_stall(e, "hover", cube=j["cube"]["map_cm"], category=j["cube"]["category"])
+        if status == "approach_failed":
             counts["skipped"] += 1
             G.log("pipeline_approach_failed", cube=j["cube"]["map_cm"], category=j["cube"]["category"],
-                  reason=str(e), seconds=round(time.time() - started))
+                  reason=str(err), seconds=round(time.time() - started))
             G.back_off(sess)
             return False
-        try:
-            G.grasp(sess)
-        except G.GripMissed as e:
+        if status == "missed":
             counts["missed"] += 1
             if FEEDBACK is not None:
                 FEEDBACK.fail()
-            G.log("pipeline_missed", cube=j["cube"]["map_cm"], category=j["cube"]["category"], reason=str(e),
+            G.log("pipeline_missed", cube=j["cube"]["map_cm"], category=j["cube"]["category"], reason=str(err),
                   seconds=round(time.time() - started))
             return False
         try:

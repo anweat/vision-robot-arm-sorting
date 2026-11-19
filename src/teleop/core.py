@@ -101,6 +101,18 @@ class Controller:
         finally:
             self.io.release()
 
+    def beep(self, ms: int = 120):
+        """响一声。I2C 由本进程独占，所以提示音必须从这里发，别的进程直接开 Arm_Device 会 I2C error。"""
+        dev = getattr(self.arm, "dev", None)
+        if dev is None:
+            raise ValueError("这台设备没有蜂鸣器")
+        ms = max(20, min(1000, int(ms)))
+        dev.Arm_Buzzer_On(1)
+        try:
+            time.sleep(ms / 1000.0)
+        finally:
+            dev.Arm_Buzzer_Off()
+
     def status(self):
         with self.gate:
             self.expire_profile()
