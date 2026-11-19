@@ -30,7 +30,8 @@ from http.client import HTTPConnection
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "src" / "web"))
+sys.path.insert(0, str(ROOT / "dev" / "web"))
+sys.path.insert(0, str(ROOT / "app" / "src" / "web"))
 
 REFRESH_HZ = 2.0        # 需求：角度刷新 ≥ 2 Hz
 SLIDER_S = 1.0          # 需求：滑块指令响应 ≤ 1 s
@@ -243,7 +244,7 @@ def main() -> int:
         if not console:
             say("启动仿真控制台…")
             sim = subprocess.Popen(
-                [sys.executable, str(ROOT / "src" / "sim" / "sim_server.py"),
+                [sys.executable, str(ROOT / "dev" / "sim" / "sim_server.py"),
                  "--port", str(args.sim_port), "--seed", "0", "--speed", "20"],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             console = f"http://127.0.0.1:{args.sim_port}"

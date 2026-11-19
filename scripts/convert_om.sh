@@ -3,7 +3,7 @@
 #
 #   sh scripts/convert_om.sh [data/models/blocks4/v3]
 #
-# The .om lands next to the ONNX as blocks4_yolov8n.om, which src/vision/blocks_detector.py picks up on
+# The .om lands next to the ONNX as blocks4_yolov8n.om, which app/src/vision/blocks_detector.py picks up on
 # the board (it needs ais_bench, so off the board it keeps using the ONNX).
 #
 # The toolkit is the board's own CANN 6.2.RC1 aarch64 copy under ~/Ascend; the image only supplies the

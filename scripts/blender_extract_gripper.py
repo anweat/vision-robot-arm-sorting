@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Extract the gripper's four-bar geometry from the course link5 mesh into config/gripper_geometry.json.
+"""Extract the gripper's four-bar geometry from the course link5 mesh into app/config/gripper_geometry.json.
 
 link5.STL holds the whole gripper as 62 separate shells. They are sorted here into
   * the two fingers (with the pins that ride on them),
@@ -9,11 +9,11 @@ The pivots are the centres of the pin shells. The two links of a side are equal 
 finger is the coupler of a parallelogram: it does not turn, it translates on a circle of the link length.
 
 Output is in the URDF link5 frame (= dofbot_kinematics.servo5_pose up to the J5 sign and a 2.15 mm offset,
-see src/spatial/gripper_geometry.py), metres. Point clouds are voxelized: they are collision samples,
+see app/src/spatial/gripper_geometry.py), metres. Point clouds are voxelized: they are collision samples,
 not a mesh.
 
     /Applications/Blender.app/Contents/MacOS/Blender -b data/sim/dofbot_arm.blend \
-        -P scripts/blender_extract_gripper.py -- [--out config/gripper_geometry.json]
+        -P scripts/blender_extract_gripper.py -- [--out app/config/gripper_geometry.json]
 """
 from __future__ import annotations
 
@@ -75,7 +75,7 @@ def centre_xz(p: np.ndarray) -> tuple[float, float]:
 def main() -> int:
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
     ap = argparse.ArgumentParser()
-    ap.add_argument("--out", default=str(ROOT / "config" / "gripper_geometry.json"))
+    ap.add_argument("--out", default=str(ROOT / "app" / "config" / "gripper_geometry.json"))
     args = ap.parse_args(argv)
 
     parts = loose_parts(bpy.data.objects["dofbot_link5"])

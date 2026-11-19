@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Draw the gripper model: jaw curve and a cross-section at an open pose.
 
-Writes docs/images/gripper_model.png.  Data comes from config/gripper_model.json so the figure
+Writes docs/images/gripper_model.png.  Data comes from app/config/gripper_model.json so the figure
 cannot drift from the model.  Run:
 
     UV_CACHE_DIR=$PWD/.uv-cache uv run --with matplotlib python scripts/plot_gripper_model.py
@@ -19,11 +19,12 @@ import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.patches import Rectangle  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "src" / "spatial"))
+sys.path.insert(0, str(ROOT / "dev" / "spatial"))
+sys.path.insert(0, str(ROOT / "app" / "src" / "spatial"))
 import gripper_model as gm  # noqa: E402
 
 OUT = ROOT / "docs" / "images" / "gripper_model.png"
-MODEL = json.loads((ROOT / "config" / "gripper_model.json").read_text(encoding="utf-8"))
+MODEL = json.loads((ROOT / "app" / "config" / "gripper_model.json").read_text(encoding="utf-8"))
 
 
 def main() -> int:
@@ -83,7 +84,7 @@ def main() -> int:
     ax2.set_title("gripper cross-section (pads parallel, Isaac four-bar)", fontsize=10)
     ax2.grid(alpha=0.2)
 
-    fig.suptitle("DOFBOT gripper model — config/gripper_model.json (2026-11-06)", fontsize=11)
+    fig.suptitle("DOFBOT gripper model — app/config/gripper_model.json (2026-11-06)", fontsize=11)
     fig.tight_layout(rect=(0, 0, 1, 0.95))
     fig.savefig(OUT, dpi=150)
     print(f"wrote {OUT.relative_to(ROOT)}")

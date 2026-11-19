@@ -3,10 +3,10 @@
 
 The course STL for link5 already contains the complete gripper - fingers, four-bar linkage, serrated
 pads - as ONE static mesh, so Blender cannot open/close it.  This script therefore animates the arm
-along the verified pick path (straight vertical descent, as src/tasks/console_grasp.py does) and
+along the verified pick path (straight vertical descent, as app/src/tasks/console_grasp.py does) and
 moves the block with the gripper from the grip moment on.  It is a *kinematic playback*: gravity and
 contacts are not solved.  For contact physics the gripper has to be split into movable finger links
-(see config/urdf/dofbot_with_gripper.urdf) and run in a real physics engine.
+(see app/config/urdf/dofbot_with_gripper.urdf) and run in a real physics engine.
 
     /Applications/Blender.app/Contents/MacOS/Blender -b data/sim/dofbot_arm.blend \
         -P scripts/blender_arm_playback.py -- --mp4 docs/sim/arm_playback.mp4
@@ -23,7 +23,8 @@ from mathutils import Matrix, Vector
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
-sys.path.insert(0, str(ROOT / "src" / "spatial"))
+sys.path.insert(0, str(ROOT / "dev" / "spatial"))
+sys.path.insert(0, str(ROOT / "app" / "src" / "spatial"))
 
 import blender_arm_physics as sim  # noqa: E402  (timeline + pose helpers)
 import blender_arm_sim as base  # noqa: E402

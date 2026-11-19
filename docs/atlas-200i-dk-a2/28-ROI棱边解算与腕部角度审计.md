@@ -35,13 +35,13 @@
 
 顶面中心就在立方体中心正上方，所以解出 (x, y, yaw) 就是顶面中心与夹取角；yaw 折到 `[-45, 45)`，与 `localization.locate_board` 和 `scene` 的约定一致。
 
-实现：[`src/vision/roi_pose.py`](../../src/vision/roi_pose.py)，入口 `solve_top_face(image, bbox, pose, k, dist, initial_yaw=None, prior_xy=None)`。失败是显式的：`ok=False` + 原因（框贴边、轮廓支持率不足、框 IoU 不足、中心偏移过大）。
+实现：[`app/src/vision/roi_pose.py`](../../app/src/vision/roi_pose.py)，入口 `solve_top_face(image, bbox, pose, k, dist, initial_yaw=None, prior_xy=None)`。失败是显式的：`ok=False` + 原因（框贴边、轮廓支持率不足、框 IoU 不足、中心偏移过大）。
 
-接入：[`src/teleop/localization.py`](../../src/teleop/localization.py) 的 `locate_board` 对每个候选做一次精修；只有同时满足"拟合 ok、中心与颜色 blob 相差 ≤0.8 cm、落在地图内"才替换旧结果，否则保留 blob 结果并在 `roi` 字段记录失败原因（`method` 记为 `edges`，与 `console_grasp.quality()` 已有的判定一致）。
+接入：[`app/src/teleop/localization.py`](../../app/src/teleop/localization.py) 的 `locate_board` 对每个候选做一次精修；只有同时满足"拟合 ok、中心与颜色 blob 相差 ≤0.8 cm、落在地图内"才替换旧结果，否则保留 blob 结果并在 `roi` 字段记录失败原因（`method` 记为 `edges`，与 `console_grasp.quality()` 已有的判定一致）。
 
 ### 结果
 
-**合成渲染（本机计算，2026-11-11）**：用 [`src/sim/render.py`](../../src/sim/render.py) 在真实相机模型下渲染单块场景，用渲染真值框作 ROI，随机位置/朝向 30 例，20 例通过质量门：
+**合成渲染（本机计算，2026-11-11）**：用 [`dev/sim/render.py`](../../dev/sim/render.py) 在真实相机模型下渲染单块场景，用渲染真值框作 ROI，随机位置/朝向 30 例，20 例通过质量门：
 
 | 指标 | 中位 | p90 | 最大 |
 |---|---|---|---|
@@ -119,7 +119,7 @@ phi = (J1 - 90) + atan(cos t * tan r)
 
 ## 4. 新的 J5 解算器（离线，未接入）
 
-[`src/tasks/grip_solver.py`](../../src/tasks/grip_solver.py)：
+[`dev/tasks/grip_solver.py`](../../dev/tasks/grip_solver.py)：
 
 - `jaw_bearing(j1, j5, pitch)`：按实测方向计算指间轴方位（不用 FK 的镜像轴）；
 - `out_of_plane_deg(j5, pitch)`：指间轴离桌面的倾斜角；
@@ -144,8 +144,8 @@ phi = (J1 - 90) + atan(cos t * tan r)
 UV_CACHE_DIR=/tmp/uvcache uv run --with 'opencv-python<5' --with numpy --with onnxruntime python -m unittest discover -s tests
 
 # ROI 解算：单个检测框
-python3 src/vision/roi_pose.py --image frame.jpg --bbox 100 80 160 140 --servos 90 105 5 5 95
+python3 app/src/vision/roi_pose.py --image frame.jpg --bbox 100 80 160 140 --servos 90 105 5 5 95
 
 # J5 解算：离线单点
-python3 src/tasks/grip_solver.py --bearing 71 --radius 21 --yaw -10.9 --pitch 150
+python3 dev/tasks/grip_solver.py --bearing 71 --radius 21 --yaw -10.9 --pitch 150
 ```

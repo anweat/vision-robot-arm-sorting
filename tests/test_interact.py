@@ -1,4 +1,4 @@
-"""Voice/gesture -> command rules (src/interact/intents.py) and their HTTP side in the simulation."""
+"""Voice/gesture -> command rules (app/src/interact/intents.py) and their HTTP side in the simulation."""
 import json
 import sys
 import tempfile
@@ -10,7 +10,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 for sub in ('interact', 'tools', 'teleop', 'spatial', 'vision', 'sim'):
-    sys.path.insert(0, str(ROOT / 'src' / sub))
+    sys.path.insert(0, str(ROOT / 'dev' / sub))
+    sys.path.insert(0, str(ROOT / 'app' / 'src' / sub))
 import intents as I  # noqa: E402
 import log_contract as L  # noqa: E402
 

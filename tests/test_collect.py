@@ -4,7 +4,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 for sub in ('pipeline', 'tasks', 'tools', 'spatial', 'vision'):
-    sys.path.insert(0, str(ROOT / 'src' / sub))
+    sys.path.insert(0, str(ROOT / 'dev' / sub))
+    sys.path.insert(0, str(ROOT / 'app' / 'src' / sub))
 import collect as K  # noqa: E402
 
 

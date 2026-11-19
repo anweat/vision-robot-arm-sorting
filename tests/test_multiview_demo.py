@@ -1,7 +1,11 @@
 import math
 import unittest
 
-from src.spatial.multiview_demo import (
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "dev" / "spatial"))
+from multiview_demo import (
     Camera, Intrinsics, block_top_corners, estimate_block, intersect_height,
     triangulate,
 )

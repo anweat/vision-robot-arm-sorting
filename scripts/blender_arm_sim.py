@@ -2,8 +2,8 @@
 """Build the DOFBOT arm + gripper in Blender and render the poses the project actually uses.
 
 The arm is the six course STL links assembled with the same URDF joint chain that
-``src/spatial/dofbot_kinematics.py`` reproduces (verified: link origins match to <0.1 mm).
-The gripper is the parametric model from ``config/gripper_model.json`` (two parallel pads,
+``app/src/spatial/dofbot_kinematics.py`` reproduces (verified: link origins match to <0.1 mm).
+The gripper is the parametric model from ``app/config/gripper_model.json`` (two parallel pads,
 opening from the official J6 table), not the smaller Isaac variant.
 
 Run headless (Blender 5.2 is installed at /Applications/Blender.app):
@@ -26,11 +26,12 @@ from mathutils import Matrix, Vector
 
 ROOT = Path(__file__).resolve().parents[1]
 STL_DIR = ROOT / "资料" / "展开资源" / "三维结构文件" / "三维结构文件"
-MODEL = json.loads((ROOT / "config" / "gripper_model.json").read_text(encoding="utf-8"))
-_KEEP_OUT = json.loads((ROOT / "config" / "arm_limits.json").read_text(encoding="utf-8"))["keep_out"]
-# chassis + black lid: config/platform_model.json (rounded square from the operator's photo, corner and
+MODEL = json.loads((ROOT / "app" / "config" / "gripper_model.json").read_text(encoding="utf-8"))
+_KEEP_OUT = json.loads((ROOT / "app" / "config" / "arm_limits.json").read_text(encoding="utf-8"))["keep_out"]
+# chassis + black lid: app/config/platform_model.json (rounded square from the operator's photo, corner and
 # edge rounding fitted to 1080 hardware poses on 2026-11-14).  Visual only - control uses keep_out.
-sys.path.insert(0, str(ROOT / "src" / "spatial"))
+sys.path.insert(0, str(ROOT / "dev" / "spatial"))
+sys.path.insert(0, str(ROOT / "app" / "src" / "spatial"))
 import platform_model  # noqa: E402
 
 PLATFORM = platform_model.load()
@@ -128,7 +129,7 @@ def _cube(name, size, colour, metallic=0.0, roughness=0.6):
 
 
 def build_gripper() -> dict[str, object]:
-    """Parametric pads (from config/gripper_model.json); the servo itself is already in link5.STL."""
+    """Parametric pads (from app/config/gripper_model.json); the servo itself is already in link5.STL."""
     pad = MODEL["geometry"]["pad"]
     thick, width = pad["thickness_m"], pad["width_m"]
     z0, z1 = pad["z_range_from_j5_m"]

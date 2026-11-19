@@ -4,7 +4,7 @@
 Status 2026-11-13: the world runs (gravity, landing, pushes) but the *contact grasp* does not hold,
 because link5.STL contains the whole gripper as one static mesh whose fingers sit ~28 mm apart, so a
 30 mm block is pushed away on the way down.  Use scripts/blender_arm_playback.py for the visual
-playback, and the URDF in config/urdf/ + MuJoCo/Isaac for real contact physics.
+playback, and the URDF in app/config/urdf/ + MuJoCo/Isaac for real contact physics.
 
 Loads the scene built by ``scripts/blender_arm_sim.py`` (``data/sim/dofbot_arm.blend``), then:
 
@@ -33,7 +33,8 @@ from mathutils import Matrix, Vector
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
-sys.path.insert(0, str(ROOT / "src" / "spatial"))
+sys.path.insert(0, str(ROOT / "dev" / "spatial"))
+sys.path.insert(0, str(ROOT / "app" / "src" / "spatial"))
 
 import blender_arm_sim as base  # noqa: E402  (FK, jaw curve, materials, stage)
 import dofbot_kinematics as kin  # noqa: E402
@@ -42,7 +43,7 @@ FPS = 24
 PITCH = 150.0
 OPEN_DEG = 30
 GRIP_DEG = 136
-TABLE_Z = json.loads((ROOT / "config" / "arm_limits.json").read_text(encoding="utf-8"))[
+TABLE_Z = json.loads((ROOT / "app" / "config" / "arm_limits.json").read_text(encoding="utf-8"))[
     "keep_out"]["table_surface_z_m"]
 BLOCK = 0.03
 

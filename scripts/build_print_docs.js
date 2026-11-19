@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// 把 docs/ 里的 Markdown 生成可打印的 Word (.docx) 与 PDF，输出到 docs/print/。
+// 把 docs/ 里的 Markdown 生成可打印的 Word (.docx) 与 PDF，输出到 docs/archive/print/。
 //
 // 依赖（不入库）：npm install docx marked@12 image-size@1，然后
 //   NODE_PATH=<node_modules 所在目录> node scripts/build_print_docs.js

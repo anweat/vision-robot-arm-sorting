@@ -9,14 +9,14 @@ with the hardware when every contact-free pose stays outside and every contact i
 boundary, both within `--tol-cm` (FK and mesh error are a few mm).
 
 Shapes checked:
-  * keep-out cylinder (config/arm_limits.json keep_out: radius, top), the one control uses;
-  * config/platform_model.json (rounded square lid with a rolled top edge, src/spatial/platform_model.py);
+  * keep-out cylinder (app/config/arm_limits.json keep_out: radius, top), the one control uses;
+  * app/config/platform_model.json (rounded square lid with a rolled top edge, app/src/spatial/platform_model.py);
   * the same square with sharp corners and edges, for comparison.
 
     /Applications/Blender.app/Contents/MacOS/Blender -b data/sim/dofbot_arm.blend \
         -P scripts/blender_platform_check.py -- [--tol-cm 0.3] [--json out.json]
 
-Exit code 1 when config/platform_model.json is not consistent with the hardware within the tolerance.
+Exit code 1 when app/config/platform_model.json is not consistent with the hardware within the tolerance.
 """
 from __future__ import annotations
 
@@ -32,13 +32,14 @@ import numpy as np
 from mathutils import Matrix
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "src" / "spatial"))
+sys.path.insert(0, str(ROOT / "dev" / "spatial"))
+sys.path.insert(0, str(ROOT / "app" / "src" / "spatial"))
 import platform_model  # noqa: E402
 
-KEEP_OUT = json.loads((ROOT / "config" / "arm_limits.json").read_text(encoding="utf-8"))["keep_out"]
+KEEP_OUT = json.loads((ROOT / "app" / "config" / "arm_limits.json").read_text(encoding="utf-8"))["keep_out"]
 PLATFORM = platform_model.load()
 
-# recorded platform contacts (readbacks), same list as tests/test_safe_arm.py KeepOutTest.CONTACT;
+# recorded platform contacts (readbacks), same list as app/tests/test_safe_arm.py KeepOutTest.CONTACT;
 # for the 2026-09-24 return contact the start of the path is used (it was already touching)
 CONTACTS = {
     "2026-09-24 scan near row": [90, 85, 5, 5],
