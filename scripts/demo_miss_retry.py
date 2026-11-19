@@ -41,7 +41,7 @@ C = dict(ok="\033[32m", warn="\033[33m", bad="\033[31m", dim="\033[2m", off="\03
 
 
 def say(tag: str, text: str) -> None:
-    colour = {"ok": C["ok"], "warn": C["warn"], "bad": C["bad"], "dim": C["dim"], "": ""}[tag]
+    colour = {"ok": C["ok"], "warn": C["warn"], "bad": C["bad"], "dim": C["dim"], "bold": C["bold"], "": ""}[tag]
     print(f"{colour}{text}{C['off'] if colour else ''}", flush=True)
 
 
@@ -68,6 +68,18 @@ def preflight() -> bool:
         say("bad", f"找不到 {PY}")
         ok = False
     return ok
+
+
+def go_observe() -> None:
+    """先回观察位：扫描从当前姿态出发，停在悬停位会第一步就被挡。"""
+    sys.path.insert(0, str(ROOT / "src" / "tools"))
+    try:
+        from console_step import Session, status
+        print(f"  当前姿态 {status().get('pose')} -> 回观察位", flush=True)
+        with Session() as s:
+            print("  现在", s.pose([90, 105, 5, 5, 92, 29]).get("pose"), flush=True)
+    except Exception as exc:                                  # noqa: BLE001
+        say("warn", f"回观察位失败：{exc}（扫描可能被挡）")
 
 
 def reset_bins(design: str) -> None:
@@ -131,10 +143,12 @@ def narrate(events: list[dict], state: dict) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="演示：第二次夹空后自动重试")
-    ap.add_argument("--force-miss", type=int, default=2, help="第几次合爪必定夹空（默认 2）")
+    ap.add_argument("--force-miss", type=int, default=0,
+                    help="0=不干预（由人把块拨开制造真实夹空）；N=第 N 次合爪强制夹空（自检用）")
     ap.add_argument("--keep-bins", action="store_true", help="不清零桶计数")
     ap.add_argument("--design", default="bins_acrylic_v2_pair")
     ap.add_argument("--dry", action="store_true", help="只做自检和清桶，不跑")
+    ap.add_argument("--no-home", action="store_true", help="不先回观察位")
     args = ap.parse_args()
 
     say("bold", "=== 分拣演示：第一块成功，第二块夹空后自动重试 ===")
@@ -143,14 +157,19 @@ def main() -> int:
         return 2
     if not args.keep_bins:
         reset_bins(args.design)
+    if not args.no_home:
+        go_observe()
     if args.dry:
         say("dim", "dry：自检通过，未启动分拣")
         return 0
 
     offset = LOG.stat().st_size if LOG.exists() else 0
-    env = dict(os.environ, ARM_MAP=os.environ.get("ARM_MAP", "map_a4_v4"),
-               ARM_LOG=str(LOG), ARM_FORCE_MISS=str(args.force_miss))
-    say("warn", f"注意：第 {args.force_miss} 次合爪会被强制夹空（这是演示设计）")
+    env = dict(os.environ, ARM_MAP=os.environ.get("ARM_MAP", "map_a4_v4"), ARM_LOG=str(LOG))
+    if args.force_miss:
+        env["ARM_FORCE_MISS"] = str(args.force_miss)
+        say("warn", f"注意：第 {args.force_miss} 次合爪会被强制夹空（自检模式）")
+    else:
+        say("warn", "真实夹空模式：请在第二块开始下降/合爪时把块拨开 2-3 cm，制造一次真实夹空")
     proc = subprocess.Popen([str(PY), str(ROOT / "src" / "pipeline" / "run.py"), "--bins", args.design],
                             cwd=ROOT, env=env)
     state = dict(sorted=0, skipped=0, missed=0, retry=0)
@@ -172,7 +191,7 @@ def main() -> int:
     elif state["retry"]:
         say("warn", "重试发生了，但整体没完成两块（检查桌上是否只剩一块，或桶是否满）")
     else:
-        say("warn", "没有触发重试：确认第 2 次合爪是否真的发生（台上要有两块可抓）")
+        say("warn", "没有触发重试：第二块要真的夹空才会重试（把块拨开晚一点/早一点都行，别提前拿走）")
     return 0 if proc.returncode == 0 else 1
 
 

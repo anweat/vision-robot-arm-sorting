@@ -13,7 +13,12 @@ colour or listened to the buzzer yet, so treat "which colour" as unverified (doc
 
 from __future__ import annotations
 
+import json
+import os
 import time
+import urllib.request
+
+CONSOLE_URL = os.environ.get("ARM_CONSOLE", "http://127.0.0.1:8765").rstrip("/")
 
 GREEN = (0, 255, 0)
 YELLOW = (255, 200, 0)
@@ -22,15 +27,28 @@ OFF = (0, 0, 0)
 
 
 class Feedback:
-    """Three states on the expansion board; quietly does nothing when Arm_Lib is unavailable."""
+    """Three states on the expansion board.
+
+    优先走控制台的 /api/led 与 /api/beep：I2C 总线被控制台进程独占，流水线直接开 Arm_Device 会
+    I2C error。控制台不可用时退回本地 Arm_Lib；两者都没有就静默。
+    """
 
     def __init__(self, enabled: bool = True, hold_s: float = 1.2):
         self.enabled = enabled
         self.hold_s = hold_s
         self.arm = None
+        self.token = ""
+        self.http = False
         self.error = ""
         if not enabled:
             return
+        try:
+            with urllib.request.urlopen(CONSOLE_URL + "/api/bootstrap", timeout=2) as r:
+                self.token = json.loads(r.read()).get("token", "")
+            self.http = bool(self.token)
+            return
+        except Exception as exc:
+            self.error = f"http: {type(exc).__name__}"
         try:
             from Arm_Lib import Arm_Device
 
@@ -39,6 +57,23 @@ class Feedback:
         except Exception as exc:            # not on the board, or the I2C bus is busy
             self.error = f"{type(exc).__name__}: {exc}"
             self.arm = None
+
+    # ---- transport ------------------------------------------------------------------------------
+    def _call(self, path: str, body: dict) -> str:
+        if self.http:
+            try:
+                body = dict(body, owner="feedback")
+                req = urllib.request.Request(CONSOLE_URL + path, data=json.dumps(body).encode(),
+                                             method="POST")
+                req.add_header("Content-Type", "application/json")
+                req.add_header("X-Console-Token", self.token)
+                with urllib.request.urlopen(req, timeout=3) as r:
+                    json.loads(r.read())
+                return "ok"
+            except Exception as exc:
+                self.error = f"http: {type(exc).__name__}: {exc}"
+                return f"failed ({self.error})"
+        return ""
 
     # ---- states ---------------------------------------------------------------------------------
     def ok(self) -> str:
@@ -55,6 +90,13 @@ class Feedback:
 
     # ---- internals ------------------------------------------------------------------------------
     def _show(self, colour, beep_ms: int, name: str) -> str:
+        if self.http:
+            got = self._call("/api/led", dict(r=colour[0], g=colour[1], b=colour[2]))
+            if got != "ok":
+                return got
+            if beep_ms:
+                self._call("/api/beep", dict(ms=beep_ms))
+            return name
         if self.arm is None:
             return f"skipped ({self.error or 'disabled'})"
         try:

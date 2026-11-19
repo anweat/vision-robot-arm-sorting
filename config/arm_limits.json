@@ -1,138 +1,138 @@
 {
-  "_status": "Application soft limits for the current board (davinci-mini), 2026-09-24. Not a calibrated joint model; expand only after on-site checks.",
-  "_sources": {
-    "course_limits_deg": "资料/课程说明/第二阶段-机械臂基础控制/01-组件介绍及远程连接.txt lines 343-357",
-    "soft_limits_deg": "course limits with a 5 deg margin; servo 1 and 5 narrowed further because the course warns their cables are short",
-    "servo_5_upper": "kept at 180 until cable slack at 90->270 is checked on site; course and upstream grasp poses use up to 265-270"
-  },
-  "course_limits_deg": {
-    "1": [
-      0,
-      180
-    ],
-    "2": [
-      0,
-      180
-    ],
-    "3": [
-      0,
-      180
-    ],
-    "4": [
-      0,
-      180
-    ],
-    "5": [
-      90,
-      270
-    ],
-    "6": [
-      0,
-      180
-    ]
-  },
-  "soft_limits_deg": {
-    "1": [
-      20,
-      160
-    ],
-    "2": [
-      5,
-      175
-    ],
-    "3": [
-      5,
-      175
-    ],
-    "4": [
-      5,
-      175
-    ],
-    "5": [
-      95,
-      180
-    ],
-    "6": [
-      5,
-      175
-    ]
-  },
-  "motion": {
-    "max_step_deg": 5,
-    "segment_ms": 800,
-    "settle_ms": 300,
-    "readback_tolerance_deg": 4,
-    "read_attempts": 10
-  },
-  "keep_out": {
-    "_source": "src/spatial/workspace.py; platform box refitted 2026-09-25 19:00 from four platform contacts and all logged contact-free moves, in forward-kinematics coordinates (docs/05)",
-    "platform_radius_m": 0.08,
-    "platform_min_z_m": 0.076,
-    "platform_margin_m": 0.004,
-    "_platform_note": "radius: operator-measured 8 cm turntable centre to platform edge (map laid against it registers at y 7.5-7.7 cm); top: 9 cm chassis over the table at -1.42 cm. Housing sizes fitted: contacts <= +0.1 cm, contact-free moves >= +0.6 cm.",
-    "servo_half_width_m": 0.035,
-    "servo_length_m": 0.04,
-    "servo_back_m": 0.02,
-    "finger_half_width_m": 0.015,
-    "table_z_m": -0.028,
-    "table_surface_z_m": -0.0142,
-    "_table_note": "touch calibration 20260925_005756_78eb: fingertip touches read table z -1.42 ± 0.12 cm in FK coordinates (the arm's base_link sits recessed in the 9 cm chassis). table_z_m is the gripper-hull model value at those touches.",
-    "table_margin_m": 0.025,
-    "hull_half_width_m": 0.025
-  },
-  "gripper": {
-    "_source": "src/tasks/gripper_calibration.py, 2026-09-24 20:40; angles grow as the gripper closes",
-    "open_deg": 30,
-    "open_wide_deg": 11,
-    "block30_contact_readback_deg": 124,
-    "grip_command_deg": 133,
-    "holding_if_readback_below_deg": 131,
-    "holding_if_readback_above_deg": 100,
-    "_holding_note": "2026-09-25 teleop session 20260925_001846_4a2a: held blocks read 128-129 (129 was wrongly called empty with the old <129 line); three grips that never moved read 29 and were wrongly called holding. Holding = above <= readback < below; empty reaches the 133 command.",
-    "empty_closes_freely_to_deg": 170,
-    "_note": "hold behaviour at 133 over several seconds (stall protection after 3 s) not yet verified",
-    "grasp_height_cm": 1.2,
-    "_grasp_height_note": "2026-09-27: the fingers close 1.2 cm above the table instead of the block's mid-height 1.5 cm. Two grasps that night closed on nothing (readback 132, fully shut) after meeting the block corner-on; a contact nearer the table gives a closing finger less leverage to tip or flick a 3 cm block. Fingertips stay 1.2 cm clear of the table.",
-    "open_grasp_radial_offset_cm": 1.0,
-    "_open_grasp_note": "2026-09-26 red block at marker 42 (board top-face localization, error 0.3 cm): with the gripper open (30) and pitch ~150, the closed-fingertip FK tip over the block centre put the fingers over the block's near edge; +1 cm radially (away from the base) centred it (operator view). Descended 1/1/1/0.5 cm to tip z 0.3 (block centre 0.1), grip read 129 and held while lifting. Open fingertips sit behind the closed-fingertip point used by the touch calibration.",
-    "roll_zero_deg": 92,
-    "roll_sign": 1,
-    "_roll_note": "Verified 2026-09-26 (operator view): with roll_zero 92 and roll_sign +1, red at marker 43 (J1 71, block yaw -10.9 deg) got J5 100 and the open fingers were parallel to the block faces. J5 turns the fingers only (the camera is on the wrist link). Keep J5 <= 180: beyond that the gripper servo turns up and blocks the wrist camera (operator, 2026-09-26).",
-    "align_roll": true
-  },
-  "named_poses": {
-    "_note": "null keeps the joint's current reading",
-    "upright": [
-      90,
-      90,
-      90,
-      90,
-      null,
-      null
-    ],
-    "observe_v0": [
-      90,
-      125,
-      5,
-      5,
-      null,
-      null
-    ],
-    "_observe_v0_note": "2026-09-24: sees tape 16-41 cm (base y ~24-49 cm), mostly beyond reach at mat level; readback [89,126,5,6,92,11]",
-    "observe_v1": [
-      90,
-      105,
-      5,
-      5,
-      null,
-      null
-    ],
-    "_observe_v1_note": "2026-09-24: sees tape ~10-20 cm (base y ~18-28 cm) inside the mat-level pick zone; readback [90,105,5,6,92,11]"
-  },
-  "motion_explore": {
-    "segment_ms": 400,
-    "settle_ms": 120,
-    "_note": "2026-09-27: 15 deg segments of 400 + 120 ms (was 10 deg, 500 + 150; before that 5 deg, 800 + 300). Each segment still has its readback check and hold-at-readback, and the whole path is still checked for keep-out before it starts. Measured on 2026-09-26 at the previous setting: 18.2 s median to carry and place one block, 35.5 s per block (src/tools/run_stats.py). The failure mode of going faster is a readback that lags its command and reads as resistance, which stops the arm rather than driving it into anything; if spurious stops appear, put settle_ms back first.",
-    "max_step_deg": 15
-  }
+ "_status": "Application soft limits for the current board (davinci-mini), 2026-09-24. Not a calibrated joint model; expand only after on-site checks.",
+ "_sources": {
+  "course_limits_deg": "资料/课程说明/第二阶段-机械臂基础控制/01-组件介绍及远程连接.txt lines 343-357",
+  "soft_limits_deg": "course limits with a 5 deg margin; servo 1 and 5 narrowed further because the course warns their cables are short",
+  "servo_5_upper": "kept at 180 until cable slack at 90->270 is checked on site; course and upstream grasp poses use up to 265-270"
+ },
+ "course_limits_deg": {
+  "1": [
+   0,
+   180
+  ],
+  "2": [
+   0,
+   180
+  ],
+  "3": [
+   0,
+   180
+  ],
+  "4": [
+   0,
+   180
+  ],
+  "5": [
+   90,
+   270
+  ],
+  "6": [
+   0,
+   180
+  ]
+ },
+ "soft_limits_deg": {
+  "1": [
+   20,
+   160
+  ],
+  "2": [
+   5,
+   175
+  ],
+  "3": [
+   5,
+   175
+  ],
+  "4": [
+   5,
+   175
+  ],
+  "5": [
+   95,
+   180
+  ],
+  "6": [
+   5,
+   175
+  ]
+ },
+ "motion": {
+  "max_step_deg": 8,
+  "segment_ms": 400,
+  "settle_ms": 150,
+  "readback_tolerance_deg": 4,
+  "read_attempts": 10
+ },
+ "keep_out": {
+  "_source": "src/spatial/workspace.py; platform box refitted 2026-09-25 19:00 from four platform contacts and all logged contact-free moves, in forward-kinematics coordinates (docs/05)",
+  "platform_radius_m": 0.08,
+  "platform_min_z_m": 0.076,
+  "platform_margin_m": 0.004,
+  "_platform_note": "radius: operator-measured 8 cm turntable centre to platform edge (map laid against it registers at y 7.5-7.7 cm); top: 9 cm chassis over the table at -1.42 cm. Housing sizes fitted: contacts <= +0.1 cm, contact-free moves >= +0.6 cm.",
+  "servo_half_width_m": 0.035,
+  "servo_length_m": 0.04,
+  "servo_back_m": 0.02,
+  "finger_half_width_m": 0.015,
+  "table_z_m": -0.028,
+  "table_surface_z_m": -0.0142,
+  "_table_note": "touch calibration 20260925_005756_78eb: fingertip touches read table z -1.42 ± 0.12 cm in FK coordinates (the arm's base_link sits recessed in the 9 cm chassis). table_z_m is the gripper-hull model value at those touches.",
+  "table_margin_m": 0.025,
+  "hull_half_width_m": 0.025
+ },
+ "gripper": {
+  "_source": "src/tasks/gripper_calibration.py, 2026-09-24 20:40; angles grow as the gripper closes",
+  "open_deg": 30,
+  "open_wide_deg": 11,
+  "block30_contact_readback_deg": 124,
+  "grip_command_deg": 133,
+  "holding_if_readback_below_deg": 131,
+  "holding_if_readback_above_deg": 100,
+  "_holding_note": "2026-09-25 teleop session 20260925_001846_4a2a: held blocks read 128-129 (129 was wrongly called empty with the old <129 line); three grips that never moved read 29 and were wrongly called holding. Holding = above <= readback < below; empty reaches the 133 command.",
+  "empty_closes_freely_to_deg": 170,
+  "_note": "hold behaviour at 133 over several seconds (stall protection after 3 s) not yet verified",
+  "grasp_height_cm": 1.2,
+  "_grasp_height_note": "2026-09-27: the fingers close 1.2 cm above the table instead of the block's mid-height 1.5 cm. Two grasps that night closed on nothing (readback 132, fully shut) after meeting the block corner-on; a contact nearer the table gives a closing finger less leverage to tip or flick a 3 cm block. Fingertips stay 1.2 cm clear of the table.",
+  "open_grasp_radial_offset_cm": 1.0,
+  "_open_grasp_note": "2026-09-26 red block at marker 42 (board top-face localization, error 0.3 cm): with the gripper open (30) and pitch ~150, the closed-fingertip FK tip over the block centre put the fingers over the block's near edge; +1 cm radially (away from the base) centred it (operator view). Descended 1/1/1/0.5 cm to tip z 0.3 (block centre 0.1), grip read 129 and held while lifting. Open fingertips sit behind the closed-fingertip point used by the touch calibration.",
+  "roll_zero_deg": 92,
+  "roll_sign": 1,
+  "_roll_note": "Verified 2026-09-26 (operator view): with roll_zero 92 and roll_sign +1, red at marker 43 (J1 71, block yaw -10.9 deg) got J5 100 and the open fingers were parallel to the block faces. J5 turns the fingers only (the camera is on the wrist link). Keep J5 <= 180: beyond that the gripper servo turns up and blocks the wrist camera (operator, 2026-09-26).",
+  "align_roll": true
+ },
+ "named_poses": {
+  "_note": "null keeps the joint's current reading",
+  "upright": [
+   90,
+   90,
+   90,
+   90,
+   null,
+   null
+  ],
+  "observe_v0": [
+   90,
+   125,
+   5,
+   5,
+   null,
+   null
+  ],
+  "_observe_v0_note": "2026-09-24: sees tape 16-41 cm (base y ~24-49 cm), mostly beyond reach at mat level; readback [89,126,5,6,92,11]",
+  "observe_v1": [
+   90,
+   105,
+   5,
+   5,
+   null,
+   null
+  ],
+  "_observe_v1_note": "2026-09-24: sees tape ~10-20 cm (base y ~18-28 cm) inside the mat-level pick zone; readback [90,105,5,6,92,11]"
+ },
+ "motion_explore": {
+  "segment_ms": 400,
+  "settle_ms": 120,
+  "_note": "2026-09-27: 15 deg segments of 400 + 120 ms (was 10 deg, 500 + 150; before that 5 deg, 800 + 300). Each segment still has its readback check and hold-at-readback, and the whole path is still checked for keep-out before it starts. Measured on 2026-09-26 at the previous setting: 18.2 s median to carry and place one block, 35.5 s per block (src/tools/run_stats.py). The failure mode of going faster is a readback that lags its command and reads as resistance, which stops the arm rather than driving it into anything; if spurious stops appear, put settle_ms back first.",
+  "max_step_deg": 15
+ }
 }

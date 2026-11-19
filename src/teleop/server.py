@@ -118,6 +118,8 @@ class App:
             c.heartbeat(owner)
         elif path == '/api/beep':
             c.beep(int(body.get('ms', 120)))
+        elif path == '/api/led':
+            c.set_rgb(body.get('r', 0), body.get('g', 0), body.get('b', 0))
         elif path == '/api/stop':
             c.stop()
         elif path == '/api/jog':

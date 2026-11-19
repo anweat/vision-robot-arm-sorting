@@ -88,7 +88,9 @@ class PathBlocked(ConsoleError):
     """A move would run the fingers into a bin (OBSTACLES). The arm has not been sent anywhere."""
 
 
-_FORCE_MISS = os.environ.get("ARM_FORCE_MISS") == "1"   # 测试用：第一次合爪必定夹空
+# 测试/演示用：ARM_FORCE_MISS=N 让第 N 次合爪必定夹空（N=2 → 第一块正常、第二块夹空后重试）
+_FORCE_MISS_AT = int(os.environ.get("ARM_FORCE_MISS", "0") or 0)
+_GRASP_COUNT = 0
 
 
 class GripMissed(ConsoleError):
@@ -696,10 +698,11 @@ def hover(session: Session | None = None) -> None:
 
 
 def grasp(session: Session | None = None) -> dict:
-    global _FORCE_MISS
-    if _FORCE_MISS:
-        _FORCE_MISS = False
-        raise GripMissed("ARM_FORCE_MISS=1：测试用强制夹空")
+    global _GRASP_COUNT
+    _GRASP_COUNT += 1
+    if _FORCE_MISS_AT and _GRASP_COUNT == _FORCE_MISS_AT:
+        G_raise = GripMissed(f"ARM_FORCE_MISS={_FORCE_MISS_AT}：演示用强制夹空（第 {_GRASP_COUNT} 次合爪）")
+        raise G_raise
 
     plan = fresh_plan()
     tx, ty = plan["tip_target_cm"][0] / 100, plan["tip_target_cm"][1] / 100

@@ -481,6 +481,10 @@ def decide_bins(scene: dict) -> list[dict]:
                                                        f" ({holder.category}, but it is {c['category']}): left there")
         elif target is None:
             why = f"no bin for {c['category']}"
+        elif int((c.get("detector") or {}).get("views") or 0) < 3 and not c.get("sticker"):
+            # 幻影块：只被 1-2 个视角看到、也没有标签贴纸。真块通常 5-8 个视角都能看到。
+            why = (f"only {int((c.get('detector') or {}).get('views') or 0)} view(s) saw it and no sticker: "
+                   f"treated as scan noise")
         elif not reachable[target.number]:
             why = f"bin {target.number} cannot be reached at drop height"
         elif holding[target.number] >= len(BINS.slots[target.number]):
@@ -594,7 +598,22 @@ def execute(run, scene: dict, jobs: list[dict], sess, rng=None) -> dict:
                   attempt=1, reason=f"空爪，退回后重扫找回：{err}")
             if FEEDBACK is not None:
                 FEEDBACK.warn()
-            G.back_off(sess)
+            for _ in range(2):                 # 先抬 2 cm，避免“退观察位”的路径擦到桶的禁入区
+                try:
+                    sess.cart("z", 1)
+                except Exception:
+                    break
+            try:
+                G.back_off(sess)
+            except Exception as exc:           # 退不回去也不能把整轮带崩
+                G.log("pipeline_retry_failed", cube=j["cube"]["map_cm"],
+                      reason=f"退回观察位被挡：{exc}")
+                counts["missed"] += 1
+                if FEEDBACK is not None:
+                    FEEDBACK.fail()
+                G.log("pipeline_missed", cube=j["cube"]["map_cm"], category=j["cube"]["category"],
+                      reason=str(exc), seconds=round(time.time() - started))
+                return False
             found = None
             try:
                 import field_scan as SC          # 这版 run.py 把它放在函数里导入
