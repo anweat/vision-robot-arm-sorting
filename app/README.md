@@ -10,9 +10,10 @@
 |---|---|---|---|
 | 相机服务 | `src/adapters/board_camera_server.py` | 板上 :8080（仅本机） | `/dev/video0` 的唯一持有者，给出带采集时间的帧 |
 | 控制台 | `src/teleop/server.py --hardware --execute` | 板上 127.0.0.1:8765 | 唯一的安全边界：限位、禁入区、隐式操作权与 2 s 租约、分段回读、速度、摇杆驱动、细步触地（[32](../docs/atlas-200i-dk-a2/32-操作逻辑简化与分步任务.md)、[33](../docs/atlas-200i-dk-a2/33-触地标定与精确回读.md)） |
-| 板载网关 | `src/web/serve.py --lan --port 8090` | 板上 :8090 | 对外唯一入口：口令、多端、SSE 推送、日志与统计、定时、任务（拉起编排器）、报警 |
+| 板载网关 | `src/web/serve.py --lan --port 8090` | 板上 :8090 | 对外唯一入口：口令、多端、SSE 推送、日志与统计、定时、任务、报警。「开始」默认跑已验证的旧流水线（`--task pipeline` → `src/pipeline/task.py`）；`--task flow` 是分步编排器，试验中 |
 | 网页前端 | `src/web/index.html`、`src/web/js/` | 由网关托管 | 作业/控制/任务/历史/定时页，无构建的 ES Module |
-| 分步流程 | `src/flow/`（编排器、S1–S7 步骤）、`config/flows/*.yaml` | 板上，由网关拉起 | 扫描→定位→建图→规划→执行→核对 |
+| 分拣流水线（默认） | `src/pipeline/run.py`、`src/pipeline/task.py`、`src/tasks/console_grasp.py` | 板上，由网关拉起 | 扫描→场景→抓放，实机跑通（最好一轮 4/4） |
+| 分步流程（试验） | `src/flow/`（编排器、S1–S7 步骤）、`config/flows/*.yaml` | 板上，网关 `--task flow` 或单步 | 扫描→定位→建图→规划→执行→核对；规划器对实机场景太保守，优化前不当默认（[34](../docs/atlas-200i-dk-a2/34-仓库结构与应用版本.md) §4.2、§6） |
 | 规划与几何 | `src/planning/`、`src/spatial/`、`src/vision/`、`src/pipeline/` | 板上 | 碰撞地图、A\*、四连杆夹爪、整臂网格碰撞、正逆解、地图定位、检测 |
 | 操作员任务 | `src/tasks/`：`console_grasp`、`sort_blocks`、`scramble`、`bin_checkout`、`touch_survey`、`gripper_probe` | 板上，经控制台 | 抓放、分拣、打乱、桶核对、触地标定、夹爪慢合探测 |
 | 语音/手势指令 | `src/interact/intents.py` | 仿真已接；实机未接 | 识别结果→指令的判定（[25](../docs/atlas-200i-dk-a2/25-语音手势接口.md)） |

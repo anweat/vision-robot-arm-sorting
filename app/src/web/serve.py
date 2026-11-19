@@ -440,6 +440,8 @@ class State:
         self._sim_hint = None                    # 控制台是不是仿真：探到一次就记住
         self.flow = None                         # 编排器子进程（src/flow/orchestrator.py）
         self.flow_python = [sys.executable]      # 跑编排器的解释器（要 numpy 等；--flow-python 改）
+        self.task = "pipeline"                   # 「开始」跑什么：pipeline 已验证的旧流水线（默认）/ flow 分步编排器
+        self.pipeline_args: list[str] = []       # 传给 src/pipeline/task.py → run.py 的参数（如 --bins DESIGN）
         self.flow_out = None
         self.lock = threading.Lock()
 
@@ -559,8 +561,9 @@ class State:
             limits=status.get("limits"),
         )
 
-    def _spawn_flow(self, args: list[str], source: str, command: str) -> dict:
-        """Run src/flow/orchestrator.py against the console as a child process (文档 32 §3)。
+    def _spawn_flow(self, args: list[str], source: str, command: str, script: str = "flow") -> dict:
+        """Run the task executor against the console as a child process: src/flow/orchestrator.py
+        (文档 32 §3), or with script="pipeline" src/pipeline/task.py（已验证的旧流水线，文档 34 §4.2）。
 
         同一时刻只跑一个流程；页面持有的操作权先放掉（流程用自己的 owner 取得），
         事件按日志契约写进本服务的活日志，页面经 SSE 直接看到 step / alarm / pipeline_* 。"""
@@ -574,8 +577,12 @@ class State:
         except ValueError:
             pass
         self.arm_off()
-        cmd = [*self.flow_python, str(ROOT / "src" / "flow" / "orchestrator.py"), *args,
-               "--console", console.base, "--really", "--log", str(self.log_path)]
+        if script == "pipeline":
+            cmd = [*self.flow_python, str(ROOT / "src" / "pipeline" / "task.py"),
+                   "--console", console.base, "--log", str(self.log_path), *args]
+        else:
+            cmd = [*self.flow_python, str(ROOT / "src" / "flow" / "orchestrator.py"), *args,
+                   "--console", console.base, "--really", "--log", str(self.log_path)]
         self.flow_out = ROOT / "data" / "flow" / "gateway_last.out"
         self.flow_out.parent.mkdir(parents=True, exist_ok=True)
         self.flow = subprocess.Popen(cmd, cwd=ROOT, stdout=self.flow_out.open("w"), stderr=subprocess.STDOUT)
@@ -583,13 +590,17 @@ class State:
             self.append(dict(t=time.time(), event="interaction", source=source, command=command))
         except ValueError:
             pass
-        return dict(ok=True, started=True, pid=self.flow.pid, args=args)
+        return dict(ok=True, started=True, pid=self.flow.pid, args=args, task=script)
 
     def start_task(self, source: str = "web") -> dict:
-        """启动一整轮分拣：按 config/flows/sort.yaml 跑编排器（按钮、语音、手势、定时都走这里）。
+        """启动一整轮分拣（按钮、语音、手势、定时都走这里）：默认 `--task pipeline` 跑已在实机验证的
+        旧流水线（src/pipeline/task.py → run.py）；`--task flow` 按 config/flows/sort.yaml 跑分步编排器
+        （新规划器对实机扫描太保守，文档 34 §4.2，优化前只作试验）。
         有没确认的报警时，只有人在页面上点的「开始」能启动；语音、手势、定时一律拒绝（文档 32 §3.2）。"""
         if source not in ("web", "mobile", "button") and self.alarms():
             return dict(ok=False, error="有未确认的报警，先在页面上点“知道了”")
+        if self.task == "pipeline":
+            return self._spawn_flow(list(self.pipeline_args), source, "start", script="pipeline")
         return self._spawn_flow(["--script", FLOW_SCRIPT], source, "start")
 
     def run_step(self, step: str, block: str | None, session: str | None, source: str = "web") -> dict:
@@ -612,7 +623,7 @@ class State:
             except OSError:
                 pass
         return dict(running=bool(p and p.poll() is None), exit_code=None if p is None else p.poll(),
-                    pid=None if p is None else p.pid, output=tail)
+                    pid=None if p is None else p.pid, output=tail, task=self.task)
 
     def alarms(self) -> list[dict]:
         """还没确认的报警：日志里的 alarm 减去之后的 alarm_ack（同 kind，或 kind="*" 全部）。"""
@@ -1202,6 +1213,10 @@ def main(argv=None) -> int:
     parser.add_argument("--flow-python", default=None,
                         help="跑编排器的命令（它要 numpy/opencv/onnxruntime），如 "
                              "\"uv run --with 'opencv-python<5' --with numpy --with onnxruntime python\"；默认本解释器")
+    parser.add_argument("--task", choices=("pipeline", "flow"), default="pipeline",
+                        help="「开始」跑什么：pipeline 已在实机验证的旧流水线（默认）；flow 分步编排器（试验，文档 34 §4.2）")
+    parser.add_argument("--pipeline-args", default="",
+                        help="--task pipeline 时传给 run.py 的参数，如 \"--bins bins_acrylic_v2_pair --bin-side left\"")
     parser.add_argument("--port", type=int, default=8080)
     parser.add_argument("--lan", action="store_true", help="监听所有网卡，手机可访问（强制开启 token 鉴权）")
     parser.add_argument("--token", help="开启简单鉴权，请求带 X-Token 或 ?token=")
@@ -1223,6 +1238,8 @@ def main(argv=None) -> int:
 )
     if args.flow_python:
         state.flow_python = shlex.split(args.flow_python)
+    state.task = args.task
+    state.pipeline_args = shlex.split(args.pipeline_args)
     if console is not None:
         threading.Thread(target=state.poll_console, daemon=True).start()
     if timers is not None:

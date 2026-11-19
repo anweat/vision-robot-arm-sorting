@@ -459,3 +459,54 @@ class FlowEndpointTest(unittest.TestCase):
         status, body = self.call('/api/cmd', {'cmd': 'release'})
         self.assertEqual((status, body['ok']), (200, True))
         self.assertFalse(any(e['event'] == 'stopped' for e in L.read(self.log)[0]))
+
+
+class StartTaskChoiceTest(unittest.TestCase):
+    """「开始」默认跑已验证的旧流水线；--task flow 才跑分步编排器（文档 34 §4.2）。"""
+
+    class _Console:
+        base = 'http://127.0.0.1:8770'
+
+        def stop(self):
+            return None
+
+    class _Proc:
+        pid = 4242
+
+        def poll(self):
+            return None
+
+    def started(self, task, pipeline_args=()):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        state = S.State(Path(tmp.name) / 'log.jsonl', console=self._Console())
+        state.task, state.pipeline_args = task, list(pipeline_args)
+        state.flow_out = None
+        seen = {}
+
+        def popen(cmd, **kw):
+            seen['cmd'] = cmd
+            kw['stdout'].close()
+            return self._Proc()
+        real = S.subprocess.Popen
+        S.subprocess.Popen = popen
+        try:
+            reply = state.start_task(source='web')
+        finally:
+            S.subprocess.Popen = real
+        return reply, seen['cmd']
+
+    def test_the_default_start_runs_the_verified_pipeline_with_its_options(self):
+        reply, cmd = self.started('pipeline', ['--bins', 'bins_acrylic_v2_pair'])
+        self.assertTrue(reply['ok'])
+        self.assertEqual(reply['task'], 'pipeline')
+        self.assertTrue(cmd[1].endswith('src/pipeline/task.py'))
+        self.assertEqual(cmd[2:4], ['--console', 'http://127.0.0.1:8770'])
+        self.assertEqual(cmd[-2:], ['--bins', 'bins_acrylic_v2_pair'])
+        self.assertNotIn('--really', cmd)
+
+    def test_the_step_flow_is_still_there_when_asked_for(self):
+        reply, cmd = self.started('flow')
+        self.assertEqual(reply['task'], 'flow')
+        self.assertTrue(cmd[1].endswith('src/flow/orchestrator.py'))
+        self.assertIn('--really', cmd)

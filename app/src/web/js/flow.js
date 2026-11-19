@@ -20,7 +20,7 @@ const resultText = (step, result) => STEP_RESULT_TEXT[step]?.[result] ?? RESULT_
 export function createFlowView(root) {
   root.innerHTML = `
     <section class="panel">
-      <h2>完整流程 <small>按 <code id="flowScript">config/flows/sort.yaml</code> 依次执行；改顺序、重试次数只改脚本</small></h2>
+      <h2>完整流程 <small><span id="flowScriptBy">按 </span><code id="flowScript">config/flows/sort.yaml</code><span id="flowScriptHint"> 依次执行；改顺序、重试次数只改脚本</span></small></h2>
       <div class="row">
         <button id="flowStart" class="primary">开始分拣</button>
         <button id="flowStop" class="danger">停止</button>
@@ -31,6 +31,7 @@ export function createFlowView(root) {
     </section>
     <section class="panel">
       <h2>步骤 <small>每一步都能单独执行，从本会话上一步的产物接着做；带 ● 的会动机械臂</small></h2>
+      <p class="hint" id="flowTrial" hidden>试验功能：这些单步用的是新规划器，它对实机场景还太保守（多数块规划不出），优化前「开始」不走这里。</p>
       <div class="row">
         <label>物块 <select id="flowBlock"></select></label>
         <span class="dim" id="flowScene"></span>
@@ -108,7 +109,11 @@ export function createFlowView(root) {
       $("flowChip").className = "chip " + (running ? "on" : p.exit_code ? "warn" : "");
       $("flowStart").disabled = running;
       $("flowSession").textContent = f.session || flow?.session ? `会话 ${f.session ?? flow.session}` : "";
-      if (flow?.script) $("flowScript").textContent = flow.script;
+      // 「开始」跑哪一个（网关 --task）：默认已验证的旧流水线；分步编排器的新规划器还在优化（文档 34 §4.2）
+      if (p.task === "pipeline") $("flowScript").textContent = "旧流水线（扫描→定位→抓放，已在实机验证）";
+      else if (flow?.script) $("flowScript").textContent = flow.script;
+      $("flowTrial").hidden = p.task !== "pipeline";
+      $("flowScriptBy").hidden = $("flowScriptHint").hidden = p.task === "pipeline";
       // 起不来时把子进程最后几行给出来（例如解释器缺依赖），不只是"没动静"
       const out = $("flowOut");
       out.hidden = running || !p.exit_code || !(p.output ?? []).length;

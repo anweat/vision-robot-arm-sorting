@@ -13,6 +13,11 @@ TOKEN_FILE=data/gateway_token
 mkdir -p data/web
 # The table sheet (AGENTS.md: the two-bin A4 table is map_a4_v4); the gateway hands it to the flow it starts.
 export ARM_MAP="${ARM_MAP:-map_a4_v4}"
+# What the gateway's "start" runs (doc 34 §4.2): the verified pipeline by default; GATEWAY_TASK=flow for the step
+# flow (its planner is still too conservative on real scenes). PIPELINE_ARGS go to run.py, e.g.
+#   PIPELINE_ARGS="--bins bins_acrylic_v2_pair" sh scripts/board_up.sh     (check the bins with bin_checkout.py first)
+GATEWAY_TASK="${GATEWAY_TASK:-pipeline}"
+PIPELINE_ARGS="${PIPELINE_ARGS:-}"
 # NPU runtime for every child: the console's official model and the flow's .om block detector
 set +u   # set_env.sh reads variables that may be unset (LD_LIBRARY_PATH, …)
 . /usr/local/Ascend/ascend-toolkit/set_env.sh >/dev/null 2>&1
@@ -52,9 +57,10 @@ printf 'console: '; curl -s -m 2 -o /dev/null -w '%{http_code}\n' http://127.0.0
 if ! alive gateway; then
   setsid nohup $VPY src/web/serve.py --console http://127.0.0.1:8765 --lan --port 8090 \
     --token "$(cat "$TOKEN_FILE")" --log data/web/log.jsonl --flow-python "$VPY" \
+    --task "$GATEWAY_TASK" --pipeline-args "$PIPELINE_ARGS" \
     > /tmp/gateway.log 2>&1 < /dev/null &
   echo $! > gateway.pid
   for i in 1 2 3 4 5 6; do sleep 1; curl -sf -m 1 -o /dev/null -H "X-Token: $(cat "$TOKEN_FILE")" http://127.0.0.1:8090/api/health && break; done
 fi
 printf 'gateway: '; curl -s -m 2 -H "X-Token: $(cat "$TOKEN_FILE")" http://127.0.0.1:8090/api/health; echo
-echo "map ARM_MAP=$ARM_MAP; token in /root/arm-app/$TOKEN_FILE"
+echo "map ARM_MAP=$ARM_MAP; start runs: $GATEWAY_TASK $PIPELINE_ARGS; token in /root/arm-app/$TOKEN_FILE"
