@@ -5,44 +5,107 @@
   "why": "中期演示前的调参与真实夹空演示记录；成功与失败的轮次都保留，便于答辩时解释取舍",
   "motion_tuning": {
     "baseline_5_800_300": {
-      "max_step_deg": 5, "segment_ms": 800, "settle_ms": 300, "readback_tolerance_deg": 4,
+      "max_step_deg": 5,
+      "segment_ms": 800,
+      "settle_ms": 300,
+      "readback_tolerance_deg": 4,
       "note": "原始配置：每 5° 用 1.1 s，实际吞吐约 4.5°/s，一轮 120 s 左右，0 夹空"
     },
     "chosen_8_400_150": {
-      "max_step_deg": 8, "segment_ms": 400, "settle_ms": 150, "readback_tolerance_deg": 4,
+      "max_step_deg": 8,
+      "segment_ms": 400,
+      "settle_ms": 150,
+      "readback_tolerance_deg": 4,
       "note": "采用：等效约 14.5°/s（3.2 倍）；单块抓取 21–33 s 降到 18–25 s；注册仍 8 视角，0 告警"
     },
     "too_fast_10_300_120": {
-      "max_step_deg": 10, "segment_ms": 300, "settle_ms": 120, "readback_tolerance_deg": 6,
+      "max_step_deg": 10,
+      "segment_ms": 300,
+      "settle_ms": 120,
+      "readback_tolerance_deg": 6,
       "note": "否决：run 20261119_172455 夹空 2 次、5 处回读/阻力告警、注册掉到 6 视角，整轮反而 255 s",
       "evidence_run": "20261119_172455"
     },
-    "scan_settle": {"before_s": 0.8, "after_s": 0.4, "note": "field_scan.frame_at_rest 的等待；注册仍 4–8 视角"}
+    "scan_settle": {
+      "before_s": 0.8,
+      "after_s": 0.4,
+      "note": "field_scan.frame_at_rest 的等待；注册仍 4–8 视角"
+    }
   },
   "runs": [
-    {"run": "20261119_171924", "cubes": 11, "sorted": 1, "registration_views": 8,
-     "note": "改运动参数后的首轮，无告警"},
-    {"run": "20261119_172156", "cubes": 7, "sorted": 1, "skipped": 5, "missed": 0, "seconds": 46,
-     "registration_views": 8, "note": "8°/400ms 配置，单块 25 s，0 告警"},
-    {"run": "20261119_172455", "cubes": 7, "sorted": 2, "skipped": 3, "missed": 2, "retries": 3,
-     "seconds": 193, "registration_views": 6,
-     "note": "10°/300ms 过快：夹空 2 次 + 回读/阻力告警 5 处，重试把时间拖到 255 s；结论是回退"},
-    {"run": "20261119_172925", "cubes": 6, "sorted": 0, "skipped": 5, "missed": 1, "retries": 2,
-     "seconds": 121, "registration_views": 7,
-     "note": "回退到 8°/400ms 的确认轮；块在边缘，1 次夹空后重扫找回 0.3 cm 仍失败"},
-    {"run": "20261119_174041", "cubes": 6, "sorted": 0, "skipped": 3, "missed": 2, "retries": 3,
-     "seconds": 166, "registration_views": 5,
-     "note": "失败案例：块被放在 y≈9–10 cm（<17.5 cm 不可达），候选全是 24–25 cm 的边缘幻影；"
-             "夹空后 back_off 的路径擦到桶禁入区 0.2–0.4 cm 被拒，当场崩轮 -> 已修（先抬 2 cm + 兜住异常）"},
-    {"run": "20261119_174751", "cubes": 8, "sorted": 2, "skipped": 2, "missed": 3, "retries": 6,
-     "seconds": 341, "registration_views": 4,
-     "note": "演示验证成功：操作员在第二块下降时把块拨开 2.2 cm 造成真实夹空 -> 黄灯+蜂鸣 -> 退回重扫 -> "
-             "重扫找回（距原坐标 2.2 cm）-> 再抓成功 -> 绿灯+短鸣 -> 进 2 号桶。"
-             "整轮 418 s 偏长，原因是 3 个幻影块各耗 60–90 s"},
-    {"run": "20261119_175630", "cubes": 9, "sorted": 2, "skipped": 7, "missed": 0, "retries": 2,
-     "seconds": 109, "wall_seconds": 182, "registration_views": 5,
-     "note": "加入证据门槛后：3 个幻影块被跳过（only 1 view(s) saw it and no sticker: treated as scan noise），"
-             "夹空 0 次，墙钟从 418 s 降到 182 s"}
+    {
+      "run": "20261119_171924",
+      "cubes": 11,
+      "sorted": 1,
+      "registration_views": 8,
+      "note": "改运动参数后的首轮，无告警"
+    },
+    {
+      "run": "20261119_172156",
+      "cubes": 7,
+      "sorted": 1,
+      "skipped": 5,
+      "missed": 0,
+      "seconds": 46,
+      "registration_views": 8,
+      "note": "8°/400ms 配置，单块 25 s，0 告警"
+    },
+    {
+      "run": "20261119_172455",
+      "cubes": 7,
+      "sorted": 2,
+      "skipped": 3,
+      "missed": 2,
+      "retries": 3,
+      "seconds": 193,
+      "registration_views": 6,
+      "note": "10°/300ms 过快：夹空 2 次 + 回读/阻力告警 5 处，重试把时间拖到 255 s；结论是回退"
+    },
+    {
+      "run": "20261119_172925",
+      "cubes": 6,
+      "sorted": 0,
+      "skipped": 5,
+      "missed": 1,
+      "retries": 2,
+      "seconds": 121,
+      "registration_views": 7,
+      "note": "回退到 8°/400ms 的确认轮；块在边缘，1 次夹空后重扫找回 0.3 cm 仍失败"
+    },
+    {
+      "run": "20261119_174041",
+      "cubes": 6,
+      "sorted": 0,
+      "skipped": 3,
+      "missed": 2,
+      "retries": 3,
+      "seconds": 166,
+      "registration_views": 5,
+      "note": "失败案例：块被放在 y≈9–10 cm（<17.5 cm 不可达），候选全是 24–25 cm 的边缘幻影；夹空后 back_off 的路径擦到桶禁入区 0.2–0.4 cm 被拒，当场崩轮 -> 已修（先抬 2 cm + 兜住异常）"
+    },
+    {
+      "run": "20261119_174751",
+      "cubes": 8,
+      "sorted": 2,
+      "skipped": 2,
+      "missed": 3,
+      "retries": 6,
+      "seconds": 341,
+      "registration_views": 4,
+      "note": "演示验证成功：操作员在第二块下降时把块拨开 2.2 cm 造成真实夹空 -> 黄灯+蜂鸣 -> 退回重扫 -> 重扫找回（距原坐标 2.2 cm）-> 再抓成功 -> 绿灯+短鸣 -> 进 2 号桶。整轮 418 s 偏长，原因是 3 个幻影块各耗 60–90 s"
+    },
+    {
+      "run": "20261119_175630",
+      "cubes": 9,
+      "sorted": 2,
+      "skipped": 7,
+      "missed": 0,
+      "retries": 2,
+      "seconds": 109,
+      "wall_seconds": 182,
+      "registration_views": 5,
+      "note": "加入证据门槛后：3 个幻影块被跳过（only 1 view(s) saw it and no sticker: treated as scan noise），夹空 0 次，墙钟从 418 s 降到 182 s"
+    }
   ],
   "phantom_rule": {
     "rule": "detector.views < 3 且没有 sticker 的检测按噪声跳过（真块通常 5-8 个视角都能看到）",
@@ -51,20 +114,64 @@
     "false_positives_on_real_blocks": 0
   },
   "signals": {
-    "led": {"green": "投放成功", "yellow": "夹空/重试", "red": "失败/放弃", "off": "结束",
-            "transport": "经控制台 POST /api/led（I2C 由控制台独占）", "verified": true},
-    "buzzer": {"ok": "120 ms 短鸣", "fail": "400 ms 长鸣", "listen_start": "150 ms",
-               "transport": "POST /api/beep", "verified": true},
+    "led": {
+      "green": "投放成功",
+      "yellow": "夹空/重试",
+      "red": "失败/放弃",
+      "off": "结束",
+      "transport": "经控制台 POST /api/led（I2C 由控制台独占）",
+      "verified": true
+    },
+    "buzzer": {
+      "ok": "120 ms 短鸣",
+      "fail": "400 ms 长鸣",
+      "listen_start": "150 ms",
+      "transport": "POST /api/beep",
+      "verified": true
+    },
     "note": "流水线进程直接开 Arm_Device 会 I2C error，所以 feedback.py 改成走控制台 HTTP"
   },
   "failures_seen": [
-    {"what": "J5 在 170° 附近到限位", "signal": "servo 5: expected 170, read 165 / refused",
-     "runs": ["20261119_174041", "20261119_174751"], "handling": "记为 heartbeat refused，不致命；避免把块放在纸边"},
-    {"what": "J6 合爪超程", "signal": "servo 6: expected 35, read 29", "runs": ["20261119_174751"]},
-    {"what": "块放在过近区", "signal": "17.4 cm from the base (< 17.5): pitch 160 未验证",
-     "runs": ["20261119_174041"], "handling": "摆位提示：y 11–17 cm"},
-    {"what": "退回路径擦到桶禁入区", "signal": "path puts the fingers 0.4 cm into a bin's keep-out; refused",
-     "runs": ["20261119_174041"], "handling": "退回前先抬 2 cm，且退回失败不再崩整轮"}
+    {
+      "what": "J5 在 170° 附近到限位",
+      "signal": "servo 5: expected 170, read 165 / refused",
+      "runs": [
+        "20261119_174041",
+        "20261119_174751"
+      ],
+      "handling": "记为 heartbeat refused，不致命；避免把块放在纸边"
+    },
+    {
+      "what": "J6 合爪超程",
+      "signal": "servo 6: expected 35, read 29",
+      "runs": [
+        "20261119_174751"
+      ]
+    },
+    {
+      "what": "块放在过近区",
+      "signal": "17.4 cm from the base (< 17.5): pitch 160 未验证",
+      "runs": [
+        "20261119_174041"
+      ],
+      "handling": "摆位提示：y 11–17 cm"
+    },
+    {
+      "what": "退回路径擦到桶禁入区",
+      "signal": "path puts the fingers 0.4 cm into a bin's keep-out; refused",
+      "runs": [
+        "20261119_174041"
+      ],
+      "handling": "退回前先抬 2 cm，且退回失败不再崩整轮"
+    },
+    {
+      "what": "控制台停在“已停止”后脚本直接放弃",
+      "signal": "已停止或操作权超时",
+      "runs": [
+        "181226 之前"
+      ],
+      "handling": "演示脚本自检改为先 enable 清错再判定"
+    }
   ],
   "demo_script": {
     "path": "scripts/demo_miss_retry.py",
@@ -72,5 +179,28 @@
     "self_check": "--dry（控制台、相机、回观察位、清桶计数）",
     "expected": "第一块成功 -> 第二块夹空（黄灯+蜂鸣）-> 退回重扫 -> 找回 -> 抓住（绿灯+短鸣）",
     "observed": "20261119_174751 达到预期：sorted 2 / missed 3 / retries 6；第二块重扫找回 2.2 cm 后成功"
+  },
+  "gesture_gate": {
+    "why": "扫描后抬到平视再等比 ok，手势才在画面里；俯视观察位看不到手",
+    "pose": [
+      90,
+      60,
+      80,
+      40
+    ],
+    "pose_facts": {
+      "tip_pitch_deg": 90,
+      "tip_above_table_cm": 24.3,
+      "reach_forward_cm": 28.8
+    },
+    "signal": "蓝灯 200 ms + 短鸣，然后最多等 180 s，连续 3 帧 ok（置信 >= 0.6）",
+    "timeout_behaviour": "记 gesture_gate timeout 后继续，不卡整轮",
+    "env": {
+      "ARM_GESTURE_GATE": "0 关闭",
+      "ARM_GESTURE_POSE": "覆盖平视姿态"
+    },
+    "verified_run": "20261119_181226",
+    "observed": "raised -> waiting -> accepted 7.4 s -> 抓取；整轮 sorted 2 / skipped 7 / missed 0 / 213 s",
+    "second_block": "操作员拨动 2.1 cm 造成真实夹空，重扫找回后抓住"
   }
 }

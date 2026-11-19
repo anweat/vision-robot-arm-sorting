@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import random
 import sys
 import time
@@ -441,6 +442,43 @@ def bin_drop_map_cm(b: B.Bin, slot: int) -> list[float]:
     return [round(float(x - G.DX) * 100, 2), round(float(y - G.DY) * 100, 2)]
 
 
+CAMERA_URL = os.environ.get("ARM_CAMERA", "http://127.0.0.1:8080/snapshot.jpg")
+GESTURE_GATE = os.environ.get("ARM_GESTURE_GATE", "1") != "0"
+# 平视姿态：pitch=90，指尖离桌 24 cm、前伸 29 cm（2026-11-19 实机验证，画面为水平视角）
+GESTURE_POSE = [int(v) for v in os.environ.get("ARM_GESTURE_POSE", "90,60,80,40").split(",")][:4]
+
+
+def wait_ok_gesture(timeout: float = 180.0, need: int = 3) -> bool:
+    """等操作员对腕部相机比 “ok”：连续 need 帧、置信度 >= 0.6 才算。
+
+    npu 上的手势模型每次调用都会加载一次模型，所以这里只在等待时循环，识别到就退出。
+    """
+    import gesture as GV
+
+    model = GV.Gesture(os.environ.get("ARM_GESTURE_DIR") or None)
+    seen, t0 = 0, time.time()
+    G.log("gesture_gate", state="waiting", timeout_s=timeout, need=need,
+          note="扫描完成：蓝灯+短鸣，等操作员比 ok 手势")
+    while time.time() - t0 < timeout:
+        frame = GV.grab(CAMERA_URL)
+        if frame is None:
+            time.sleep(0.15)
+            continue
+        r = model.classify(frame)
+        if r.get("label") == "ok" and float(r.get("confidence") or 0) >= 0.6:
+            seen += 1
+            if seen >= need:
+                G.log("gesture_gate", state="accepted", seconds=round(time.time() - t0, 1),
+                      note="识别到 ok 手势，开始抓取")
+                return True
+        elif seen:
+            seen = 0
+        time.sleep(0.12)
+    G.log("gesture_gate", state="timeout", seconds=round(time.time() - t0, 1),
+          note="没识别到 ok 手势，跳过等待直接开始（避免卡住整轮）")
+    return False
+
+
 def decide_bins(scene: dict) -> list[dict]:
     """Jobs for physical bins: a block inside a bin's opening is done (or in the wrong bin and left there:
     it cannot be taken out again), a detection on a bin's plate that is not in the opening is the plate's
@@ -770,6 +808,22 @@ def main() -> None:
                 SC.scan_bins(run, sess, args.bins, only)
             use_bins(locate_bins(run, args.bins, only))
         scene = build_scene(run)
+        if GESTURE_GATE and not args.dry_run:
+            # 先抬到平视：观察位 pitch≈155 是俯视，操作员的手在画面外；这个姿态 pitch=90，
+            # 腕部相机正对前方，抬手比 ok 才能进画面。
+            try:
+                G.move_to(sess, GESTURE_POSE, 92)
+                G.log("gesture_gate", state="raised", pose=GESTURE_POSE,
+                      note="已抬到平视姿态，等操作员比 ok")
+            except Exception as exc:                 # noqa: BLE001
+                G.log("gesture_gate", state="raise_failed", reason=str(exc))
+            if FEEDBACK is not None:
+                FEEDBACK.ready()                     # 蓝灯 + 短鸣：该你比 ok 了
+            wait_ok_gesture()
+            try:
+                G.move_to(sess, G.OBSERVE, 92)       # 回到抓取起点
+            except Exception as exc:                 # noqa: BLE001
+                G.log("gesture_gate", state="return_failed", reason=str(exc))
         use_registration(scene["registration"])
         if not args.dry_run:
             scene = refine(run, scene, sess)

@@ -52,8 +52,20 @@ def preflight() -> bool:
             st = json.loads(r.read())
         say("ok", f"控制台在线：姿态 {st.get('pose')}，错误 {st.get('error') or '无'}")
         if st.get("error"):
-            say("warn", f"控制台报错：{st['error']}（先点一次使能或回观察位）")
-            ok = False
+            say("warn", f"控制台报错：{st['error']}，尝试使能清错…")
+            try:
+                sys.path.insert(0, str(ROOT / "src" / "tools"))
+                from console_step import Session
+                with Session():
+                    pass
+                with urllib.request.urlopen(CONSOLE + "/api/status", timeout=3) as r:
+                    st = json.loads(r.read())
+                say("ok" if not st.get("error") else "warn",
+                    f"清错后：错误 {st.get('error') or '无'}")
+            except Exception as exc:                          # noqa: BLE001
+                say("bad", f"清错失败：{exc}")
+            if st.get("error"):
+                ok = False
     except Exception as exc:                               # noqa: BLE001
         say("bad", f"控制台不可用（{CONSOLE}）：{exc}")
         ok = False
@@ -133,6 +145,14 @@ def narrate(events: list[dict], state: dict) -> None:
         elif name == "pipeline_missed":
             state["missed"] += 1
             say("bad", f"❌ 夹空（{e.get('reason')}）—— 红灯 + 长鸣")
+        elif name == "gesture_gate":
+            st = e.get("state")
+            if st == "waiting":
+                say("bold", f"🔵 蓝灯 + 短鸣：请对腕部相机比 ok 手势（连续 3 帧，{e.get('timeout_s')} 秒内）")
+            elif st == "accepted":
+                say("ok", f"✅ 收到 ok 手势（{e.get('seconds')} s），开始抓取")
+            else:
+                say("warn", f"⚠ 没识别到 ok（{e.get('seconds')} s），直接开始抓取")
         elif name == "pipeline_skip":
             state["skipped"] += 1
             say("dim", f"  跳过 {e.get('cube')}：{e.get('reason')}")

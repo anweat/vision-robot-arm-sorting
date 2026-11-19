@@ -22,6 +22,7 @@ CONSOLE_URL = os.environ.get("ARM_CONSOLE", "http://127.0.0.1:8765").rstrip("/")
 
 GREEN = (0, 255, 0)
 YELLOW = (255, 200, 0)
+BLUE = (0, 0, 255)
 RED = (255, 0, 0)
 OFF = (0, 0, 0)
 
@@ -84,6 +85,10 @@ class Feedback:
 
     def fail(self) -> str:
         return self._show(RED, beep_ms=400, name="fail")
+
+    def ready(self) -> str:
+        """扫描完成、等操作员确认（挥手 ok）：蓝灯 + 短鸣。"""
+        return self._show(BLUE, beep_ms=200, name="ready")
 
     def off(self) -> str:
         return self._show(OFF, beep_ms=0, name="off")
