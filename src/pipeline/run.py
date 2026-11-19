@@ -39,6 +39,14 @@ import scramble as SCR  # noqa: E402
 import sort_blocks as SB  # noqa: E402
 from block_detector import hue_label  # noqa: E402
 
+sys.path.insert(0, str(ROOT / "src" / "adapters"))
+try:                                        # 声光只在板上有；没有 Arm_Lib 时静默降级
+    import feedback as FB
+    FEEDBACK = FB.Feedback()
+except Exception:                           # noqa: BLE001
+    FB, FEEDBACK = None, None
+
+
 COLOURS = ("red", "green", "blue", "yellow")
 DET_MERGE_CM = 2.5       # detections of one block from different views land within this on the mid plane
 DET_MIN_CONF = 0.4
@@ -324,6 +332,26 @@ def use_registration(reg: dict) -> None:
               note="用的是标定值；差得这么多说明相机、地图或机械臂安装变了，该重新做触点标定")
 
 
+
+STALL_RE = __import__("re").compile(r"servo\s*(\d+)\s*:\s*expected\s*(-?\d+)\s*,\s*read\s*(-?\d+)")
+
+
+def log_stall(exc, where: str, **fields) -> None:
+    """控制台的"遇到阻力或偏差"就是 W6 的堵转判定；这里把它记成日志契约里的 stall 事件。
+
+    解析不到 servo/expected/read 时（例如别的原因导致停止）仍然记，只是数值填 None，
+    并把原文放进 reason，页面能显示到底是哪一步停的。
+    """
+    text = str(exc)
+    hit = STALL_RE.search(text)
+    joint = int(hit.group(1)) if hit else 0
+    expected = float(hit.group(2)) if hit else float("nan")
+    readback = float(hit.group(3)) if hit else float("nan")
+    G.log("stall", joint=joint, expected=expected, readback=readback, where=where, reason=text, **fields)
+    if FEEDBACK is not None:
+        FEEDBACK.fail()
+
+
 def plan_for(cube: dict, prefer: int = 150) -> dict | None:
     """The console_grasp plan for one cube, from the scan (no close look)."""
     bx, by = G.map_to_base(cube["map_cm"][0] / 100, cube["map_cm"][1] / 100)
@@ -465,7 +493,12 @@ def decide_bins(scene: dict) -> list[dict]:
             why = f"{reach*100:.1f} cm from the base: no reachable grasp at pitch 130-170"
         elif c["coverage"] < 0.9:
             why = f"only {c['coverage']*100:.0f}% of it was in view; rescan with it nearer the middle"
-        jobs.append(dict(cube=c, bin=str(target.number) if target else None, skip=why))
+        jobs.append(dict(cube=c, bin=str(target.number) if target else None, skip=why,
+                         reach_m=round(reach, 4)))
+    # E5 就近优先：能做的按离基座的距离升序，做不了的（skip）排在最后，保持原有顺序
+    jobs.sort(key=lambda j: (j["skip"] is not None, j.get("reach_m") or 0.0))
+    G.log("pipeline_order", order=[round(j.get("reach_m") or 0.0, 3) for j in jobs if not j["skip"]],
+          note="E5：本轮抓取顺序，按离基座的距离升序（cm）")
     return jobs
 
 
@@ -544,6 +577,8 @@ def execute(run, scene: dict, jobs: list[dict], sess, rng=None) -> dict:
         except G.ConsoleError as e:
             # resistance on the way in: one block's approach failing must not end the round, and the arm
             # may have stopped somewhere the next approach could not plan a path out of
+            if "阻力" in str(e):
+                log_stall(e, "hover", cube=j["cube"]["map_cm"], category=j["cube"]["category"])
             counts["skipped"] += 1
             G.log("pipeline_approach_failed", cube=j["cube"]["map_cm"], category=j["cube"]["category"],
                   reason=str(e), seconds=round(time.time() - started))
@@ -553,6 +588,8 @@ def execute(run, scene: dict, jobs: list[dict], sess, rng=None) -> dict:
             G.grasp(sess)
         except G.GripMissed as e:
             counts["missed"] += 1
+            if FEEDBACK is not None:
+                FEEDBACK.fail()
             G.log("pipeline_missed", cube=j["cube"]["map_cm"], category=j["cube"]["category"], reason=str(e),
                   seconds=round(time.time() - started))
             return False
@@ -570,6 +607,8 @@ def execute(run, scene: dict, jobs: list[dict], sess, rng=None) -> dict:
                 where = G.release_safely(sess)
             except G.ConsoleError as back:
                 raise SCR.StillHolding(f"放不下也放不回，机械臂还夹着这一块：{back}") from back
+            if "阻力" in str(e):
+                log_stall(e, "put", cube=j["cube"]["map_cm"], bin=bin_or_marker)
             counts["skipped"] += 1
             G.log("pipeline_put_failed", cube=j["cube"]["map_cm"], bin=bin_or_marker,
                   category=j["cube"]["category"], reason=str(e), released=where)
@@ -587,6 +626,8 @@ def execute(run, scene: dict, jobs: list[dict], sess, rng=None) -> dict:
               cube=j["cube"]["map_cm"], bin=bin_or_marker, category=j["cube"]["category"],
               source=j["cube"]["source"], seconds=round(time.time() - started), **extra)
         counts["sorted" if why == "sort" else "cleared"] += 1
+        if FEEDBACK is not None and why == "sort":
+            FEEDBACK.ok()
         return True
 
     while pending:

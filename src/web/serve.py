@@ -53,6 +53,19 @@ WEB = Path(__file__).resolve().parent
 
 MODES = ("manual", "preset", "auto")
 PRESETS = ("dance", "stack", "carry")
+
+
+def load_presets(path=None):
+    """config/presets.json：{preset: [{"pose": [6 ints], "hold_s": float}, ...]}。缺失就当没写。"""
+    p = Path(path) if path else ROOT / "config" / "presets.json"
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return {k: v for k, v in data.items() if isinstance(v, list) and not k.startswith("_")}
+
+
+PRESET_SEQ = load_presets()
 SOURCES = ("web", "mobile", "voice", "gesture", "timer", "button")
 CMDS = ("start", "stop", "set_mode", "run_preset", "set_joints", "move_to", "unlock_bin",
         "enable", "gripper")
@@ -982,9 +995,12 @@ class Handler(BaseHTTPRequestHandler):
 
         # 以下运动都要控制台（H1-3）。预设动作组的跳舞、搬运是一组动作，由硬件组提供，这里不假造。
         if cmd == "run_preset":
-            if body.get("preset") not in PRESETS:
+            preset = body.get("preset")
+            if preset not in PRESETS:
                 return self._fail(f"preset 应为 {'/'.join(PRESETS)}")
-            return self._fail(f"预设动作“{body.get('preset')}”尚未接入，待硬件组提供", status=501)
+            if not PRESET_SEQ.get(preset):
+                return self._fail(f"预设动作“{preset}”还没有写进 config/presets.json"
+                                  f"（dance 已有；stack / carry 待 H2-8）", status=501)
 
         if console is None:
             return self._fail(f"{cmd} 需要控制台执行侧，尚未接入（--console 指定仿真或实机）", status=501)
@@ -1001,6 +1017,17 @@ class Handler(BaseHTTPRequestHandler):
                     steps = console.set_joints(joints, status.get("pose"))
                 elif cmd == "move_to":
                     steps = console.move_to(target, status)
+                elif cmd == "run_preset":
+                    # 预设姿态里 null = 保持该轴当前回读（J5 腕转一次动 >20 度会被判成遇阻）
+                    steps = 0
+                    for key in PRESET_SEQ[preset]:
+                        st = console.status()
+                        now = st.get("pose") or []
+                        if len(now) != 6:
+                            raise ValueError("控制台还没有六轴回读，预设动作无法下发")
+                        target = [cur if v is None else int(v) for v, cur in zip(key["pose"], now)]
+                        steps += console.set_joints(target, now)
+                        time.sleep(float(key.get("hold_s") or 0.6))
                 else:
                     return self._fail(f"{cmd} 需要执行侧，本服务不代管运动", status=501)
                 self.state.console_status = console.status()

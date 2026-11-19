@@ -924,7 +924,7 @@
     ]
    },
    "then": {
-    "description": "[planned] 舵机堵转，已停止后续指令（W6）",
+    "description": "[stable] 舵机堵转/遇阻，已停止后续指令（W6）",
     "properties": {
      "joint": {
       "type": "integer"
@@ -945,6 +945,12 @@
       },
       "minItems": 6,
       "maxItems": 6
+     },
+     "where": {
+      "type": "string"
+     },
+     "reason": {
+      "type": "string"
      }
     },
     "required": [
