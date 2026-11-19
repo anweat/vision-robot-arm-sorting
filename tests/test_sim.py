@@ -87,16 +87,21 @@ class WorldTest(unittest.TestCase):
         jaw_h = jaw[:2] / np.linalg.norm(jaw[:2])
         self.assertAlmostEqual(float((pose[:2, 3] - pad[:2]) @ jaw_h), 0.0, places=4)   # pushed to the middle
 
-    def test_a_corner_on_grip_or_pads_above_the_block_take_nothing(self):
-        bid = self.world.place('other', [0, 10], 45)
+    def test_pads_above_the_block_or_beside_it_take_nothing_but_a_turned_block_is_squared(self):
+        bid = self.world.place('other', [0, 10], 38)             # the real arm held blocks 36-39 deg off (doc 34 §3.2)
         c = self.world.blocks[bid]['pose'][:3, 3].copy()
         down = reach((c[0], c[1], self.world.table_z + 0.012))
         self.arm.write6(down, 500)
         self.arm.write6(down[:5] + [133], 500)
-        self.assertIsNone(self.world.held)                       # corner-on: GRASP_ALIGN_DEG
+        self.assertEqual(self.world.held, bid)
         self.arm.write6(down[:5] + [30], 500)
         self.world.remove(bid)
         bid = self.world.place('other', [0, 10])
+        aside = reach((c[0], c[1] + 0.015, self.world.table_z + 0.012))   # 1.5 cm across the jaw
+        self.arm.write6(aside, 500)
+        self.arm.write6(aside[:5] + [133], 500)
+        self.assertIsNone(self.world.held)
+        self.arm.write6(aside[:5] + [30], 500)
         high = reach((c[0], c[1], self.world.table_z + 0.03))    # pads would close above the top face
         self.arm.write6(high, 500)
         self.arm.write6(high[:5] + [133], 500)
@@ -105,7 +110,8 @@ class WorldTest(unittest.TestCase):
     def test_fingers_coming_down_on_another_block_are_recorded_apart_from_bin_contacts(self):
         bid = self.world.place('other', [0, 10])
         c = self.world.blocks[bid]['pose'][:3, 3]
-        self.arm.write6(reach((c[0], c[1], self.world.table_z + 0.02), 170), 500)   # closed fingers onto its top
+        self.arm.write6(reach((c[0], c[1], self.world.table_z + 0.08), 170), 500)   # close high above it,
+        self.arm.write6(reach((c[0], c[1], self.world.table_z + 0.02), 170), 500)   # then come down onto its top
         snap = self.world.snapshot()
         self.assertGreater(snap['block_contacts']['count'], 0)
         self.assertEqual(snap['block_contacts']['recent'][-1]['block'], bid)

@@ -61,10 +61,12 @@ START_POSE = [90, 105, 5, 5, 95, 30]
 MAP_X_CM, MAP_Y_CM = (-14.85, 14.85), (0.0, 21.0)
 SPAWN_X_CM, SPAWN_Y_CM = (-11.0, 11.0), (4.0, 17.5)     # where a random reset puts blocks
 APART_CM = 4.5
-# grasp rule on the four-bar pads at contact with a BLOCK-wide block (assumptions, not measured):
-GRASP_OVERLAP_M = 0.005    # the pads must cover at least this much of the block's height
-GRASP_ACROSS_M = 0.010     # pad centre to block centre, across the jaw axis in the table plane
-GRASP_ALIGN_DEG = 30.0     # jaw axis to the nearest face normal; corner-on grips flicked blocks away (2026-09-27)
+# grasp rule on the four-bar pads at contact with a BLOCK-wide block, checked against the real arm's 16 grips
+# that closed (dev/tools/grasp_replay.py, doc 34 §3.2): held with 0.9 mm of pad on the block's side, 8.8 mm
+# across the jaw, and with the jaw 36-39 deg off a face (the pads turn the block square), so no alignment test
+GRASP_OVERLAP_M = 0.0      # the pads must reach the block's side at all
+GRASP_ACROSS_M = 0.010     # pad centre to block centre, across the jaw axis in the table plane (held up to 8.8 mm)
+GRASP_ALIGN_DEG = 45.0     # jaw axis to the nearest face normal: 45 = any (real holds at 36-39 deg)
 PAD_HALF_M = 0.5 * (GG.pad_z_range_link(GR.contact(0.03))[1] - GG.pad_z_range_link(GR.contact(0.03))[0])
 PLATFORM_LINKS = tuple(TUNING.load().raw.get("checks", {}).get("platform_links", ()))
 CONTACT_STRIDE = 3         # every 3rd link sample (4 mm voxels); the gripper's 3 mm voxels all, so a 2 mm wall is not missed
@@ -461,8 +463,8 @@ class World:
         The pads are taken where they stand at contact with a BLOCK-wide block (planning.gripper.contact):
         their centre, the jaw axis and their height span along the link's z. A block qualifies when the pads
         cover >= GRASP_OVERLAP_M of its height, sit within GRASP_ACROSS_M of its centre across the jaw, the
-        jaw is within GRASP_ALIGN_DEG of a face normal, and the opening it closed from (`opened_j6`) left
-        room to straddle it. The pads then square it onto the jaw axis and push it to the middle."""
+        jaw is within GRASP_ALIGN_DEG of a face normal (45: any), and the opening it closed from (`opened_j6`)
+        left room to straddle it. The pads then square it onto the jaw axis and push it to the middle."""
         q5 = list(actual[:5])
         pad = np.array(GR.pad_centre(q5, GR.contact(BLOCK)))
         link = BODY.link5(q5)
