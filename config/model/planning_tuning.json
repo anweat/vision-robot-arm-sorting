@@ -1,0 +1,106 @@
+{
+ "_status": "2026-11-15. Scene errors, clearances, trims and search settings of src/planning, kept apart from the model facts in motion_planning.json. Every value can be overridden per call (planning.tuning.load(overrides=...)) or by pointing ARM_PLANNING_TUNING at another file. Nothing here has been tuned on the arm yet.",
+ "errors": {
+  "_note": "Worst-case errors the scene inputs carry, metres / degrees. They widen the clearances below (see combine). A collision map's own object sigma_xy_m wins when it is larger.",
+  "target_xy_m": 0.005,
+  "target_yaw_deg": 5.0,
+  "obstacle_xy_m": 0.004,
+  "obstacle_height_m": 0.003,
+  "table_z_m": 0.002,
+  "arm_xy_m": 0.003,
+  "arm_z_m": 0.003,
+  "_sources": "target_xy: 2026-11-15 camera check (src/tools/validate_camera.py over 416 recorded views, data/reports/camera_validation_20261115.json): marker centres cast onto the table through FK + hand-eye with each scan's own registration land 0.30 cm (median) / 0.62 cm (p90) from their layout positions; the per-view error is servo pose (shift/roll), not the lens. obstacle_xy: same source, median. table: the touch table (-1.42) and the per-run best fits (-1.05..-2.2 cm) disagree by more than this; the model value is what the fingers saw (+-1.2 mm). arm: J2/J4 read back 2-5 deg off under load near the folded poses, a few mm at the tool. First values, not tuned on the arm."
+ },
+ "combine": "rss",
+ "_combine_note": "rss (default): clearance = base + sqrt(sum of the squared errors that apply), the errors being independent. sum: base + every error (worst case).",
+ "clearances": {
+  "neighbour_m": 0.004,
+  "target_open_m": 0.0005,
+  "target_touch_m": 0.0005,
+  "arm_body_m": 0.005,
+  "path_table_m": 0.01,
+  "fingertip_table_m": 0.002,
+  "closed_fingertip_table_m": 0.001,
+  "platform_mesh_m": 0.001,
+  "_note": "base clearances before the errors. neighbour: gripper (and held block) to anything in the map; target_open: open fingers to the target while they arrive and open (+ target and arm errors, + the yaw error's corner growth); target_touch: the closing sweep around the target, nominal pose only (the pads are meant to touch it); arm_body: links 1-4 to the map; path_table: lowest gripper point on a transit; fingertip_table / closed_fingertip_table: at the grasp, closed on the block / on nothing, on top of the table and arm z errors (5 / 3 mm in all before 2026-11-15, when they were one number); platform_mesh: link5 points to the platform lid model",
+  "_platform_mesh_note": "2026-11-16: 3 -> 1 mm. The lid model (doc 28 section 6) puts the deepest contact-free hardware pose 1.3 mm inside it and the recorded contacts >= 1 mm inside ([103,72,19,3], 2026-09-25 00:50, the nearest to the base: pads at r 12.3 cm); 1 mm keeps that contact refused and lets through what the 3 mm margin refused for no recorded reason."
+ },
+ "trims": {
+  "_note": "Fine adjustments found on the arm. Offsets: [radial out from the base, lateral to the left of that, up], metres.",
+  "table_z_m": 0.0,
+  "pad_centre_height_m": 0.018,
+  "grasp_offset_m": [
+   0.0,
+   0.0,
+   0.0
+  ],
+  "place_offset_m": [
+   0.0,
+   0.0,
+   0.0
+  ],
+  "j5_trim_deg": 0.0,
+  "grip_command_deg": 133,
+  "prefer_pitch_deg": 150
+ },
+ "search": {
+  "_note": "A* over a lattice of FK tip positions; each node is an IK pose. cell: lattice spacing; z range above the table; costs: metres of tip travel + joint_cost per degree of the largest joint change; clearance_cost adds cost near obstacles (metres at zero clearance, falls off linearly over clearance_band_m). coarse_stride / coarse_pad_m: the lattice checks use every n-th point with the clearances grown by the pad; the final legs are re-checked with all points, and a leg that fails there is barred and A* runs again (up to `repairs` times). heuristic_weight > 1 trades optimality for speed.",
+  "cell_m": 0.015,
+  "z_min_above_table_m": 0.02,
+  "z_max_above_table_m": 0.26,
+  "xy_pad_m": 0.08,
+  "max_expansions": 6000,
+  "joint_cost_m_per_deg": 0.0004,
+  "clearance_cost_m": 0.01,
+  "clearance_band_m": 0.02,
+  "pitches_deg": [
+   150,
+   140,
+   160,
+   130,
+   170,
+   120,
+   180,
+   110,
+   185,
+   100,
+   90
+  ],
+  "edge_max_joint_deg": 6.0,
+  "coarse_stride": 3,
+  "shortcut": true,
+  "samples_per_m": 120,
+  "min_samples": 4,
+  "coarse_pad_m": 0.003,
+  "repairs": 4,
+  "heuristic_weight": 1.2
+ },
+ "map": {
+  "_note": "unknown_top_m: height above the table assumed for unobserved cells (null = free). clear_platform: drop map cells over the platform (it is modelled separately; a depth map sees it and the arm). out_of_map: cells outside the grid are free (false = blocked).",
+  "unknown_top_m": null,
+  "clear_platform": true,
+  "out_of_map_free": true,
+  "cell_m": 0.0025
+ },
+ "checks": {
+  "platform_hull": false,
+  "platform_links": [
+   "link3",
+   "link4"
+  ],
+  "_note": "2026-11-15. platform_hull: also apply the 2D keep-out hull of workspace.platform_clearance (the console's standard check). Off: the platform is checked on the meshes only (gripper + platform_links against config/platform_model.json, clearances.platform_mesh_m), which separated the 5 recorded platform contacts from 1080 contact-free hardware poses to ~3 mm (docs/atlas-200i-dk-a2/28 section 6); the hull refuses the near views [49,105,5,0] / [124,105,5,0] / [51,99,5,5] that ran without contact. Plans still report the hull margin (summary.console_hull_min_cm): below 0 the console's standard profile refuses the move."
+ },
+ "execute": {
+  "settle_deg": 1.5,
+  "extra_deg": 3.0,
+  "tries": 2,
+  "joints": [
+   1,
+   2,
+   3,
+   4,
+   5
+  ],
+  "_note": "2026-11-15. Readback correction after every move of src/flow execute: a joint >= settle_deg off its command is re-sent as command + (command - readback), the extra capped at extra_deg, up to `tries` times. Teleop readbacks (988 command/readback pairs, data/teleop, 2026-09-24/25): J2 stops 1.3 deg short on raises at 5-15 cm lever and 2.0 deg at > 15 cm (32 % of all moves >= 2 deg off), J3 -1.0 on raises, J4 +1.0 lowering; J2 2 deg at 20 cm is ~0.7 cm at the pads. Not run on the arm yet."
+ }
+}
