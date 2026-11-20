@@ -56,7 +56,12 @@ class ArmClient(baseUrl: String, private val token: String? = null) {
     fun cmd(name: String, args: Map<String, Any?> = emptyMap(), timeoutMs: Int = 8000): JSONObject {
         val body = JSONObject().put("cmd", name).put("source", "mobile")
         args.forEach { (k, v) -> body.put(k, if (v is List<*>) JSONArray(v) else v ?: JSONObject.NULL) }
-        val c = open("/api/cmd", timeoutMs)
+        return post("/api/cmd", body, timeoutMs)
+    }
+
+    /** 网关的其他 POST 接口（如 `/api/timers`）；同样要求 JSON 请求体。 */
+    fun post(path: String, body: JSONObject, timeoutMs: Int = 8000): JSONObject {
+        val c = open(path, timeoutMs)
         c.requestMethod = "POST"
         c.doOutput = true
         c.setRequestProperty("Content-Type", "application/json; charset=utf-8")
