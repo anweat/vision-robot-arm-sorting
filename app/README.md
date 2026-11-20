@@ -47,7 +47,7 @@ sh scripts/board_up.sh
 uv run --with 'opencv-python<5' --with numpy --with onnxruntime --with pyyaml python -m unittest discover -s app/tests
 ```
 
-2026-11-19，Mac：344 项通过，其中 1 项跳过（需要 `ais_bench`，只在板上有）。仿真与离线工具的测试在仓库根的 `tests/`。
+2026-11-20，Mac：386 项通过，其中 2 项跳过（需要板上环境，如 `ais_bench`）。仿真与离线工具的测试在 `dev/tests/`（`-s dev/tests`，104 项）。
 
 ## 状态（区分仿真与实机）
 
