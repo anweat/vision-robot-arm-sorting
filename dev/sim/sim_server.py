@@ -52,7 +52,9 @@ import render as R  # noqa: E402
 import world as W  # noqa: E402
 
 
-MESHES = ROOT / "data" / "sim" / "web_meshes.json"   # dev/sim/web_meshes.py, from the course STLs (not in the repository)
+# the arm's thinned course meshes (dev/sim/web_meshes.py): a copy regenerated on this machine (data/sim, from the STLs
+# in 资料/) wins; otherwise the copy in the repository (dev/sim/assets), so a fresh clone draws the arm, not its samples
+MESH_FILES = (ROOT / "data" / "sim" / "web_meshes.json", Path(__file__).parent / "assets" / "web_meshes.json")
 SIM_DATA = ROOT / "data" / "sim"        # where dev/sim/run_pipeline.py writes: log.jsonl, pipeline/<run>/scene.json
 WEB = Path(__file__).parent / "web"
 SHELL = {"/sim/": ("index.html", "text/html; charset=utf-8"), "/sim/app.js": ("app.js", "text/javascript"),
@@ -392,9 +394,11 @@ def handler(app: SimApp):
                 elif path == "/api/sim/body":
                     self.send(app.world.body())
                 elif path == "/api/sim/meshes":
-                    if not MESHES.exists():
-                        return self.send({"error": "没有网格：先跑 dev/sim/web_meshes.py（需要 资料/ 里的课程 STL）"}, status=404)
-                    self.send(MESHES.read_bytes())
+                    mesh = next((m for m in MESH_FILES if m.exists()), None)
+                    if mesh is None:
+                        return self.send({"error": "没有网格：dev/sim/assets/web_meshes.json 不见了，"
+                                                   "或用 资料/ 里的课程 STL 跑 dev/sim/web_meshes.py"}, status=404)
+                    self.send(mesh.read_bytes())
                 elif path == "/api/sim/options":
                     self.send(dict(maps=sorted(f.stem for f in W.CONFIG.glob("map_*.json")),
                                    bins=sorted(f.stem for f in W.CONFIG.glob("bins_*.json")),

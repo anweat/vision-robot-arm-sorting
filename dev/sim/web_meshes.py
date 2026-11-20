@@ -5,8 +5,10 @@ collision samples.
     uv run --with numpy python dev/sim/web_meshes.py [--cell-mm 2.5] [--stl-dir DIR] [--out data/sim/web_meshes.json]
 
 Input: 资料/展开资源/三维结构文件/三维结构文件/{base_link,link1..link5}.STL (course package, not in the repository).
-Output: data/sim/web_meshes.json (not in the repository either, being derived from the course meshes); the
-simulator serves it at /api/sim/meshes when it exists and the page falls back to the point samples otherwise.
+Output: data/sim/web_meshes.json (this machine's copy). The repository keeps one at dev/sim/assets/web_meshes.json
+(2026-11-20, so a fresh clone -- e.g. on Windows without 资料/ -- draws the arm instead of its point samples);
+the simulator serves data/sim's when present, else the repository's. After changing the gripper model, regenerate
+and refresh the repository copy:  ... web_meshes.py --out dev/sim/assets/web_meshes.json
 
 Each STL is in its URDF link frame (metres). link5 holds the whole gripper as separate shells; each shell is
 given to the part whose collision samples (app/config/gripper_geometry.json, scripts/blender_extract_gripper.py)

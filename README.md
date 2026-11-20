@@ -65,6 +65,8 @@
 | 数据集、扫描画面、采集画面 | `data/datasets/`、`data/runs/`、`data/captures/` | 另行拷贝 | 不能重训。事件日志的样例已入库（`app/samples/`） |
 | 官方三类模型、课程包、`Arm_Lib` 源码、上游 ROS 2 工程 | `data/models/official_arm/`、`资料/` | 约 2.7 GB | 第三方内容，按[资产清单](docs/atlas-200i-dk-a2/09-资产清单.md)里的链接自行下载 |
 
+例外：仿真三维用的机械臂网格（课程 STL 抽稀，0.3 MB）已入库在 `dev/sim/assets/web_meshes.json`（2026-11-20），克隆即有；本机有 `资料/` 时用 `dev/sim/web_meshes.py` 重新生成的 `data/sim/web_meshes.json` 优先。
+
 ### 取回模型与贴面
 
 压缩包里的路径都从仓库根目录算起，在仓库根目录解压即落到正确位置。[Release 页面](https://github.com/anweat/vision-robot-arm-sorting/releases/tag/assets-v4)上可以直接点下载，或者：

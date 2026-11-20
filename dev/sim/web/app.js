@@ -330,7 +330,7 @@ function draw() {
   overlay.forEach(f => f());
   ctx.fillStyle = '#8aa0ad'; ctx.font = '12px system-ui, sans-serif';
   ctx.fillText(meshes && body ? `课程 STL 网格（抽稀）· 夹爪四连杆开口 ${body.gap_mm.toFixed(0)} mm · 红点：指垫中心`
-               : body ? `规划用的采样点（没有网格：先跑 dev/sim/web_meshes.py）· 夹爪开口 ${body.gap_mm.toFixed(0)} mm · 红点：指垫中心与爪轴`
+               : body ? `规划用的采样点（没有网格：缺 dev/sim/assets/web_meshes.json）· 夹爪开口 ${body.gap_mm.toFixed(0)} mm · 红点：指垫中心与爪轴`
                : '旧骨架（后端没有 /api/sim/body）', 10, h - 10);
 }
 {
