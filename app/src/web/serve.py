@@ -444,7 +444,6 @@ class State:
         self.client_seen = 0.0                   # last page heartbeat (monotonic)
         self.motion_lock = threading.Lock()      # 运动串行化：同一时刻只执行一条运动指令
         self.replay = False                      # --replay 时为真：页面据此标"回放"，不冒充实时
-        self._sim_hint = None                    # 控制台是不是仿真：探到一次就记住
         self.flow = None                         # 编排器子进程（src/flow/orchestrator.py）
         self.flow_python = [sys.executable]      # 跑编排器的解释器（要 numpy 等；--flow-python 改）
         self.task = "pipeline"                   # 「开始」跑什么：pipeline 已验证的旧流水线（默认）/ flow 分步编排器
@@ -461,20 +460,15 @@ class State:
         self.listener_out: Path | None = None
 
     def console_sim(self) -> bool:
-        """控制台是不是仿真。
+        """控制台是不是仿真：看它回读里自报的 mode（teleop/core.py：simulation / hardware），与
+        flow/stages._is_sim 同一个口径。
 
-        只有仿真控制台有 /api/sim/world，实机没有——探到一次就记住，
-        页面据此决定是内嵌它的 3D 工作台还是画骨架视图。
+        以前是额外请求一次 /api/sim/world、探到就永久记住——那一次请求慢或失败（Windows 上启动时）
+        就一直当成实机，作业台画成实机骨架（俯视 + 侧视两个平面图），仿真三维再也不出来。
         """
         if self.console is None or self.console_status is None:
-            return False                        # 还没连上，先按实机处理，别乱开
-        if self._sim_hint is None:
-            try:
-                self.console.world()
-                self._sim_hint = True
-            except Exception:
-                self._sim_hint = False
-        return self._sim_hint
+            return False                        # 还没连上，先按实机处理，别乱开；页面隔几秒会再问
+        return self.console_status.get("mode") == "simulation"
 
     def append(self, obj: dict) -> None:
         with self.lock:

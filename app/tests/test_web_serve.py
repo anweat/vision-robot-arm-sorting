@@ -326,6 +326,21 @@ class ConsoleMoveTest(unittest.TestCase):
         self.assertEqual(self.cfg["status_calls"], 0)      # 不再为了 revision 先读状态
 
 
+class ConsoleKindTest(unittest.TestCase):
+    """仿真还是实机：看控制台回读自报的 mode，一次失败的探测不能把仿真永久当成实机（2026-11-20 Windows 上作业台画成骨架）。"""
+
+    def test_mode_decides(self):
+        with tempfile.TemporaryDirectory() as d:
+            st = S.State(Path(d) / 'log.jsonl')
+            self.assertFalse(st.console_sim())                     # 没接控制台
+            st.console = object()
+            self.assertFalse(st.console_sim())                     # 还没有回读
+            st.console_status = {'mode': 'hardware'}
+            self.assertFalse(st.console_sim())
+            st.console_status = {'mode': 'simulation'}
+            self.assertTrue(st.console_sim())
+
+
 class PerceptionEndpointTest(unittest.TestCase):
     """语音 / 手势端点：text / label 直通联调整条链路，模型未部署时 501 不假装识别，
     识别输入写 interaction 事件且守日志契约。"""
