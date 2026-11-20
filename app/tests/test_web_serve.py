@@ -326,6 +326,13 @@ class ConsoleMoveTest(unittest.TestCase):
         self.assertEqual(self.cfg["status_calls"], 0)      # 不再为了 revision 先读状态
 
 
+class SplitCommandTest(unittest.TestCase):
+    def test_windows_paths_keep_their_backslashes(self):
+        got = S.split_command(r'C:\Users\anwea\anaconda3\python.exe -m uv run --with "opencv-python<5" python', windows=True)
+        self.assertEqual(got, [r'C:\Users\anwea\anaconda3\python.exe', '-m', 'uv', 'run', '--with', 'opencv-python<5', 'python'])
+        self.assertEqual(S.split_command("--bins 'bins_acrylic_v2_pair'", windows=False), ['--bins', 'bins_acrylic_v2_pair'])
+
+
 class ConsoleKindTest(unittest.TestCase):
     """仿真还是实机：看控制台回读自报的 mode，一次失败的探测不能把仿真永久当成实机（2026-11-20 Windows 上作业台画成骨架）。"""
 

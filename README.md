@@ -75,7 +75,9 @@
 
 所以上表前两行现在只在重训、或想用本机另一版模型时才需要从 Release 取。换模型时发新的 Release，**同时**更新入库的副本。
 
-Windows 克隆注意：`app/data` 在仓库里是指向 `../data` 的符号链接，Windows 默认把它检出成一个写着 `../data` 的小文本文件，网关的日志、流程会话会写不进去。在仓库根目录执行：
+**Windows 一键跑仿真**：克隆后双击 `dev\sim\start_windows.cmd`（要有带 uv 的 Python；没有就 `python -m pip install uv`）。它会修好下面说的 `app\data`、找到装了 uv 的 Python、开两个窗口（仿真控制台 8771、网关 8093），等仿真起来后打开 <http://127.0.0.1:8093/>；关掉两个窗口即停止。首次运行 uv 要下载 opencv / numpy / onnxruntime（约 70 MB）。2026-11-20 在 Windows（Anaconda Python 3.14 + uv 0.13）上从干净克隆跑通，网页上的「夹爪自检」脚本整轮完成。
+
+手动处理时注意：`app/data` 在仓库里是指向 `../data` 的符号链接，Windows 默认把它检出成一个写着 `../data` 的小文本文件，网关的日志、流程会话会写不进去。在仓库根目录执行：
 
 ```bat
 del app\data && mklink /J app\data data && git update-index --skip-worktree app/data

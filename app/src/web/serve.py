@@ -1365,6 +1365,20 @@ class Handler(BaseHTTPRequestHandler):
         return self._send(dict(ok=True, cmd=cmd, steps=steps, executed=True, via_console=True))
 
 
+def split_command(text: str, windows: bool | None = None) -> list[str]:
+    """Split a command line given as one option (--flow-python, --pipeline-args). POSIX rules eat the
+    backslashes of a Windows path (C:\\Users\\... -> C:Users...), so on Windows split without escapes and only
+    drop the quotes around a word ("opencv-python<5")."""
+    if not (os.name == "nt" if windows is None else windows):
+        return shlex.split(text)
+    out = []
+    for word in shlex.split(text, posix=False):
+        if len(word) >= 2 and word[0] == word[-1] and word[0] in "\"'":
+            word = word[1:-1]
+        out.append(word)
+    return out
+
+
 class Server(ThreadingHTTPServer):
     """浏览器关页面时 SSE/长连接会被掐断，socketserver 默认会为此打整段 traceback。
     那不是错误，是正常的断开，静默掉，免得日志里全是噪音。"""
@@ -1417,9 +1431,9 @@ def main(argv=None) -> int:
 )
     state.base_url = f"http://127.0.0.1:{args.port}"
     if args.flow_python:
-        state.flow_python = shlex.split(args.flow_python)
+        state.flow_python = split_command(args.flow_python)
     state.task = args.task
-    state.pipeline_args = shlex.split(args.pipeline_args)
+    state.pipeline_args = split_command(args.pipeline_args)
     if console is not None:
         threading.Thread(target=state.poll_console, daemon=True).start()
     if timers is not None:
