@@ -32,6 +32,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
@@ -62,6 +63,14 @@ private const val WEB_URL_KEY = "web_server_url"
 private const val DEFAULT_URL = ""
 private const val DEFAULT_WEB_URL = ""
 
+// 底部页签的下标；顺序即导航栏从左到右
+private const val TAB_CONTROL = 0
+private const val TAB_TASK = 1
+private const val TAB_RECORDS = 2
+private const val TAB_WEB = 3
+private const val TAB_CONNECT = 4
+private const val TAB_CLASSIC = 5
+
 class MainActivity : ComponentActivity() {
     private var inForeground by mutableStateOf(false)
 
@@ -81,10 +90,11 @@ class MainActivity : ComponentActivity() {
         com.example.myapplication00001.relay.RelayService.restoreIfWanted(this)
         val preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         setContent {
-            MyApplication00001Theme {
+            // 不用系统动态取色：与网页端同一套蓝灰配色（Theme.kt）
+            MyApplication00001Theme(dynamicColor = false) {
                 // 配过网关（改过地址或填了口令）就直接进控制页；全新安装才先去「连接」
                 val configured = ArmClient.savedUrl(this) != ArmClient.DEFAULT_URL || ArmClient.savedToken(this).isNotBlank()
-                var tab by remember { mutableStateOf(if (configured) 0 else 3) }
+                var tab by rememberSaveable { mutableStateOf(if (configured) TAB_CONTROL else TAB_CONNECT) }
                 var gatewayVersion by remember { mutableStateOf(0) }
                 val client = remember(gatewayVersion) {
                     runCatching { ArmClient(ArmClient.savedUrl(this), ArmClient.savedToken(this)) }.getOrNull()
@@ -93,7 +103,7 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     bottomBar = {
                         NavigationBar {
-                            listOf("🕹" to "控制", "☰" to "任务", "◎" to "网页", "⇄" to "连接", "…" to "旧版")
+                            listOf("🕹" to "控制", "☰" to "任务", "▤" to "记录", "◎" to "网页", "⇄" to "连接", "…" to "旧版")
                                 .forEachIndexed { index, (icon, label) ->
                                     NavigationBarItem(
                                         selected = tab == index,
@@ -107,15 +117,16 @@ class MainActivity : ComponentActivity() {
                 ) { padding ->
                     val inner = Modifier.padding(padding)
                     when (tab) {
-                        0 -> ControlScreen(client, inForeground, inner)
-                        1 -> TaskScreen(client, inForeground, inner)
-                        2 -> WebConsoleScreen(
+                        TAB_CONTROL -> ControlScreen(client, inForeground, inner)
+                        TAB_TASK -> TaskScreen(client, inForeground, inner)
+                        TAB_RECORDS -> RecordsScreen(client, inForeground, openConnect = { tab = TAB_CONNECT }, modifier = inner)
+                        TAB_WEB -> WebConsoleScreen(
                             initialUrl = preferences.getString(WEB_URL_KEY, null) ?: (client?.base?.plus("/") ?: DEFAULT_WEB_URL),
                             saveUrl = { preferences.edit().putString(WEB_URL_KEY, it).apply() },
-                            openClassic = { tab = 4 },
+                            openClassic = { tab = TAB_CLASSIC },
                             modifier = inner,
                         )
-                        3 -> ConnectScreen(onGatewayChanged = { gatewayVersion++ }, modifier = inner)
+                        TAB_CONNECT -> ConnectScreen(onGatewayChanged = { gatewayVersion++ }, modifier = inner)
                         else -> StatusScreen(
                             initialUrl = preferences.getString(URL_KEY, DEFAULT_URL) ?: DEFAULT_URL,
                             saveUrl = { preferences.edit().putString(URL_KEY, it).apply() },
@@ -138,7 +149,7 @@ private data class ArmStatus(
     val error: String,
 )
 
-private data class LogSummary(
+internal data class LogSummary(
     val events: Int,
     val records: Int,
     val roundsFinished: Int,
@@ -148,6 +159,8 @@ private data class LogSummary(
     val failed: Int,
     val cleared: Int,
     val medianSeconds: Double?,
+    /** 各类别分拣成功块数，键是中文类别名，顺序同日志契约 CATEGORIES。 */
+    val sortedByCategory: Map<String, Int>,
 )
 
 internal data class BlockRecord(
@@ -166,7 +179,7 @@ internal data class BlockRecord(
     val source: String,
 )
 
-private data class LogView(val summary: LogSummary, val allRecords: List<BlockRecord>)
+internal data class LogView(val summary: LogSummary, val allRecords: List<BlockRecord>)
 
 private data class AlertEvent(val seq: Int, val time: String, val title: String, val detail: String)
 
@@ -531,9 +544,13 @@ internal fun endpoint(baseUrl: String, path: String): java.net.URL {
 }
 
 private suspend fun fetchLogView(baseUrl: String): LogView = withContext(Dispatchers.IO) {
-    val summaryJson = readJson(baseUrl, "/api/log/summary")
-    val recordsJson = readJson(baseUrl, "/api/log/records")
+    parseLogView(readJson(baseUrl, "/api/log/summary"), readJson(baseUrl, "/api/log/records"))
+}
+
+/** `/api/log/summary` + `/api/log/records` → 页面用的统计与逐块记录（旧版页与记录页共用）。 */
+internal fun parseLogView(summaryJson: JSONObject, recordsJson: JSONObject): LogView {
     val byResult = summaryJson.getJSONObject("by_result")
+    val byCategory = summaryJson.optJSONObject("by_category")
     val summary = LogSummary(
         events = summaryJson.getInt("events"),
         records = summaryJson.getInt("records"),
@@ -545,6 +562,9 @@ private suspend fun fetchLogView(baseUrl: String): LogView = withContext(Dispatc
         cleared = byResult.optInt("cleared"),
         medianSeconds = if (summaryJson.isNull("seconds_per_sorted_block_median")) null
             else summaryJson.getDouble("seconds_per_sorted_block_median"),
+        sortedByCategory = listOf("recyclable", "kitchen", "hazardous", "other").associate { category ->
+            categoryName(category) to (byCategory?.optJSONObject(category)?.optInt("sorted") ?: 0)
+        },
     )
     val rows = recordsJson.getJSONArray("records")
     val timeFormat = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.MEDIUM, Locale.CHINA)
@@ -567,7 +587,7 @@ private suspend fun fetchLogView(baseUrl: String): LogView = withContext(Dispatc
             source = if (row.isNull("source")) "" else row.getString("source"),
         )
     }
-    LogView(summary, allRecords)
+    return LogView(summary, allRecords)
 }
 
 private suspend fun fetchEventPage(baseUrl: String, after: Int): EventPage = withContext(Dispatchers.IO) {

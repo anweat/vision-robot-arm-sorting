@@ -1,6 +1,8 @@
 package com.example.myapplication00001
 
 import android.net.Uri
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.webkit.WebSettings
@@ -11,8 +13,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -35,6 +39,7 @@ fun WebConsoleScreen(
     var activeUrl by remember { mutableStateOf(initialUrl) }
     var loadVersion by remember { mutableIntStateOf(0) }
     var error by remember { mutableStateOf("") }
+    var pageError by remember { mutableStateOf("") }
 
     Column(modifier = modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
@@ -52,6 +57,7 @@ fun WebConsoleScreen(
                     error = "请输入完整地址，例如 http://电脑IP:8080/?token=口令"
                 } else {
                     error = ""
+                    pageError = ""
                     // 只补齐空路径；不能在 ?token= 后面拼接斜杠，否则口令会被改写。
                     activeUrl = if (parsed.path.isNullOrEmpty()) {
                         parsed.buildUpon().path("/").build().toString()
@@ -67,6 +73,15 @@ fun WebConsoleScreen(
         Button(onClick = openClassic, modifier = Modifier.padding(horizontal = 8.dp)) {
             Text("旧版状态与导出")
         }
+        if (pageError.isNotBlank()) {
+            Row(modifier = Modifier.padding(horizontal = 12.dp)) {
+                Text(pageError, color = MaterialTheme.colorScheme.error, modifier = Modifier.weight(1f).padding(top = 12.dp))
+                TextButton(onClick = {
+                    pageError = ""
+                    loadVersion++
+                }) { Text("重试") }
+            }
+        }
         if (activeUrl.isBlank()) {
             Text("输入电脑上的网页服务地址，再点击“打开”。", modifier = Modifier.padding(horizontal = 12.dp))
         } else AndroidView(
@@ -78,7 +93,12 @@ fun WebConsoleScreen(
                     settings.allowFileAccess = false
                     settings.allowContentAccess = false
                     settings.setSupportMultipleWindows(false)
-                    webViewClient = WebViewClient()
+                    webViewClient = object : WebViewClient() {
+                        override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
+                            // 只认主页面：页面里某个子资源失败不该盖掉整页
+                            if (request.isForMainFrame) pageError = "网页加载失败（${error.description}），检查地址和网络后重试"
+                        }
+                    }
                 }
             },
             update = { view ->
@@ -88,6 +108,7 @@ fun WebConsoleScreen(
                     view.loadUrl(activeUrl)
                 }
             },
+            onRelease = { view -> view.destroy() },
             modifier = Modifier.fillMaxWidth().weight(1f),
         )
     }
