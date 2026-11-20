@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import sys
 import time
 from contextlib import nullcontext
@@ -80,10 +81,16 @@ CARRY_RADIUS = 0.17     # retract to this radius before turning the base, so a h
 CARRY_ABOVE_TABLE = 0.07
 RUNS = ROOT / "data" / "runs" / "console_grasp"
 PLAN = RUNS / "plan.json"
+LOG = Path(os.environ.get("ARM_LOG", str(RUNS / "log.jsonl")))
 
 
 class PathBlocked(ConsoleError):
     """A move would run the fingers into a bin (OBSTACLES). The arm has not been sent anywhere."""
+
+
+# 测试/演示用：ARM_FORCE_MISS=N 让第 N 次合爪必定夹空（N=2 → 第一块正常、第二块夹空后重试）
+_FORCE_MISS_AT = int(os.environ.get("ARM_FORCE_MISS", "0") or 0)
+_GRASP_COUNT = 0
 
 
 class GripMissed(ConsoleError):
@@ -91,9 +98,9 @@ class GripMissed(ConsoleError):
 
 
 def log(event: str, **data) -> None:
-    RUNS.mkdir(parents=True, exist_ok=True)
+    LOG.parent.mkdir(parents=True, exist_ok=True)
     line = dict(t=time.time(), event=event, **data)
-    with (RUNS / "log.jsonl").open("a") as f:
+    with LOG.open("a") as f:
         f.write(json.dumps(line, ensure_ascii=False) + "\n")
     print(json.dumps(line, ensure_ascii=False))
 
@@ -691,6 +698,12 @@ def hover(session: Session | None = None) -> None:
 
 
 def grasp(session: Session | None = None) -> dict:
+    global _GRASP_COUNT
+    _GRASP_COUNT += 1
+    if _FORCE_MISS_AT and _GRASP_COUNT == _FORCE_MISS_AT:
+        G_raise = GripMissed(f"ARM_FORCE_MISS={_FORCE_MISS_AT}：演示用强制夹空（第 {_GRASP_COUNT} 次合爪）")
+        raise G_raise
+
     plan = fresh_plan()
     tx, ty = plan["tip_target_cm"][0] / 100, plan["tip_target_cm"][1] / 100
     with lease(session) as sess:

@@ -1,0 +1,538 @@
+{
+  "runs": [
+    {
+      "run": "20261119_111040",
+      "cubes": 3,
+      "registration": 2,
+      "spread": [
+        0.14,
+        0.09,
+        0.2
+      ],
+      "sorted": 0,
+      "skipped": 3,
+      "missed": 0,
+      "retries": 0,
+      "retry_found": 0,
+      "gate": null,
+      "seconds": 9,
+      "dir": "20261119_111040",
+      "scene_exists": true,
+      "views": 6
+    },
+    {
+      "run": "20261119_111331",
+      "cubes": 2,
+      "registration": 2,
+      "spread": [
+        0.1,
+        0.04,
+        0.11
+      ],
+      "sorted": 0,
+      "skipped": 2,
+      "missed": 0,
+      "retries": 0,
+      "retry_found": 0,
+      "gate": null,
+      "seconds": 9,
+      "dir": "20261119_111331",
+      "scene_exists": true,
+      "views": 6
+    },
+    {
+      "run": "20261119_111710",
+      "cubes": 5,
+      "registration": 3,
+      "spread": [
+        0.27,
+        0.2,
+        0.09
+      ],
+      "sorted": 1,
+      "skipped": 3,
+      "missed": 1,
+      "retries": 1,
+      "retry_found": 1,
+      "gate": null,
+      "seconds": 40,
+      "dir": "20261119_111710",
+      "scene_exists": true,
+      "views": 8
+    },
+    {
+      "run": "20261119_111905",
+      "cubes": 3,
+      "registration": 5,
+      "spread": [
+        0.3,
+        0.24,
+        0.18
+      ],
+      "sorted": 0,
+      "skipped": 2,
+      "missed": 0,
+      "retries": 2,
+      "retry_found": 2,
+      "gate": null,
+      "seconds": null,
+      "dir": "20261119_111905",
+      "scene_exists": true,
+      "views": 7
+    },
+    {
+      "run": "20261119_112338",
+      "cubes": 5,
+      "registration": 3,
+      "spread": [
+        0.28,
+        0.21,
+        0.08
+      ],
+      "sorted": 2,
+      "skipped": 3,
+      "missed": 0,
+      "retries": 2,
+      "retry_found": 2,
+      "gate": null,
+      "seconds": 104,
+      "dir": "20261119_112338",
+      "scene_exists": true,
+      "views": 7
+    },
+    {
+      "run": "20261119_171155",
+      "cubes": 4,
+      "registration": 5,
+      "spread": [
+        0.28,
+        0.18,
+        0.23
+      ],
+      "sorted": 0,
+      "skipped": 4,
+      "missed": 0,
+      "retries": 0,
+      "retry_found": 0,
+      "gate": null,
+      "seconds": 30,
+      "dir": "20261119_171155",
+      "scene_exists": true,
+      "views": 6
+    },
+    {
+      "run": "20261119_171415",
+      "cubes": 8,
+      "registration": 8,
+      "spread": [
+        0.27,
+        0.6,
+        0.4
+      ],
+      "sorted": 2,
+      "skipped": 4,
+      "missed": 1,
+      "retries": 1,
+      "retry_found": 1,
+      "gate": null,
+      "seconds": 120,
+      "dir": "20261119_171415",
+      "scene_exists": true,
+      "views": 9
+    },
+    {
+      "run": "20261119_171924",
+      "cubes": 11,
+      "registration": 8,
+      "spread": [
+        0.26,
+        0.6,
+        0.29
+      ],
+      "sorted": 1,
+      "skipped": 3,
+      "missed": 0,
+      "retries": 0,
+      "retry_found": 0,
+      "gate": null,
+      "seconds": null,
+      "dir": "20261119_171924",
+      "scene_exists": true,
+      "views": 10
+    },
+    {
+      "run": "20261119_172156",
+      "cubes": 7,
+      "registration": 8,
+      "spread": [
+        0.84,
+        0.68,
+        0.21
+      ],
+      "sorted": 1,
+      "skipped": 5,
+      "missed": 0,
+      "retries": 0,
+      "retry_found": 0,
+      "gate": null,
+      "seconds": 46,
+      "dir": "20261119_172156",
+      "scene_exists": true,
+      "views": 9
+    },
+    {
+      "run": "20261119_172455",
+      "cubes": 7,
+      "registration": 6,
+      "spread": [
+        0.26,
+        0.72,
+        0.33
+      ],
+      "sorted": 2,
+      "skipped": 3,
+      "missed": 2,
+      "retries": 3,
+      "retry_found": 3,
+      "gate": null,
+      "seconds": 193,
+      "dir": "20261119_172455",
+      "scene_exists": true,
+      "views": 7
+    },
+    {
+      "run": "20261119_172925",
+      "cubes": 6,
+      "registration": 7,
+      "spread": [
+        0.87,
+        0.72,
+        0.09
+      ],
+      "sorted": 0,
+      "skipped": 5,
+      "missed": 1,
+      "retries": 2,
+      "retry_found": 2,
+      "gate": null,
+      "seconds": 121,
+      "dir": "20261119_172925",
+      "scene_exists": true,
+      "views": 8
+    },
+    {
+      "run": "20261119_173806",
+      "cubes": 10,
+      "registration": 6,
+      "spread": [
+        0.24,
+        0.29,
+        0.39
+      ],
+      "sorted": 1,
+      "skipped": 2,
+      "missed": 0,
+      "retries": 1,
+      "retry_found": 1,
+      "gate": null,
+      "seconds": null,
+      "dir": "20261119_173806",
+      "scene_exists": true,
+      "views": 9
+    },
+    {
+      "run": "20261119_174041",
+      "cubes": 6,
+      "registration": 5,
+      "spread": [
+        0.27,
+        0.2,
+        0.26
+      ],
+      "sorted": 0,
+      "skipped": 3,
+      "missed": 2,
+      "retries": 3,
+      "retry_found": 3,
+      "gate": null,
+      "seconds": 166,
+      "dir": "20261119_174041",
+      "scene_exists": true,
+      "views": 9
+    },
+    {
+      "run": "20261119_174751",
+      "cubes": 8,
+      "registration": 4,
+      "spread": [
+        0.27,
+        0.2,
+        0.27
+      ],
+      "sorted": 2,
+      "skipped": 2,
+      "missed": 3,
+      "retries": 6,
+      "retry_found": 6,
+      "gate": null,
+      "seconds": 341,
+      "dir": "20261119_174751",
+      "scene_exists": true,
+      "views": 8
+    },
+    {
+      "run": "20261119_175630",
+      "cubes": 9,
+      "registration": 5,
+      "spread": [
+        0.26,
+        0.21,
+        0.32
+      ],
+      "sorted": 2,
+      "skipped": 7,
+      "missed": 0,
+      "retries": 2,
+      "retry_found": 2,
+      "gate": null,
+      "seconds": 109,
+      "dir": "20261119_175630",
+      "scene_exists": true,
+      "views": 9
+    },
+    {
+      "run": "20261119_180215",
+      "cubes": 10,
+      "registration": 8,
+      "spread": [
+        0.22,
+        1.73,
+        0.38
+      ],
+      "sorted": 1,
+      "skipped": 7,
+      "missed": 1,
+      "retries": 1,
+      "retry_found": 1,
+      "gate": 124.7,
+      "seconds": 78,
+      "dir": "20261119_180215",
+      "scene_exists": true,
+      "views": 10
+    },
+    {
+      "run": "20261119_180900",
+      "cubes": 3,
+      "registration": 5,
+      "spread": [
+        0.26,
+        0.19,
+        0.43
+      ],
+      "sorted": 0,
+      "skipped": 1,
+      "missed": 0,
+      "retries": 0,
+      "retry_found": 0,
+      "gate": 7.4,
+      "seconds": null,
+      "dir": "20261119_180900",
+      "scene_exists": true,
+      "views": 6
+    },
+    {
+      "run": "20261119_181226",
+      "cubes": 10,
+      "registration": 7,
+      "spread": [
+        0.27,
+        0.21,
+        0.23
+      ],
+      "sorted": 2,
+      "skipped": 7,
+      "missed": 0,
+      "retries": 2,
+      "retry_found": 2,
+      "gate": 1.5,
+      "seconds": 114,
+      "dir": "20261119_181226",
+      "scene_exists": true,
+      "views": 10
+    },
+    {
+      "run": "20261119_182008",
+      "cubes": 10,
+      "registration": 9,
+      "spread": [
+        0.75,
+        0.72,
+        0.14
+      ],
+      "sorted": 0,
+      "skipped": 9,
+      "missed": 0,
+      "retries": 0,
+      "retry_found": 0,
+      "gate": 12.6,
+      "seconds": 10,
+      "dir": "20261119_182008",
+      "scene_exists": true,
+      "views": 10
+    },
+    {
+      "run": "20261120_133644",
+      "cubes": 10,
+      "registration": 8,
+      "spread": [
+        0.95,
+        2.55,
+        0.51
+      ],
+      "sorted": 2,
+      "skipped": 8,
+      "missed": 0,
+      "retries": 0,
+      "retry_found": 0,
+      "gate": 2.2,
+      "seconds": 49,
+      "dir": "20261120_133644",
+      "scene_exists": true,
+      "views": 12
+    },
+    {
+      "run": "20261120_141234",
+      "cubes": 13,
+      "registration": 10,
+      "spread": [
+        0.53,
+        2.06,
+        0.47
+      ],
+      "sorted": 2,
+      "skipped": 10,
+      "missed": 0,
+      "retries": 0,
+      "retry_found": 0,
+      "gate": 2.5,
+      "seconds": 50,
+      "dir": "20261120_141234",
+      "scene_exists": true,
+      "views": 11
+    },
+    {
+      "run": "20261120_141639",
+      "cubes": 6,
+      "registration": 8,
+      "spread": [
+        1.06,
+        2.48,
+        0.32
+      ],
+      "sorted": 1,
+      "skipped": 4,
+      "missed": 1,
+      "retries": 2,
+      "retry_found": 2,
+      "gate": 4.5,
+      "seconds": 100,
+      "dir": "20261120_141639",
+      "scene_exists": true,
+      "views": 9
+    },
+    {
+      "run": "20261120_142028",
+      "cubes": 8,
+      "registration": 10,
+      "spread": [
+        0.64,
+        2.08,
+        0.48
+      ],
+      "sorted": 1,
+      "skipped": 6,
+      "missed": 0,
+      "retries": 0,
+      "retry_found": 0,
+      "gate": 0.3,
+      "seconds": 30,
+      "dir": "20261120_142028",
+      "scene_exists": true,
+      "views": 10
+    },
+    {
+      "run": "20261120_143252",
+      "cubes": 10,
+      "registration": 6,
+      "spread": [
+        0.2,
+        0.14,
+        0.21
+      ],
+      "sorted": 2,
+      "skipped": 7,
+      "missed": 0,
+      "retries": 0,
+      "retry_found": 0,
+      "gate": 1.8,
+      "seconds": 45,
+      "dir": "20261120_143252",
+      "scene_exists": true,
+      "views": 10
+    },
+    {
+      "run": "20261120_144402",
+      "cubes": 7,
+      "registration": 7,
+      "spread": [
+        1.17,
+        2.61,
+        0.83
+      ],
+      "sorted": 0,
+      "skipped": 5,
+      "missed": 0,
+      "retries": 0,
+      "retry_found": 0,
+      "gate": 4.7,
+      "seconds": null,
+      "dir": "20261120_144402",
+      "scene_exists": true,
+      "views": 8
+    },
+    {
+      "run": "20261120_144620",
+      "cubes": 9,
+      "registration": 7,
+      "spread": [
+        0.96,
+        2.57,
+        0.42
+      ],
+      "sorted": 2,
+      "skipped": 7,
+      "missed": 0,
+      "retries": 0,
+      "retry_found": 0,
+      "gate": null,
+      "seconds": 55,
+      "dir": "20261120_144620",
+      "scene_exists": true,
+      "views": 9
+    }
+  ],
+  "counts": {
+    "total": 26,
+    "sorted": 27,
+    "missed": 12,
+    "runs_with_sorted": 17,
+    "retries": 28,
+    "retry_found": 28
+  },
+  "bins": {
+    "bins_acrylic_v2_pair": {
+      "2": 2,
+      "3": 3
+    }
+  }
+}

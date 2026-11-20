@@ -1,0 +1,136 @@
+{
+ "_status": "2026-11-14. Model facts of src/planning (motion plans on the four-bar gripper model). Independent of the console path (src/tasks/console_grasp.py); nothing here has run on the arm. See docs/atlas-200i-dk-a2/29-夹爪四连杆与抓取解算.md. Tunable values (errors, clearances, trims, A* search) are in config/planning_tuning.json.",
+ "table_z_model_m": -0.0087,
+ "_table_z_model_note": "The table in the forward-kinematics frame as seen by the mesh fingers: the five fingertip touches of teleop session 20260925_005756_78eb (J6 168, gap 10 mm) put the lowest finger point at -0.97/-0.89/-0.89/-0.67/-0.92 cm, mean -0.87 +- 0.12 cm (gripper_geometry.table_from_touches). keep_out.table_surface_z_m = -1.42 cm is the same touches read with the 12 cm FK tip, which is 5.5-6 mm beyond the real closed fingertip. The scan registration of 2026-09-29 read the paper at -0.62 cm.",
+ "block_side_m": 0.03,
+ "grasp": {
+  "pad_lifts_m": [
+   0.0,
+   0.002,
+   0.004,
+   0.006,
+   0.008
+  ],
+  "_pad_lifts_note": "a rolled jaw tilts out of the table plane and one finger hangs lower: the pads may close this much higher, while their middle stays pad_below_top_m under the block's top",
+  "pad_below_top_m": 0.006,
+  "openings": [
+   [
+    "open",
+    30
+   ],
+   [
+    "narrow",
+    95
+   ],
+   [
+    "tight",
+    118
+   ]
+  ],
+  "_openings_note": "J6 commands tried widest first: 61 mm (console 'open'), 50 mm and 42 mm. The narrower ones keep the open fingers off neighbours closer than ~5 cm; they leave 10 / 6 mm of localization error per side. The console has no 'narrow'/'tight' action yet.",
+  "hover_rises_m": [
+   0.04,
+   0.03,
+   0.02,
+   0.015
+  ],
+  "verified_pitch_range_deg": [
+   135,
+   155
+  ],
+  "aligned_tolerance_deg": 12.0,
+  "max_jaw_tilt_deg": 15.0,
+  "_moved_note": "pad_centre_height_m, grip_command_deg, prefer_pitch_deg -> planning_tuning.json trims; fingertip margins -> planning_tuning.json clearances (2026-11-15)",
+  "_pad_centre_note": "middle of the pads above the table when they close on a 3 cm block. The verified console grasp (FK tip 1.2 cm above the -1.42 table, +1 cm radially) closes them at ~2.5 cm above this table, i.e. on the block's top centimetre; 1.8 cm puts them around its middle. Not tried on the arm.",
+  "pitch_scan": {
+   "from_deg": 80,
+   "to_deg": 200,
+   "resolution_deg": 1,
+   "step_deg": 5,
+   "max_tried": 14
+  },
+  "_pitch_scan_note": "2026-11-16: the approach angles are solved per target instead of taken from a fixed list (was 130-185 plus a 28 cm reach cap): solver.pitch_range scans from_deg-to_deg every resolution_deg for pad IK inside the joint limits, then every step_deg of that interval (and both ends) is tried, nearest the preferred pitch first; the collision checks (platform mesh, table, map) decide the rest. At grasp height (J1 90) that leaves 186-188 at 7 cm, 171-181 at 12 cm, 148-163 at 20 cm, 99-141 at 27 cm and 107-124 at 31 cm, nothing beyond. Hardware grasps so far used 133-176 (console_grasp gripped at 26.7-27.8 cm with 133-141)."
+ },
+ "release": {
+  "table_gap_m": 0.003,
+  "bin_clearance_m": 0.015,
+  "rise_m": 0.03,
+  "pitch_spread_deg": [
+   0,
+   5,
+   -5,
+   10,
+   -10,
+   15,
+   -15
+  ],
+  "max_block_tilt_deg": {
+   "table": 8.0,
+   "bin": 25.0
+  },
+  "_tilt_note": "a block gripped at pitch p tilts with any J5 roll at another pitch or bearing; set down on the table it must be near level, dropped into a bin it only has to fit the 80 mm opening. yaw None keeps the J5 it was carried at. 2026-11-15: on the table the limit is max(table, the tilt the grasp gave the block + 1): a block squared by a tilted jaw (steep pitch + J5 roll, up to grasp.max_jaw_tilt_deg) is held that far out of level, and set down at the grasp's pitch and J5 it comes down exactly as it was lifted.",
+  "rises_m": [
+   0.03,
+   0.02,
+   0.015,
+   0.01
+  ],
+  "_rises_note": "a table set-down comes straight down at the release pitch from the first of these heights that reaches (the block keeps its tilt only at that pitch)"
+ },
+ "joint_limits_deg": {
+  "1": [
+   20,
+   160
+  ],
+  "2": [
+   5,
+   175
+  ],
+  "3": [
+   -3,
+   175
+  ],
+  "4": [
+   -3,
+   175
+  ],
+  "5": [
+   90,
+   270
+  ],
+  "_note": "J1/J2: arm_limits soft limits. J3/J4 down to -3: the floor the console grasps have used since 2026-09-26 (J4 reads back -2..-3 when -5..-8 is asked). J5 90-270 = the course limit (2026-11-15, was 90-180). The 180 cap came from 'above 180 the gripper servo turns into the wrist camera's view' (operator 2026-09-26); the camera model puts the open jaw in the bottom quarter of the image around J5 0-45 and 150-210 and nowhere at 60-135 or 255-330 (period 180: the jaw is symmetric), and the camera is not used while a grasp descends, so occlusion limits observing poses, not grasps. Cable slack at 180-270 is still to be checked on site (arm_limits _sources.servo_5_upper): plans flag J5 outside j5_verified_deg.",
+  "j5_verified_deg": [
+   90,
+   180
+  ]
+ },
+ "roll": {
+  "zero_deg": 92,
+  "sign": 1,
+  "_note": "arm_limits gripper.roll_zero_deg / roll_sign; J5 turns the real jaw opposite to dofbot_kinematics.servo5_pose (gripper_geometry.link5_pose)"
+ },
+ "path": {
+  "samples": 12,
+  "via_above_obstacles_m": [
+   0.03,
+   0.05,
+   0.08,
+   0.11
+  ],
+  "via_pitches_deg": [
+   150,
+   140,
+   160,
+   130,
+   170,
+   120,
+   110,
+   100,
+   90
+  ],
+  "_note": "over-the-top route: FK tip this far above the highest box at the start's and the goal's bearing; flatter pitches reach higher"
+ },
+ "map": "map_a4_v4",
+ "bins": "bins_acrylic_v2_pair",
+ "_margins_note": "clearances and scene errors live in config/planning_tuning.json (2026-11-15)"
+}

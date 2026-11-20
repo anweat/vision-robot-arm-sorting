@@ -35,7 +35,9 @@ from __future__ import annotations
 import argparse
 import datetime
 import json
+import os
 import secrets
+import subprocess
 import sys
 import threading
 import time
@@ -53,9 +55,22 @@ WEB = Path(__file__).resolve().parent
 
 MODES = ("manual", "preset", "auto")
 PRESETS = ("dance", "stack", "carry")
+
+
+def load_presets(path=None):
+    """config/presets.json：{preset: [{"pose": [6 ints], "hold_s": float}, ...]}。缺失就当没写。"""
+    p = Path(path) if path else ROOT / "config" / "presets.json"
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return {k: v for k, v in data.items() if isinstance(v, list) and not k.startswith("_")}
+
+
+PRESET_SEQ = load_presets()
 SOURCES = ("web", "mobile", "voice", "gesture", "timer", "button")
 CMDS = ("start", "stop", "set_mode", "run_preset", "set_joints", "move_to", "unlock_bin",
-        "enable", "gripper")
+        "enable", "gripper", "listen", "listen_stop")
 MOTION_CMDS = ("start", "run_preset", "set_joints", "move_to", "unlock_bin", "gripper")
 GRIPPER_ACTIONS = ("grip", "open", "wide")
 
@@ -432,6 +447,10 @@ class State:
         self.console = console
         self.timers = timers
         self.archive = archive
+        self.task = None                       # 实机分拣子进程（src/pipeline/run.py）
+        self.task_out: Path | None = None
+        self.listen = None                     # 语音/手势监听子进程（src/interact/bridge.py listen）
+        self.listen_out: Path | None = None
         self.mode = "manual"
         self.joints: list | None = None
         self.joints_t: float | None = None
@@ -554,6 +573,78 @@ class State:
             limits=status.get("limits"),
         )
 
+    def _spawn_pipeline(self, source: str) -> dict:
+        """实机分拣：直接跑已验证的 src/pipeline/run.py --bins（2026-11-19 实机两轮全中）。
+
+        只停本服务代表页面续租的线程，不 stop 控制台——一 stop 流水线第一步就会被“已停止”拒掉。
+        run.py 的事件通过 ARM_LOG 写进本服务的活日志，页面照常按日志契约显示。
+        """
+        if self.task is not None and self.task.poll() is None:
+            return dict(ok=False, error="上一轮还没结束；先点停止")
+        py = ROOT / "venv-vision" / "bin" / "python"
+        if not py.exists():
+            return dict(ok=False, error=f"找不到 {py}")
+        self.arm_off()
+        time.sleep(0.6)                        # 等续租循环退出，避免它把操作权抢回来
+        env = dict(os.environ, ARM_MAP=os.environ.get("ARM_MAP", "map_a4_v4"),
+                   ARM_LOG=str(self.log_path))
+        self.task_out = ROOT / "data" / "web" / "task.out"
+        self.task_out.parent.mkdir(parents=True, exist_ok=True)
+        self.task = subprocess.Popen(
+            [str(py), str(ROOT / "src" / "pipeline" / "run.py"), "--bins", "bins_acrylic_v2_pair"],
+            cwd=ROOT, env=env, stdout=self.task_out.open("w"), stderr=subprocess.STDOUT)
+        try:                                   # 一次 start = 一轮；页面据此算“轮次”
+            self.append(dict(t=time.time(), event="interaction", source=source, command="start"))
+        except ValueError:
+            pass
+        return dict(ok=True, started=True, pid=self.task.pid)
+
+    def start_listen(self) -> dict:
+        """起一个常驻监听：录音 → 识别 → intents → /api/cmd（页面上的「语音识别」按钮）。"""
+        if self.listen is not None and self.listen.poll() is None:
+            return dict(ok=True, already=True, pid=self.listen.pid)
+        py = ROOT / "venv-vision" / "bin" / "python"
+        if not py.exists():
+            return dict(ok=False, error=f"找不到 {py}")
+        self.listen_out = ROOT / "data" / "web" / "listen.out"
+        self.listen_out.parent.mkdir(parents=True, exist_ok=True)
+        self.listen = subprocess.Popen(
+            [str(py), str(ROOT / "src" / "interact" / "bridge.py"), "--armed", "listen",
+             "--mic", "3", "--gesture", "--gesture-every", "2"],
+            cwd=ROOT, stdout=self.listen_out.open("w"), stderr=subprocess.STDOUT)
+        try:                                   # 提示音走控制台（I2C 的唯一持有者）
+            if self.console is not None:
+                self.console.request("/api/beep", {"ms": 150})
+        except Exception:
+            pass
+        try:
+            self.append(dict(t=time.time(), event="interaction", source="web", command="listen"))
+        except ValueError:
+            pass
+        return dict(ok=True, started=True, pid=self.listen.pid)
+
+    def stop_listen(self) -> bool:
+        p = self.listen
+        if p is None or p.poll() is not None:
+            return False
+        p.terminate()
+        try:
+            p.wait(timeout=8)
+        except Exception:
+            p.kill()
+        return True
+
+    def stop_task(self) -> bool:
+        p = self.task
+        if p is None or p.poll() is not None:
+            return False
+        p.terminate()
+        try:
+            p.wait(timeout=8)
+        except Exception:
+            p.kill()
+        return True
+
     def start_task(self, source: str = "web") -> dict:
         """启动一整轮分拣：W4 的输出端，也是 `start` 指令的实现。
 
@@ -563,11 +654,11 @@ class State:
         console = self.console
         if console is None:
             return dict(ok=False, error="未接控制台，没有可启动的任务执行侧")
+        if not self.console_sim():                 # 实机：直接跑已验证的 src/pipeline/run.py
+            return self._spawn_pipeline(source)
         try:
             reply = console.request("/api/sim/sort", dict(rounds=1))
         except ValueError as exc:
-            if "sim/sort" in str(exc) or "404" in str(exc):
-                return dict(ok=False, error="控制台没有任务启动入口（实机的任务启停待 H1-3）")
             return dict(ok=False, error=str(exc))
         try:
             self.append(dict(t=time.time(), event="interaction", source=source, command="start"))
@@ -585,6 +676,11 @@ class State:
                     t=None if attached else self.joints_t,
                     contract_version=L.VERSION, log=str(self.log_path), arm=arm,
                     replay=self.replay,
+                    listen=dict(running=bool(self.listen and self.listen.poll() is None),
+                                pid=self.listen.pid if self.listen else None),
+                    task=dict(running=bool(self.task and self.task.poll() is None),
+                              pid=self.task.pid if self.task else None,
+                              exit_code=self.task.poll() if self.task else None),
                     timer=self.timers.status() if self.timers else dict(enabled=False))
 
 
@@ -932,7 +1028,14 @@ class Handler(BaseHTTPRequestHandler):
 
         console = self.state.console
 
+        if cmd in ("listen", "listen_stop"):
+            if cmd == "listen":
+                r = self.state.start_listen()
+                return self._send(r) if r.get("ok") else self._fail(r.get("error"))
+            return self._send(dict(ok=True, stopped=self.state.stop_listen()))
+
         if cmd == "stop":
+            self.state.stop_task()
             self.state.append(dict(t=time.time(), event="stopped", reason=f"{source} 下发停止"))
             self.state.arm_off()                       # 同时放开操作权，不再续期
             if console is not None:
@@ -982,9 +1085,12 @@ class Handler(BaseHTTPRequestHandler):
 
         # 以下运动都要控制台（H1-3）。预设动作组的跳舞、搬运是一组动作，由硬件组提供，这里不假造。
         if cmd == "run_preset":
-            if body.get("preset") not in PRESETS:
+            preset = body.get("preset")
+            if preset not in PRESETS:
                 return self._fail(f"preset 应为 {'/'.join(PRESETS)}")
-            return self._fail(f"预设动作“{body.get('preset')}”尚未接入，待硬件组提供", status=501)
+            if not PRESET_SEQ.get(preset):
+                return self._fail(f"预设动作“{preset}”还没有写进 config/presets.json"
+                                  f"（dance 已有；stack / carry 待 H2-8）", status=501)
 
         if console is None:
             return self._fail(f"{cmd} 需要控制台执行侧，尚未接入（--console 指定仿真或实机）", status=501)
@@ -1001,6 +1107,17 @@ class Handler(BaseHTTPRequestHandler):
                     steps = console.set_joints(joints, status.get("pose"))
                 elif cmd == "move_to":
                     steps = console.move_to(target, status)
+                elif cmd == "run_preset":
+                    # 预设姿态里 null = 保持该轴当前回读（J5 腕转一次动 >20 度会被判成遇阻）
+                    steps = 0
+                    for key in PRESET_SEQ[preset]:
+                        st = console.status()
+                        now = st.get("pose") or []
+                        if len(now) != 6:
+                            raise ValueError("控制台还没有六轴回读，预设动作无法下发")
+                        target = [cur if v is None else int(v) for v, cur in zip(key["pose"], now)]
+                        steps += console.set_joints(target, now)
+                        time.sleep(float(key.get("hold_s") or 0.6))
                 else:
                     return self._fail(f"{cmd} 需要执行侧，本服务不代管运动", status=501)
                 self.state.console_status = console.status()

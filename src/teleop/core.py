@@ -101,6 +101,25 @@ class Controller:
         finally:
             self.io.release()
 
+    def set_rgb(self, r: int, g: int, b: int):
+        """灯带颜色。和蜂鸣器一样，I2C 只能由本进程驱动。"""
+        dev = getattr(self.arm, "dev", None)
+        if dev is None:
+            raise ValueError("这台设备没有灯带")
+        dev.Arm_RGB_set(max(0, min(255, int(r))), max(0, min(255, int(g))), max(0, min(255, int(b))))
+
+    def beep(self, ms: int = 120):
+        """响一声。I2C 由本进程独占，所以提示音必须从这里发，别的进程直接开 Arm_Device 会 I2C error。"""
+        dev = getattr(self.arm, "dev", None)
+        if dev is None:
+            raise ValueError("这台设备没有蜂鸣器")
+        ms = max(20, min(1000, int(ms)))
+        dev.Arm_Buzzer_On(1)
+        try:
+            time.sleep(ms / 1000.0)
+        finally:
+            dev.Arm_Buzzer_Off()
+
     def status(self):
         with self.gate:
             self.expire_profile()

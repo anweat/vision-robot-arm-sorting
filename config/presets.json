@@ -1,0 +1,15 @@
+{
+  "_status": "2026-11-19: conservative dance for the mid-term demo. J1-J4 move; J5 and J6 stay at their current readback (null) because J5 lags a >20 deg command and the console reads that lag as resistance (2026-11-19: expected 140, read 134 -> stopped). Every pose is inside the normal soft limits and returns to the observation pose, so a stop leaves the arm somewhere sane.",
+  "_note": "key = preset name used by the page and the voice mapping (dance/stack/carry). value = [{pose: [6 items, int or null], hold_s}]. null keeps that axis where it is. A preset missing here answers 501 with the reason instead of pretending.",
+  "dance": [
+    {"pose": [90, 105, 5, 5, null, null], "hold_s": 0.8},
+    {"pose": [70, 112, 8, 8, null, null], "hold_s": 1.4},
+    {"pose": [110, 112, 8, 8, null, null], "hold_s": 1.4},
+    {"pose": [90, 100, 12, 10, null, null], "hold_s": 1.2},
+    {"pose": [80, 118, 6, 6, null, null], "hold_s": 1.2},
+    {"pose": [105, 110, 8, 8, null, null], "hold_s": 1.2},
+    {"pose": [90, 105, 5, 5, null, null], "hold_s": 0.8}
+  ],
+  "stack": [],
+  "carry": []
+}

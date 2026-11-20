@@ -1,7 +1,7 @@
 // 装配：页签、事件流、状态推送。页面只依赖日志契约，实机与仿真共用同一套路径。
 
 import { Store } from "./store.js";
-import { LogFeed, StatusFeed, fetchLog, sendTimer, releaseControl, authUrl } from "./api.js";
+import { LogFeed, StatusFeed, fetchLog, fetchStatus, sendCmd, sendTimer, releaseControl, authUrl } from "./api.js";
 import { createLiveView } from "./live.js";
 import { createFaultsView } from "./faults.js";
 import { createControlView } from "./control.js";
@@ -180,3 +180,73 @@ fetch(authUrl("/api/health")).then((r) => r.json()).then((h) => {
 }).catch(() => { });
 window.addEventListener("resize", render);
 window.addEventListener("error", (e) => toast(e.message, "bad"));
+
+
+// 开始/停止分拣：实机走网关的 start（网关拉起 src/pipeline/run.py --bins）。
+// 扫描约 40 s 才有第一块的结果，所以按钮点了先给出“分拣中”，别让人以为没反应。
+const taskBar = document.getElementById("taskBar");
+if (taskBar) {
+  taskBar.hidden = false;
+  const startBtn = document.getElementById("taskStart");
+  const stopBtn = document.getElementById("taskStop");
+  const stateEl = document.getElementById("taskState");
+  const show = (s) => {
+    const t = (s && s.task) || {};
+    const running = !!t.running;
+    stateEl.textContent = running ? "分拣中…（扫描约 40 秒）" : (t.exit_code === null || t.exit_code === undefined ? "未启动" : `上一轮结束（exit ${t.exit_code}）`);
+    startBtn.disabled = running;
+  };
+  startBtn.addEventListener("click", async () => {
+    startBtn.disabled = true;
+    stateEl.textContent = "启动中…";
+    try {
+      await sendCmd("start");
+      toast("已开始分拣：先扫描约 40 秒", "good");
+    } catch (e) {
+      toast(e.message, "bad");
+      startBtn.disabled = false;
+      stateEl.textContent = "未启动";
+    }
+  });
+  stopBtn.addEventListener("click", async () => {
+    try {
+      await sendCmd("stop");
+      toast("已停止", "warn");
+    } catch (e) {
+      toast(e.message, "bad");
+    }
+  });
+  const pollTask = async () => {
+    try { show(await fetchStatus()); } catch (e) { /* 控制台离线时保持原样 */ }
+  };
+  const listenBtn = document.getElementById("listenBtn");
+  let listening = false;
+  const paintListen = () => {
+    listenBtn.textContent = listening ? "🎤 识别中…（点此停止）" : "🎤 语音识别";
+    listenBtn.classList.toggle("primary", listening);
+  };
+  listenBtn.addEventListener("click", async () => {
+    listenBtn.disabled = true;
+    try {
+      await sendCmd(listening ? "listen_stop" : "listen");
+      listening = !listening;
+      paintListen();
+      toast(listening ? "语音识别已开启：说“开始分拣 / 停止”，或比 like / ok" : "语音识别已停止", "good");
+    } catch (e) {
+      toast(e.message, "bad");
+    } finally {
+      listenBtn.disabled = false;
+    }
+  });
+  const syncListen = async () => {
+    try {
+      const st = await fetchStatus();
+      const on = !!(st.listen && st.listen.running);
+      if (on !== listening) { listening = on; paintListen(); }
+    } catch (e) { /* 离线时保持原样 */ }
+  };
+  syncListen();
+  setInterval(syncListen, 3000);
+  pollTask();
+  setInterval(pollTask, 2000);
+}

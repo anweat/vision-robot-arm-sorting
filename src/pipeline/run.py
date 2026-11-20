@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import random
 import sys
 import time
@@ -38,6 +39,14 @@ import scene as S  # noqa: E402
 import scramble as SCR  # noqa: E402
 import sort_blocks as SB  # noqa: E402
 from block_detector import hue_label  # noqa: E402
+
+sys.path.insert(0, str(ROOT / "src" / "adapters"))
+try:                                        # 声光只在板上有；没有 Arm_Lib 时静默降级
+    import feedback as FB
+    FEEDBACK = FB.Feedback()
+except Exception:                           # noqa: BLE001
+    FB, FEEDBACK = None, None
+
 
 COLOURS = ("red", "green", "blue", "yellow")
 DET_MERGE_CM = 2.5       # detections of one block from different views land within this on the mid plane
@@ -324,6 +333,26 @@ def use_registration(reg: dict) -> None:
               note="用的是标定值；差得这么多说明相机、地图或机械臂安装变了，该重新做触点标定")
 
 
+
+STALL_RE = __import__("re").compile(r"servo\s*(\d+)\s*:\s*expected\s*(-?\d+)\s*,\s*read\s*(-?\d+)")
+
+
+def log_stall(exc, where: str, **fields) -> None:
+    """控制台的"遇到阻力或偏差"就是 W6 的堵转判定；这里把它记成日志契约里的 stall 事件。
+
+    解析不到 servo/expected/read 时（例如别的原因导致停止）仍然记，只是数值填 None，
+    并把原文放进 reason，页面能显示到底是哪一步停的。
+    """
+    text = str(exc)
+    hit = STALL_RE.search(text)
+    joint = int(hit.group(1)) if hit else 0
+    expected = float(hit.group(2)) if hit else float("nan")
+    readback = float(hit.group(3)) if hit else float("nan")
+    G.log("stall", joint=joint, expected=expected, readback=readback, where=where, reason=text, **fields)
+    if FEEDBACK is not None:
+        FEEDBACK.fail()
+
+
 def plan_for(cube: dict, prefer: int = 150) -> dict | None:
     """The console_grasp plan for one cube, from the scan (no close look)."""
     bx, by = G.map_to_base(cube["map_cm"][0] / 100, cube["map_cm"][1] / 100)
@@ -413,6 +442,43 @@ def bin_drop_map_cm(b: B.Bin, slot: int) -> list[float]:
     return [round(float(x - G.DX) * 100, 2), round(float(y - G.DY) * 100, 2)]
 
 
+CAMERA_URL = os.environ.get("ARM_CAMERA", "http://127.0.0.1:8080/snapshot.jpg")
+GESTURE_GATE = os.environ.get("ARM_GESTURE_GATE", "1") != "0"
+# 平视姿态：pitch=90，指尖离桌 24 cm、前伸 29 cm（2026-11-19 实机验证，画面为水平视角）
+GESTURE_POSE = [int(v) for v in os.environ.get("ARM_GESTURE_POSE", "90,60,80,40").split(",")][:4]
+
+
+def wait_ok_gesture(timeout: float = 180.0, need: int = 3) -> bool:
+    """等操作员对腕部相机比 “ok”：连续 need 帧、置信度 >= 0.6 才算。
+
+    npu 上的手势模型每次调用都会加载一次模型，所以这里只在等待时循环，识别到就退出。
+    """
+    import gesture as GV
+
+    model = GV.Gesture(os.environ.get("ARM_GESTURE_DIR") or None)
+    seen, t0 = 0, time.time()
+    G.log("gesture_gate", state="waiting", timeout_s=timeout, need=need,
+          note="扫描完成：蓝灯+短鸣，等操作员比 ok 手势")
+    while time.time() - t0 < timeout:
+        frame = GV.grab(CAMERA_URL)
+        if frame is None:
+            time.sleep(0.15)
+            continue
+        r = model.classify(frame)
+        if r.get("label") == "ok" and float(r.get("confidence") or 0) >= 0.6:
+            seen += 1
+            if seen >= need:
+                G.log("gesture_gate", state="accepted", seconds=round(time.time() - t0, 1),
+                      note="识别到 ok 手势，开始抓取")
+                return True
+        elif seen:
+            seen = 0
+        time.sleep(0.12)
+    G.log("gesture_gate", state="timeout", seconds=round(time.time() - t0, 1),
+          note="没识别到 ok 手势，跳过等待直接开始（避免卡住整轮）")
+    return False
+
+
 def decide_bins(scene: dict) -> list[dict]:
     """Jobs for physical bins: a block inside a bin's opening is done (or in the wrong bin and left there:
     it cannot be taken out again), a detection on a bin's plate that is not in the opening is the plate's
@@ -453,6 +519,10 @@ def decide_bins(scene: dict) -> list[dict]:
                                                        f" ({holder.category}, but it is {c['category']}): left there")
         elif target is None:
             why = f"no bin for {c['category']}"
+        elif int((c.get("detector") or {}).get("views") or 0) < 3 and not c.get("sticker"):
+            # 幻影块：只被 1-2 个视角看到、也没有标签贴纸。真块通常 5-8 个视角都能看到。
+            why = (f"only {int((c.get('detector') or {}).get('views') or 0)} view(s) saw it and no sticker: "
+                   f"treated as scan noise")
         elif not reachable[target.number]:
             why = f"bin {target.number} cannot be reached at drop height"
         elif holding[target.number] >= len(BINS.slots[target.number]):
@@ -465,7 +535,12 @@ def decide_bins(scene: dict) -> list[dict]:
             why = f"{reach*100:.1f} cm from the base: no reachable grasp at pitch 130-170"
         elif c["coverage"] < 0.9:
             why = f"only {c['coverage']*100:.0f}% of it was in view; rescan with it nearer the middle"
-        jobs.append(dict(cube=c, bin=str(target.number) if target else None, skip=why))
+        jobs.append(dict(cube=c, bin=str(target.number) if target else None, skip=why,
+                         reach_m=round(reach, 4)))
+    # E5 就近优先：能做的按离基座的距离升序，做不了的（skip）排在最后，保持原有顺序
+    jobs.sort(key=lambda j: (j["skip"] is not None, j.get("reach_m") or 0.0))
+    G.log("pipeline_order", order=[round(j.get("reach_m") or 0.0, 3) for j in jobs if not j["skip"]],
+          note="E5：本轮抓取顺序，按离基座的距离升序（cm）")
     return jobs
 
 
@@ -531,29 +606,92 @@ def execute(run, scene: dict, jobs: list[dict], sess, rng=None) -> dict:
                       reason=f"bin {n} is full ({BINS.given[n]} blocks)")
                 counts["skipped"] += 1
                 return False
-        plan = plan_for(j["cube"])
-        if plan is None:
+        started = time.time()
+
+        def one_attempt(cube):
+            """规划 + 接近 + 合爪；返回 (ok|no_plan|approach_failed|missed, 原因)。"""
+            plan = plan_for(cube)
+            if plan is None:
+                return "no_plan", None
+            G.PLAN.write_text(json.dumps(plan, indent=1, ensure_ascii=False))
+            try:
+                G.hover(sess)
+            except G.ConsoleError as e:
+                # resistance on the way in: one block's approach failing must not end the round, and the arm
+                # may have stopped somewhere the next approach could not plan a path out of
+                if "阻力" in str(e):
+                    log_stall(e, "hover", cube=cube["map_cm"], category=cube["category"])
+                return "approach_failed", e
+            try:
+                G.grasp(sess)
+            except G.GripMissed as e:
+                return "missed", e
+            return "ok", None
+
+        status, err = one_attempt(j["cube"])
+
+        if status == "missed":
+            # S5 空爪重试：退开 → 重扫 → 3 cm 内同类找回 → 重规划 → 再抓一次（仍失败才记 missed）
+            G.log("pipeline_retry", cube=j["cube"]["map_cm"], category=j["cube"]["category"],
+                  attempt=1, reason=f"空爪，退回后重扫找回：{err}")
+            if FEEDBACK is not None:
+                FEEDBACK.warn()
+            for _ in range(2):                 # 先抬 2 cm，避免“退观察位”的路径擦到桶的禁入区
+                try:
+                    sess.cart("z", 1)
+                except Exception:
+                    break
+            try:
+                G.back_off(sess)
+            except Exception as exc:           # 退不回去也不能把整轮带崩
+                G.log("pipeline_retry_failed", cube=j["cube"]["map_cm"],
+                      reason=f"退回观察位被挡：{exc}")
+                counts["missed"] += 1
+                if FEEDBACK is not None:
+                    FEEDBACK.fail()
+                G.log("pipeline_missed", cube=j["cube"]["map_cm"], category=j["cube"]["category"],
+                      reason=str(exc), seconds=round(time.time() - started))
+                return False
+            found = None
+            try:
+                import field_scan as SC          # 这版 run.py 把它放在函数里导入
+                run2 = Path(run) / f"retry_{time.strftime('%H%M%S')}"
+                SC.scan(run=run2, session=sess)
+                scene2 = build_scene(run2)
+                here = j["cube"]["map_cm"]
+                for c in scene2["cubes"]:
+                    d = math.hypot(c["map_cm"][0] - here[0], c["map_cm"][1] - here[1])
+                    if d <= 3.0 and (c["category"] or None) == (j["cube"]["category"] or None):
+                        if found is None or d < found[0]:
+                            found = (d, c)
+            except Exception as e:                     # 重扫失败不能把整轮带崩
+                G.log("pipeline_retry_failed", cube=j["cube"]["map_cm"], reason=str(e))
+            if found is None:
+                G.log("pipeline_retry_failed", cube=j["cube"]["map_cm"],
+                      reason="重扫没找回这一块（3 cm 内同类没有）")
+            else:
+                j["cube"] = found[1]
+                by_cube[id(found[1])] = dict(map_cm=list(found[1]["map_cm"]), cube=found[1])
+                G.log("pipeline_retry", cube=j["cube"]["map_cm"], category=j["cube"]["category"],
+                      attempt=1, reason=f"重扫找回，距原坐标 {found[0]:.1f} cm")
+                status, err = one_attempt(j["cube"])
+
+        if status == "no_plan":
             counts["skipped"] += 1
             G.log("pipeline_skip", cube=j["cube"]["map_cm"], category=j["cube"]["category"],
                   reason="no reachable grasp")
             return False
-        G.PLAN.write_text(json.dumps(plan, indent=1, ensure_ascii=False))
-        started = time.time()
-        try:
-            G.hover(sess)
-        except G.ConsoleError as e:
-            # resistance on the way in: one block's approach failing must not end the round, and the arm
-            # may have stopped somewhere the next approach could not plan a path out of
+        if status == "approach_failed":
             counts["skipped"] += 1
             G.log("pipeline_approach_failed", cube=j["cube"]["map_cm"], category=j["cube"]["category"],
-                  reason=str(e), seconds=round(time.time() - started))
+                  reason=str(err), seconds=round(time.time() - started))
             G.back_off(sess)
             return False
-        try:
-            G.grasp(sess)
-        except G.GripMissed as e:
+        if status == "missed":
             counts["missed"] += 1
-            G.log("pipeline_missed", cube=j["cube"]["map_cm"], category=j["cube"]["category"], reason=str(e),
+            if FEEDBACK is not None:
+                FEEDBACK.fail()
+            G.log("pipeline_missed", cube=j["cube"]["map_cm"], category=j["cube"]["category"], reason=str(err),
                   seconds=round(time.time() - started))
             return False
         try:
@@ -570,6 +708,8 @@ def execute(run, scene: dict, jobs: list[dict], sess, rng=None) -> dict:
                 where = G.release_safely(sess)
             except G.ConsoleError as back:
                 raise SCR.StillHolding(f"放不下也放不回，机械臂还夹着这一块：{back}") from back
+            if "阻力" in str(e):
+                log_stall(e, "put", cube=j["cube"]["map_cm"], bin=bin_or_marker)
             counts["skipped"] += 1
             G.log("pipeline_put_failed", cube=j["cube"]["map_cm"], bin=bin_or_marker,
                   category=j["cube"]["category"], reason=str(e), released=where)
@@ -587,6 +727,8 @@ def execute(run, scene: dict, jobs: list[dict], sess, rng=None) -> dict:
               cube=j["cube"]["map_cm"], bin=bin_or_marker, category=j["cube"]["category"],
               source=j["cube"]["source"], seconds=round(time.time() - started), **extra)
         counts["sorted" if why == "sort" else "cleared"] += 1
+        if FEEDBACK is not None and why == "sort":
+            FEEDBACK.ok()
         return True
 
     while pending:
@@ -666,6 +808,22 @@ def main() -> None:
                 SC.scan_bins(run, sess, args.bins, only)
             use_bins(locate_bins(run, args.bins, only))
         scene = build_scene(run)
+        if GESTURE_GATE and not args.dry_run:
+            # 先抬到平视：观察位 pitch≈155 是俯视，操作员的手在画面外；这个姿态 pitch=90，
+            # 腕部相机正对前方，抬手比 ok 才能进画面。
+            try:
+                G.move_to(sess, GESTURE_POSE, 92)
+                G.log("gesture_gate", state="raised", pose=GESTURE_POSE,
+                      note="已抬到平视姿态，等操作员比 ok")
+            except Exception as exc:                 # noqa: BLE001
+                G.log("gesture_gate", state="raise_failed", reason=str(exc))
+            if FEEDBACK is not None:
+                FEEDBACK.ready()                     # 蓝灯 + 短鸣：该你比 ok 了
+            wait_ok_gesture()
+            try:
+                G.move_to(sess, G.OBSERVE, 92)       # 回到抓取起点
+            except Exception as exc:                 # noqa: BLE001
+                G.log("gesture_gate", state="return_failed", reason=str(exc))
         use_registration(scene["registration"])
         if not args.dry_run:
             scene = refine(run, scene, sess)

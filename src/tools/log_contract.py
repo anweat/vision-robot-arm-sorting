@@ -74,8 +74,9 @@ EVENTS: dict[str, dict] = {
                          required=dict(mode="str", source="str"), optional=dict(previous="str")),
     "unknown_object": dict(status="planned", meaning="发现不属于四类的物体，不抓取（E6）",
                            required=dict(cube="xy", image="str"), optional=dict(votes="obj")),
-    "stall": dict(status="planned", meaning="舵机堵转，已停止后续指令（W6）",
-                  required=dict(joint="int", expected="num", readback="num"), optional=dict(pose="pose")),
+    "stall": dict(status="stable", meaning="舵机堵转/遇阻，已停止后续指令（W6）",
+                  required=dict(joint="int", expected="num", readback="num"),
+                  optional=dict(pose="pose", where="str", reason="str")),
 }
 RECORD_RESULTS = ("sorted", "missed", "skipped", "failed", "cleared")
 MODES = ("manual", "preset", "auto")
