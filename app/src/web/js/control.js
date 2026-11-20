@@ -41,6 +41,13 @@ export function createControlView(root) {
         <button data-grip="wide">张到最大</button>
         <span class="dim" id="gripState">—</span>
       </div>
+      <div class="row">
+        <span class="dim">声光</span>
+        <button data-led="green">绿</button><button data-led="yellow">黄</button><button data-led="red">红</button>
+        <button data-led="blue">蓝</button><button data-led="off">灭</button>
+        <button data-beep="120">短鸣</button><button data-beep="400">长鸣</button>
+        <span class="dim" id="ledState">—</span>
+      </div>
       <p class="hint" id="opHint"></p>
     </section>
     <section class="panel">
@@ -87,7 +94,12 @@ export function createControlView(root) {
       </div>
     </section>
     <section class="panel needs-debug">
-      <h2>语音与手势（扩展） <small>走控制台的 /api/interact：武装、连续帧、阈值与三态结果都由执行侧判定</small></h2>
+      <h2>语音与手势（扩展） <small>网关的 /api/interact：武装、连续帧、阈值、冷却与三态结果都由网关的规则判定</small></h2>
+      <div class="row">
+        <label class="dim"><input id="listenOn" type="checkbox"> 识别端监听（板上腕部相机逐帧手势；要 hrnet.om 与 ais_bench）</label>
+        <label class="dim"><input id="listenVoice" type="checkbox"> 同时录音识别（板上音频输入未确认）</label>
+        <span class="dim" id="listenState">—</span>
+      </div>
       <div class="row">
         <label class="dim"><input id="interactArmed" type="checkbox"> 武装（除“停止”外都要先武装）</label>
         <span class="dim" id="interactState">—</span>
@@ -211,6 +223,9 @@ export function createControlView(root) {
   };
 
   const paintState = (state) => {
+    const l = state.listen ?? {};
+    $("listenOn").checked = !!l.running;
+    $("listenState").textContent = l.running ? "监听中" : l.exit_code ? `已退出（${l.exit_code}）：${(l.output ?? []).at(-1) ?? ""}` : "未开";
     armedBox.checked = !!state.armed;
     interactState.textContent = state.armed ? "已武装" : "未武装（只有“停止”能直接执行）";
     // 用 textContent 逐条建 li：识别文本是外部输入，不进 innerHTML
@@ -253,6 +268,21 @@ export function createControlView(root) {
 
   refreshInteract();
   setInterval(refreshInteract, 3000);
+
+  // 识别端子进程：开 / 关；状态与最后几行输出来自 /api/interact 的 listen 段
+  const listenOn = $("listenOn"), listenVoice = $("listenVoice");
+  listenOn.addEventListener("change", async () => {
+    try {
+      await sendCmd("listen", { on: listenOn.checked, voice: listenVoice.checked });
+      toast(listenOn.checked ? "识别端已启动" : "识别端已停止", "good");
+    } catch (e) { toast(e.message, "bad"); listenOn.checked = !listenOn.checked; }
+  });
+
+  // 声光：经网关转控制台（I2C 由控制台独占）
+  root.querySelectorAll("button[data-led]").forEach((b) => b.addEventListener("click", () =>
+    cmd({ cmd: "led", colour: b.dataset.led }, `灯：${b.textContent}`)));
+  root.querySelectorAll("button[data-beep]").forEach((b) => b.addEventListener("click", () =>
+    cmd({ cmd: "beep", ms: +b.dataset.beep }, b.textContent)));
 
   function applyPose(pose) {
     pose.forEach((v, i) => { if (v != null) setJoint(i, v); });
@@ -304,6 +334,8 @@ export function createControlView(root) {
         speedRange.min = sp.min; speedRange.max = sp.max; speedRange.value = sp.value;
         $("speedValue").textContent = `${Math.round(sp.value)}°/s`;
       }
+      const led = arm.signal?.led;
+      $("ledState").textContent = !arm.attached ? "—" : led ? `当前 ${led.colour ?? led.rgb.join(",")}` : "未设置";
       $("gripState").textContent = !arm.attached ? "—"
         : `${arm.grip_action ?? "—"} · 回读 ${arm.grip_readback ?? "—"}° · ` +
           `${arm.holding ? "夹住" : arm.grip_result === "empty" ? "夹空" : arm.grip_result ?? "—"}`;

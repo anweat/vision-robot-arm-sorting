@@ -18,14 +18,14 @@
     GET  /api/status                          当前模式与角度
     GET  /api/status/stream                   ≥ 2 Hz 角度推送（SSE）
     POST /api/cmd                             需求规格 ④ 的控制指令
-    GET  /api/interact                        语音/手势状态（武装、词表、阈值、最近识别）
-    POST /api/interact/{arm,voice,gesture}    E1/E7 语音手势：代理到控制台，识别与判定都在那边
+    GET  /api/interact                        语音/手势状态（武装、词表、阈值、最近识别、监听进程）
+    POST /api/interact/{arm,voice,gesture}    E1/E7：识别端（src/interact/bridge.py）报来的一句话 / 一帧
     GET  /api/health                          健康检查
 
-语音/手势**只有一份实现**：控制台的 /api/interact/*。武装、连续帧、阈值、冷却与
-accepted/ignored/rejected 三态由 src/interact/intents.py 判定（口径见 25-语音手势接口.md），
-本服务只做代理，不自己识别、也不自己写 interaction 事件。控制台没这组端点（实机）时按 501
-返回原因，不假装识别出了什么。
+语音/手势的判定**只有一份**：本服务持有的 src/interact/intents.py（武装、连续帧、阈值、冷却、
+accepted/ignored/rejected 三态，口径见 25-语音手势接口.md）。受理的指令由本服务执行（开始、停止、
+夹爪、预设动作）并写 interaction 事件；流程脚本的「等手势」也读这里的识别记录。实机控制台没有
+这组端点（2026-11-20 起不再代理），仿真控制台自己那一份只给它的独立页面用。
 
 实机接入前用 --replay 回放样例日志：页面、事件名、字段与实机相同，可以先验收
 “条数一致、延迟 ≤ 1 s”。运动类指令需要控制台，未接控制台时按 501 返回，不假装执行。
@@ -35,6 +35,7 @@ from __future__ import annotations
 import argparse
 import datetime
 import json
+import os
 import secrets
 import shlex
 import subprocess
@@ -51,17 +52,19 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src" / "tools"))
 sys.path.insert(0, str(ROOT / "src"))
 import log_contract as L  # noqa: E402
+sys.path.insert(0, str(ROOT / "src" / "interact"))
+import intents as I  # noqa: E402
 from flow import script as FS  # noqa: E402   纯标准库：校验与存储，不导入 numpy
 from flow.capabilities import catalog as capability_catalog  # noqa: E402
 
 WEB = Path(__file__).resolve().parent
 
 MODES = ("manual", "preset", "auto")
-PRESETS = ("dance", "stack", "carry")
+PRESETS = ("dance", "stack", "carry")   # 预设动作 = config/flows/<名字>.yaml 流程脚本（dance 已有）
 SOURCES = ("web", "mobile", "voice", "gesture", "timer", "button")
 CMDS = ("start", "stop", "set_mode", "run_preset", "set_joints", "move_to", "unlock_bin",
         "enable", "gripper", "heartbeat", "takeover", "speed", "drive", "goto", "flow_step", "alarm_ack", "release",
-        "run_script")
+        "run_script", "listen", "led", "beep")
 FLOW_STEPS = ("scan", "relocate", "plan", "grasp", "check", "retry", "back_off", "place", "verify", "home")
 FLOW_SCRIPT = "config/flows/sort.yaml"
 MOTION_CMDS = ("start", "run_preset", "set_joints", "move_to", "unlock_bin", "gripper", "drive", "goto")
@@ -451,6 +454,11 @@ class State:
         # 流程脚本：config/flows 随应用发布（只读），data/flows 是各端保存的（文档 35）
         self.scripts = FS.Store(ROOT / "config" / "flows", ROOT / "data" / "flows")
         self.lock = threading.Lock()
+        self.base_url = "http://127.0.0.1:8080"  # 本服务自己的地址（main 里按端口改）：编排器、识别端回连用
+        # 语音/手势的判定（唯一一份）：受理的指令由 run_command 执行
+        self.interaction = I.Interaction(execute=self.run_command, pass_source=True)
+        self.listener = None                     # 识别端子进程（src/interact/bridge.py listen）
+        self.listener_out: Path | None = None
 
     def console_sim(self) -> bool:
         """控制台是不是仿真。
@@ -566,9 +574,10 @@ class State:
             error_text=status.get("error") or "",
             blocks=sim.get("blocks"), holding_block=sim.get("holding"),
             limits=status.get("limits"),
+            signal=status.get("signal"),
         )
 
-    def _spawn_flow(self, args: list[str], source: str, command: str, script: str = "flow") -> dict:
+    def _spawn_flow(self, args: list[str], source: str, command: str, script: str = "flow", log: bool = True) -> dict:
         """Run the task executor against the console as a child process: src/flow/orchestrator.py
         (文档 32 §3), or with script="pipeline" src/pipeline/task.py（已验证的旧流水线，文档 34 §4.2）。
 
@@ -592,15 +601,17 @@ class State:
                    "--console", console.base, "--really", "--log", str(self.log_path)]
         self.flow_out = ROOT / "data" / "flow" / "gateway_last.out"
         self.flow_out.parent.mkdir(parents=True, exist_ok=True)
-        self.flow = subprocess.Popen(cmd, cwd=ROOT, stdout=self.flow_out.open("w"), stderr=subprocess.STDOUT)
+        env = dict(os.environ, ARM_GATEWAY=self.base_url, ARM_GATEWAY_TOKEN=self.token or "")
+        self.flow = subprocess.Popen(cmd, cwd=ROOT, env=env, stdout=self.flow_out.open("w"), stderr=subprocess.STDOUT)
         self.flow_script = {"flow": "sort", "pipeline": None, "step": None}.get(script, script)
-        try:
-            self.append(dict(t=time.time(), event="interaction", source=source, command=command))
-        except ValueError:
-            pass
+        if log:                                  # 语音/手势触发的由 intents 的事件记（带 confidence / detail）
+            try:
+                self.append(dict(t=time.time(), event="interaction", source=source, command=command))
+            except ValueError:
+                pass
         return dict(ok=True, started=True, pid=self.flow.pid, args=args, task=script)
 
-    def start_task(self, source: str = "web") -> dict:
+    def start_task(self, source: str = "web", log: bool = True) -> dict:
         """启动一整轮分拣（按钮、语音、手势、定时都走这里）：默认 `--task pipeline` 跑已在实机验证的
         旧流水线（src/pipeline/task.py → run.py）；`--task flow` 按 config/flows/sort.yaml 跑分步编排器
         （新规划器对实机扫描太保守，文档 34 §4.2，优化前只作试验）。
@@ -608,10 +619,10 @@ class State:
         if source not in ("web", "mobile", "button") and self.alarms():
             return dict(ok=False, error="有未确认的报警，先在页面上点“知道了”")
         if self.task == "pipeline":
-            return self._spawn_flow(list(self.pipeline_args), source, "start", script="pipeline")
-        return self._spawn_flow(["--script", FLOW_SCRIPT], source, "start")
+            return self._spawn_flow(list(self.pipeline_args), source, "start", script="pipeline", log=log)
+        return self._spawn_flow(["--script", FLOW_SCRIPT], source, "start", log=log)
 
-    def run_script(self, name: str, source: str = "web") -> dict:
+    def run_script(self, name: str, source: str = "web", log: bool = True) -> dict:
         """按名字跑一份流程脚本（内置或各端保存的）。先在这里查一遍：有错误、用到板上还没有的能力，
         直接拒绝并给原因，不起子进程（编排器自己在动臂前也会再查一次）。"""
         if source not in ("web", "mobile", "button") and self.alarms():
@@ -624,7 +635,102 @@ class State:
             return dict(ok=False, error="脚本有错误：" + c["errors"][0]["message"])
         if c["unavailable"]:
             return dict(ok=False, error="脚本用到了还不可用的能力：" + "、".join(c["unavailable"]) + "（见能力表）")
-        return self._spawn_flow(["--script", got["path"]], source, f"script:{name}", script=name)
+        return self._spawn_flow(["--script", got["path"]], source, f"script:{name}", script=name, log=log)
+
+    # ---- 语音 / 手势 ---------------------------------------------------------------------------------
+    def stop_all(self, source: str) -> None:
+        """停止：写 stopped、放开操作权、停流程、停控制台。页面、语音、手势都走这里。"""
+        self.append(dict(t=time.time(), event="stopped", reason=f"{source} 下发停止"))
+        self.arm_off()
+        self.stop_flow()
+        if self.console is not None:
+            try:
+                self.console.stop()
+            except ValueError:
+                pass
+
+    def run_command(self, command: str, preset: str | None, source: str = "voice") -> str:
+        """intents 受理的一条语音/手势指令：在这里执行；做不了就抛 ValueError / NotImplementedError，原因回给识别端。"""
+        if command == "stop":
+            self.stop_all(source)
+            return "已停止"
+        if command == "start":
+            r = self.start_task(source=source, log=False)
+            if not r.get("ok"):
+                raise ValueError(r.get("error") or "启动失败")
+            return "已启动一整轮分拣"
+        if command == "run_preset":
+            if preset not in PRESETS or self.scripts.get(preset) is None:
+                raise NotImplementedError(f"预设动作“{preset}”还没有写成流程脚本（config/flows/{preset}.yaml）")
+            r = self.run_script(preset, source=source, log=False)
+            if not r.get("ok"):
+                raise ValueError(r.get("error") or "启动失败")
+            return f"已开始预设动作 {preset}"
+        if command == "gripper":
+            if self.console is None:
+                raise ValueError("未接控制台")
+            if self.flow and self.flow.poll() is None:
+                raise ValueError("流程正在运行，夹爪交给流程")
+            if not self.motion_lock.acquire(blocking=False):
+                raise ValueError("上一条运动指令还在执行")
+            try:
+                self.console.enable()
+                self.console.gripper(preset)
+            finally:
+                self.motion_lock.release()
+                try:
+                    self.console.stop()
+                except ValueError:
+                    pass
+            return f"夹爪 {preset}"
+        raise ValueError(f"未知指令 {command}")
+
+    def start_listener(self, voice: bool = False) -> dict:
+        """识别端常驻进程（src/interact/bridge.py listen）：腕部相机逐帧手势（可选录音识别），结果回报本服务。"""
+        if self.listener and self.listener.poll() is None:
+            return dict(ok=True, already=True, pid=self.listener.pid)
+        cmd = [*self.flow_python, str(ROOT / "src" / "interact" / "bridge.py"), "--gateway", self.base_url,
+               *(["--token", self.token] if self.token else []), "listen", *(["--voice"] if voice else [])]
+        self.listener_out = ROOT / "data" / "web" / "listen.out"
+        self.listener_out.parent.mkdir(parents=True, exist_ok=True)
+        self.listener = subprocess.Popen(cmd, cwd=ROOT, stdout=self.listener_out.open("w"), stderr=subprocess.STDOUT)
+        return dict(ok=True, started=True, pid=self.listener.pid, voice=voice)
+
+    def stop_listener(self) -> bool:
+        p = self.listener
+        if p is None or p.poll() is not None:
+            return False
+        p.terminate()
+        try:
+            p.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            p.kill()
+        return True
+
+    def listener_state(self) -> dict:
+        p = self.listener
+        tail: list[str] = []
+        if self.listener_out is not None:
+            try:
+                tail = [ln[:300] for ln in self.listener_out.read_text(encoding="utf-8", errors="replace").splitlines()[-6:]]
+            except OSError:
+                pass
+        return dict(running=bool(p and p.poll() is None), exit_code=None if p is None else p.poll(), output=tail)
+
+    def interact(self, path: str, body: dict) -> dict:
+        it = self.interaction
+        if path == "/api/interact/arm":
+            result = it.arm(body.get("armed") is True)
+        elif path == "/api/interact/voice":
+            result = it.voice(body.get("text"))
+        elif path == "/api/interact/gesture":
+            result = it.gesture(body.get("label"), body.get("confidence"))
+        else:
+            raise KeyError(path)
+        event = result.pop("event", None)
+        if event:
+            self.append(event)
+        return result
 
     def run_step(self, step: str, block: str | None, session: str | None, source: str = "web") -> dict:
         """单独执行一步（文档 32 §2）：不给 session 时用最近一次流程的会话目录。"""
@@ -723,7 +829,7 @@ class State:
                     joints_deg=None if attached else self.joints,
                     t=None if attached else self.joints_t,
                     contract_version=L.VERSION, log=str(self.log_path), arm=arm,
-                    replay=self.replay, flow=self.flow_state(),
+                    replay=self.replay, flow=self.flow_state(), listen=self.listener_state(),
                     timer=self.timers.status() if self.timers else dict(enabled=False))
 
 
@@ -806,23 +912,16 @@ class Handler(BaseHTTPRequestHandler):
         return self._send(dict(ok=True, timer=timer, **timers.status()))
 
     def _interact(self, path: str, body: dict | None = None):
-        """语音/手势：整条链交给控制台，本服务只做代理（鉴权、token、换目标）。
-
-        识别、武装开关、连续帧、阈值、冷却、accepted/ignored/rejected 三态全部由控制台的
-        src/interact/intents.py 决定，口径见 25-语音手势接口.md。本服务不重复实现，也不自己写
-        interaction 事件——控制台受理后自己记，避免同一件事记两条或漏记。
-        """
-        console = self.state.console
-        if console is None:
-            return self._fail("未接控制台：语音/手势要控制台的识别与执行侧", status=501)
+        """语音/手势：判定在本服务的 intents（见文件头）。GET 给状态与最近识别，POST 一句话 / 一帧。"""
+        st = self.state
+        if body is None:
+            return self._send(dict(st.interaction.describe(), listen=st.listener_state()))
         try:
-            return self._send(console.request(path, body))
-        except ConsoleError as exc:
-            # 实机控制台没有这组端点、或板上模型没部署：把原因原样给页面，不伪装成功
-            status = 501 if exc.status == 404 else (exc.status or 502)
-            if status not in (400, 409, 501, 502, 503):
-                status = 502
-            return self._fail(str(exc), status=status)
+            return self._send(st.interact(path, body))
+        except KeyError:
+            return self._fail("没有这个接口", status=404)
+        except ValueError as exc:                # 输入不合法（label 不在四类、confidence 不在 0–1）
+            return self._fail(str(exc), status=409)
 
     def _fail(self, message, status=400, **extra):
         self._send(dict(ok=False, error=message,
@@ -1123,17 +1222,25 @@ class Handler(BaseHTTPRequestHandler):
 
         console = self.state.console
 
-        if cmd == "stop":
-            self.state.append(dict(t=time.time(), event="stopped", reason=f"{source} 下发停止"))
-            self.state.arm_off()                       # 同时放开操作权，不再续期
-            self.state.stop_flow()                     # 正在跑的流程（编排器子进程）一并停
-            if console is not None:
-                # 控制台未使能时解除操作权没有意义，事件照写，不把这种拒绝当成失败
-                try:
-                    console.stop()
-                except ValueError:
-                    pass
+        if cmd == "stop":                              # 写 stopped、放开操作权、停流程、停控制台
+            self.state.stop_all(source)
             return self._send(dict(ok=True, stopped=True, via_console=console is not None))
+
+        if cmd == "listen":                            # 识别端开关：{on: true/false, voice: false}
+            if body.get("on") is False:
+                return self._send(dict(ok=True, stopped=self.state.stop_listener()))
+            return self._send(self.state.start_listener(voice=body.get("voice") is True))
+
+        if cmd in ("led", "beep"):                     # 声光：控制台独占 I2C，经它的 /api/led、/api/beep
+            if console is None:
+                return self._fail("未接控制台，没有灯和蜂鸣器", status=501)
+            try:
+                reply = console.request("/api/led" if cmd == "led" else "/api/beep",
+                                        dict(owner=console.owner, colour=body.get("colour")) if cmd == "led"
+                                        else dict(owner=console.owner, ms=body.get("ms", 120)))
+            except ValueError as exc:
+                return self._fail(str(exc), status=409)
+            return self._send(dict(ok=True, **{k: v for k, v in reply.items() if k in ("led", "beep")}))
 
         if cmd == "start":
             result = self.state.start_task(source=source)
@@ -1222,10 +1329,14 @@ class Handler(BaseHTTPRequestHandler):
                                    result=grip.get("result"), readback=grip.get("readback")))
 
         # 以下运动都要控制台（H1-3）。预设动作组的跳舞、搬运是一组动作，由硬件组提供，这里不假造。
-        if cmd == "run_preset":
-            if body.get("preset") not in PRESETS:
+        if cmd == "run_preset":                        # 预设动作就是同名的流程脚本（dance.yaml）
+            preset = body.get("preset")
+            if preset not in PRESETS:
                 return self._fail(f"preset 应为 {'/'.join(PRESETS)}")
-            return self._fail(f"预设动作“{body.get('preset')}”尚未接入，待硬件组提供", status=501)
+            if self.state.scripts.get(preset) is None:
+                return self._fail(f"预设动作“{preset}”还没有写成流程脚本（config/flows/{preset}.yaml）", status=501)
+            result = self.state.run_script(preset, source=source)
+            return self._send(result) if result.get("ok") else self._fail(result.get("error"), status=409)
 
         if console is None:
             return self._fail(f"{cmd} 需要控制台执行侧，尚未接入（--console 指定仿真或实机）", status=501)
@@ -1310,6 +1421,7 @@ def main(argv=None) -> int:
                   scene_json=ROOT / args.scene_json if args.scene_json else None,
                   scene_image=ROOT / args.scene_image if args.scene_image else None,
 )
+    state.base_url = f"http://127.0.0.1:{args.port}"
     if args.flow_python:
         state.flow_python = shlex.split(args.flow_python)
     state.task = args.task

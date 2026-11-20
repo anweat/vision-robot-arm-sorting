@@ -154,6 +154,7 @@ def locate(sess: FlowSession, scan_dir: str | Path | None = None, bins_design: s
             yaw_deg=round(cube.get("yaw_deg", 0.0) + math.degrees(yaw), 2), size_m=[PC.BLOCK] * 3,
             sigma_xy_m=round(sigma, 4), sigma_yaw_deg=float(t.errors["target_yaw_deg"]),
             score=cube.get("score"), colour=cube.get("colour"), sticker=cube.get("sticker"),
+            views=(cube.get("detector") or {}).get("views"),
             map_cm=cube["map_cm"], source=cube.get("found_by") or cube.get("source")))
     if bins_design:
         found = R.locate_bins(run_dir, bins_design)
@@ -183,6 +184,8 @@ def build_map(sess: FlowSession, located=None, extra_boxes: Sequence[dict] = (),
     loc = load_json(located) if located is not None else sess.load("located.json")
     m = CollisionMap.empty(cell_m=cell_m or float(t.map.get("cell_m", 0.0025)), table_z_m=t.table_z)
     for o in loc["objects"]:
+        if o.get("noise"):                 # a scan-noise detection (steps.scan min_views): not an obstacle either
+            continue
         meta = {k: v for k, v in o.items() if k in ("id", "name", "kind", "class", "centre_m", "size_m", "yaw_deg",
                                                     "sigma_xy_m", "sigma_yaw_deg", "design")}
         cx, cy = o["centre_m"]

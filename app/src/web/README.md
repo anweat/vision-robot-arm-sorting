@@ -133,9 +133,10 @@ python3 tests/test_w2_acceptance.py --out w2.txt
 | `GET /api/blocks` | 桌上物块的基座坐标、类别、颜色，外加禁入区尺寸（厘米）；执行侧没有这一层时 `blocks` 为空数组 |
 | `GET /api/archive` | E6 未知物体告警列表（从日志里筛 `unknown_object`） |
 | `GET /api/archive/<name>` | 存档图片。名字来自事件的 `image` 字段，按目录边界校验后才读 |
-| `POST /api/cmd` | 需求规格 ④：`start` `stop` `set_mode` `run_preset` `set_joints` `move_to` `unlock_bin`，另加 `enable` `gripper` `goto` `speed` `flow_step` `run_script` `alarm_ack` |
+| `POST /api/cmd` | 需求规格 ④：`start` `stop` `set_mode` `run_preset` `set_joints` `move_to` `unlock_bin`，另加 `enable` `gripper` `goto` `speed` `flow_step` `run_script` `alarm_ack` `listen` `led` `beep`；`run_preset` 跑同名流程脚本 |
 | `GET /api/scripts` `/api/scripts/capabilities` `/api/scripts/<name>` | 流程脚本库、能力表、单份脚本（含校验结果），见文档 35 §4 |
 | `POST /api/scripts/check` `/save` `/delete` | 校验 / 保存（带 `rev` 乐观并发，冲突 409）/ 删除；保存删除写 `script_changed` |
+| `GET /api/interact` `POST /api/interact/{arm,voice,gesture}` | 语音/手势：判定在本服务（`intents.py`），受理的指令本服务执行；识别端 `src/interact/bridge.py`（`cmd: listen` 开关）。见文档 35 §9 |
 | `GET /api/health` | 健康检查，含 `console` / `console_ready` / `console_error` |
 
 `/api/cmd` 校验字段并写日志：`set_mode` 直接生效并写 `mode_changed`，`stop` 写 `stopped`；

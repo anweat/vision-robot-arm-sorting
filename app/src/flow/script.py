@@ -174,6 +174,10 @@ def _param_problem(value, spec: dict) -> str | None:
         if (lo is not None and value < lo) or (hi is not None and value > hi):
             return f"应在 {lo}–{hi}{spec.get('unit', '')}"
         return None
+    if t == "pose":
+        ok = isinstance(value, list) and len(value) == 6 and all(
+            v is None or (_num(v) and 0 <= v <= 270) for v in value) and any(v is not None for v in value)
+        return None if ok else "应为 6 个角度（0–270 度，null 表示不动，至少一个不是 null）"
     if t == "bool":
         return None if isinstance(value, bool) else "应为 true / false"
     if t == "str":

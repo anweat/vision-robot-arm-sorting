@@ -39,7 +39,7 @@ class CheckTest(unittest.TestCase):
             self.assertTrue(c["ok"], (p.name, c["errors"]))
         c = FS.check_text((ROOT / "config" / "flows" / "ready_signal.yaml").read_text(encoding="utf-8"))
         self.assertFalse(c["runnable"])
-        self.assertEqual(c["unavailable"], ["buzzer", "led", "say"])
+        self.assertEqual(c["unavailable"], ["say"])
 
     def test_problems_point_at_their_line(self):
         c = FS.check(dict(steps=[dict(step="scan"),
@@ -111,8 +111,11 @@ class Arm:
     def __init__(self, gestures=()):
         self.calls, self.gestures = [], list(gestures)
 
-    def goto(self, named):
-        self.calls.append(("goto", named))
+    def goto(self, named=None, pose=None):
+        self.calls.append(("goto", named or pose))
+
+    def signal(self, path, body):
+        self.calls.append((path, body))
 
     def gripper(self, action, j6):
         self.calls.append(("gripper", action))
@@ -166,12 +169,62 @@ class RunTest(unittest.TestCase):
         self.assertEqual(paths, ["steps[0].repeat.do[0]"] * 3)
 
     def test_unavailable_capability_is_refused_before_anything_moves(self):
-        script = dict(steps=[dict(step="gripper", **{"with": dict(action="open")}), dict(step="led", **{"with": dict(color="red")})])
+        script = dict(steps=[dict(step="gripper", **{"with": dict(action="open")}), dict(step="say", **{"with": dict(text="好")})])
         arm = Arm()
         out, _ = self.run_script(script, arm)
         self.assertEqual(out["state"], "stopped")
-        self.assertIn("led", out["reason"])
+        self.assertIn("say", out["reason"])
         self.assertEqual(arm.calls, [])
+
+    def test_dance_is_joints_and_light(self):
+        out, _ = self.run_script(O.load_script(ROOT / "config" / "flows" / "dance.yaml"), arm := Arm())
+        self.assertEqual(out["state"], "done", out)
+        self.assertEqual(arm.calls[0], ("/api/led", dict(colour="blue")))
+        poses = [c[1] for c in arm.calls if c[0] == "goto"]
+        self.assertEqual(len(poses), 7)
+        self.assertEqual(poses[0], [90, 105, 5, 5, None, None])
+        self.assertTrue(all(p[4] is None and p[5] is None for p in poses))      # J5/J6 stay where they are
+        self.assertEqual(arm.calls[-1], ("/api/led", dict(colour="off")))
+
+    def test_resistance_is_logged_as_stall(self):
+        class Stuck(Arm):
+            def goto(self, named=None, pose=None):
+                raise RuntimeError("遇到阻力或偏差，已停在当前读回位置：servo 3: expected 40.0, read 46.0")
+        script = dict(steps=[dict(step="pose", **{"with": dict(named="gesture_view")})])
+        out, events = self.run_script(script, Stuck())
+        stall = [e for e in events if e["event"] == "stall"]
+        self.assertEqual((stall[0]["joint"], stall[0]["expected"], stall[0]["readback"], stall[0]["where"]), (3, 40.0, 46.0, "pose"))
+        self.assertEqual(L.validate(dict(t=1.0, **stall[0])), [])
+
+    def test_scan_noise_filter(self):
+        scene = dict(objects=[dict(kind="block", name="b1", views=6, sticker=None, centre_m=[0, 0.2]),
+                              dict(kind="block", name="b2", views=1, sticker=None, centre_m=[0.05, 0.2]),
+                              dict(kind="block", name="b3", views=2, sticker="kitchen_1", centre_m=[0.1, 0.2]),
+                              dict(kind="block", name="b4", views=None, centre_m=[0.15, 0.2])])
+        self.assertEqual(SP.mark_noise(scene, 3), ["b2"])
+        self.assertEqual([b["name"] for b in SP.blocks(scene)], ["b1", "b3", "b4"])
+
+
+class SignalTest(unittest.TestCase):
+    """/api/led and /api/beep on the console (PR #7): the simulator records, the real board writes I2C."""
+
+    def test_led_and_beep(self):
+        sys.path[:0] = [str(ROOT / "src" / p) for p in ("teleop", "adapters", "spatial")]
+        try:
+            import core
+        except ImportError as exc:                 # numpy-free machines
+            self.skipTest(str(exc))
+        with tempfile.TemporaryDirectory() as d:
+            c = core.Controller(d)
+            self.assertEqual(c.set_led("blue")["rgb"], [0, 0, 255])
+            self.assertEqual(c.set_led(None, [255, 200, 0])["colour"], "yellow")
+            self.assertEqual(c.beep(50)["ms"], 50)
+            self.assertEqual(c.status()["signal"]["led"]["colour"], "yellow")
+            for bad in (("pink", None), (None, [1, 2]), (None, [300, 0, 0])):
+                with self.assertRaises(ValueError):
+                    c.set_led(*bad)
+            with self.assertRaises(ValueError):
+                c.beep(5000)
 
 
 class GatewayTest(unittest.TestCase):
@@ -211,7 +264,8 @@ class GatewayTest(unittest.TestCase):
         status, body = self.call("/api/scripts")
         self.assertEqual(status, 200)
         names = {s["name"]: s for s in body["scripts"]}
-        self.assertTrue({"sort", "gesture_scan", "gripper_check", "ready_signal"} <= set(names))
+        self.assertTrue({"sort", "gesture_scan", "gesture_sort", "dance", "gripper_check", "ready_signal"} <= set(names))
+        self.assertTrue(names["dance"]["runnable"] and names["gesture_sort"]["runnable"])
         self.assertFalse(names["ready_signal"]["runnable"])
         status, cat = self.call("/api/scripts/capabilities")
         self.assertIn("wait_gesture", cat["capabilities"])
@@ -236,6 +290,14 @@ class GatewayTest(unittest.TestCase):
         self.assertIn("current", body)
         self.assertEqual(self.call("/api/scripts/save", dict(name="sort", text=text))[0], 400)
         self.assertEqual(self.call("/api/scripts/delete", dict(name="t1"))[0], 200)
+
+    def test_run_preset_is_the_script(self):
+        status, body = self.call("/api/cmd", dict(cmd="run_preset", preset="stack"))
+        self.assertEqual(status, 501)
+        self.assertIn("流程脚本", body["error"])
+        status, body = self.call("/api/cmd", dict(cmd="run_preset", preset="dance"))
+        self.assertEqual(status, 409)                       # dance.yaml exists; no console in this test
+        self.assertIn("未接控制台", body["error"])
 
     def test_run_script_refuses_before_spawning(self):
         status, body = self.call("/api/cmd", dict(cmd="run_script", name="ready_signal"))

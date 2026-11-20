@@ -362,29 +362,47 @@ class PerceptionEndpointTest(unittest.TestCase):
         events, _ = L.read(self.log)
         return events[before_count:]
 
-    # ---- 语音/手势：只做代理，链路在控制台 ------------------------------
-    def test_interact_post_without_console_is_501(self):
-        # 本服务不自己识别：没有控制台就明确 501，不假装识别出结果
-        for path in ('/api/interact/arm', '/api/interact/voice', '/api/interact/gesture'):
-            body = {'armed': True, 'text': '启动', 'label': 'palm', 'confidence': 0.9}
-            status, reply = self._post(path, body)
-            self.assertEqual(status, 501, path)
-            self.assertIn('控制台', reply['error'])
+    # ---- 语音/手势：判定在网关（intents），受理的指令由网关执行并写 interaction ----------------
+    def test_interact_state_is_local(self):
+        with urllib.request.urlopen(f'http://127.0.0.1:{self.port}/api/interact', timeout=5) as r:
+            state = json.loads(r.read())
+        self.assertIn('armed', state)
+        self.assertIn('listen', state)
+        self.assertEqual(state['gesture']['labels'], ['fist', 'like', 'ok', 'palm'])
 
-    def test_interact_get_without_console_is_501(self):
-        try:
-            with urllib.request.urlopen(f'http://127.0.0.1:{self.port}/api/interact', timeout=5) as r:
-                status = r.status
-        except urllib.error.HTTPError as e:
-            status = e.code
-        self.assertEqual(status, 501)
-
-    def test_interact_does_not_write_interaction_itself(self):
-        # interaction 由控制台在受理后写；本服务不重复记，避免同一件事两条
+    def test_unarmed_gesture_is_recorded_not_run(self):
+        self._post('/api/interact/arm', {'armed': False})
         before, _ = L.read(self.log)
-        self._post('/api/interact/voice', {'text': '启动'})
-        new = [e for e in self._new_events(len(before)) if e.get('event') == 'interaction']
-        self.assertEqual(new, [])
+        for _ in range(3):
+            status, reply = self._post('/api/interact/gesture', {'label': 'ok', 'confidence': 0.95})
+        self.assertEqual((status, reply['status']), (200, 'rejected'))
+        self.assertIn('未武装', reply['reason'])
+        with urllib.request.urlopen(f'http://127.0.0.1:{self.port}/api/interact', timeout=5) as r:
+            recent = json.loads(r.read())['recent']
+        self.assertEqual((recent[-1]['source'], recent[-1]['input']), ('gesture', 'ok'))   # 流程脚本的「等手势」读这里
+        self.assertEqual([e for e in self._new_events(len(before)) if e.get('event') == 'interaction'], [])
+
+    def test_stop_is_always_allowed_and_logged_once(self):
+        self._post('/api/interact/arm', {'armed': False})
+        before, _ = L.read(self.log)
+        status, reply = self._post('/api/interact/voice', {'text': '请停止'})
+        self.assertEqual((status, reply['status'], reply['command']), (200, 'accepted', 'stop'))
+        new = self._new_events(len(before))
+        self.assertEqual([e['event'] for e in new], ['stopped', 'interaction'])
+        self.assertEqual(L.validate(new[-1]), [])
+
+    def test_armed_start_without_console_is_rejected_with_reason(self):
+        self._post('/api/interact/arm', {'armed': True})
+        try:
+            status, reply = self._post('/api/interact/voice', {'text': '开始'})
+        finally:
+            self._post('/api/interact/arm', {'armed': False})
+        self.assertEqual((status, reply['status']), (200, 'rejected'))
+        self.assertIn('控制台', reply['reason'])
+
+    def test_bad_input_is_409(self):
+        self.assertEqual(self._post('/api/interact/gesture', {'label': 'wave', 'confidence': 0.9})[0], 409)
+        self.assertEqual(self._post('/api/interact/voice', {'text': 5})[0], 409)
 
     def test_old_voice_and_gesture_paths_are_gone(self):
         # 旧的 /api/voice、/api/gesture 已下线：两套识别口径不能并存

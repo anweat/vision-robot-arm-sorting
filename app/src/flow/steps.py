@@ -104,8 +104,23 @@ def in_bin(o: dict, scene: dict) -> str | None:
 
 
 def blocks(scene: dict) -> list[dict]:
-    """Blocks on the table: a block seen inside a bin's footprint is already sorted and is not offered again."""
-    return [o for o in scene.get("objects", []) if o.get("kind") == "block" and not in_bin(o, scene)]
+    """Blocks on the table: a block seen inside a bin's footprint is already sorted and is not offered again;
+    one marked as scan noise (scan's min_views) is not a block."""
+    return [o for o in scene.get("objects", []) if o.get("kind") == "block" and not o.get("noise")
+            and not in_bin(o, scene)]
+
+
+def mark_noise(scene: dict, min_views: int) -> list[str]:
+    """Detections seen from fewer than `min_views` views and carrying no sticker are scan noise (PR #7,
+    2026-11-19: real blocks are seen from 5-8 views; run 20261119_175630 dropped 3 phantoms, no real block).
+    A block whose view count is unknown (an older located.json) is kept."""
+    out = []
+    for o in scene.get("objects", []):
+        v = o.get("views")
+        if o.get("kind") == "block" and min_views and v is not None and v < min_views and not o.get("sticker"):
+            o["noise"] = True
+            out.append(o["name"])
+    return out
 
 
 def bin_objects(scene: dict) -> list[dict]:
@@ -135,7 +150,8 @@ def _find(scene: dict, near: dict) -> dict | None:
 
 # ---------------------------------------------------------------------------------------------- steps
 
-def scan(ctx: Context, bins: str | None = None, source: str | None = None, refine=False, **_) -> Outcome:
+def scan(ctx: Context, bins: str | None = None, source: str | None = None, refine=False, min_views: int = 0,
+         **_) -> Outcome:
     """S1: scan poses -> views -> back to the observe pose -> located.json -> collision map, in
     <session>/scan_<n>/. `source`: use this located.json instead of scanning (no arm motion; for replaying a
     recorded scene)."""
@@ -154,14 +170,20 @@ def scan(ctx: Context, bins: str | None = None, source: str | None = None, refin
         if back.result != "done":
             raise RuntimeError(f"扫描后回观察位失败：{back.summary}")
         ST.locate(sub, bins_design=bins)
+    noise = []
+    if min_views:
+        located = sub.load("located.json")
+        noise = mark_noise(located, int(min_views))
+        sub.save("located.json", located)
     ST.build_map(sub)
     ctx.scene = sub.load("located.json")
     ctx.map_path = sub.file("collision_map.json")
     if ctx.first_scene is None:
         ctx.first_scene = ctx.scene
     n = len(blocks(ctx.scene))
-    return Outcome("done" if n else "empty", f"找到 {n} 块、{len(bin_objects(ctx.scene))} 个桶",
-                   dict(blocks=n, dir=str(sub.path)))
+    return Outcome("done" if n else "empty", f"找到 {n} 块、{len(bin_objects(ctx.scene))} 个桶"
+                   + (f"；{len(noise)} 处只被不到 {min_views} 个视角看到、无贴纸，按扫描噪声去掉（{','.join(noise)}）" if noise else ""),
+                   dict(blocks=n, dir=str(sub.path), noise=noise))
 
 
 def relocate(ctx: Context, **_) -> Outcome:

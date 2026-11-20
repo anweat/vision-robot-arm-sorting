@@ -18,7 +18,8 @@ function paramText(cap, params) {
   return keys.map((k) => {
     const spec = cap?.params?.[k];
     const v = p[k];
-    const shown = typeof v === "boolean" ? (v ? "是" : "否") : v === null ? "—" : String(v);
+    const shown = typeof v === "boolean" ? (v ? "是" : "否") : v === null ? "—"
+      : Array.isArray(v) ? `[${v.map((x) => (x === null ? "—" : x)).join(", ")}]` : String(v);
     return `${esc(spec?.label ?? k)} ${esc(shown)}${esc(spec?.unit ?? "")}`;
   }).join(" · ");
 }

@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -44,6 +45,8 @@ from flow.capabilities import CAPABILITIES      # noqa: E402
 from flow.session import FlowSession, load_json  # noqa: E402
 
 STEPS = {**SP.STEPS, **A.STEPS}
+# the console's "遇到阻力或偏差…: servo 3: expected 40, read 46" (teleop/core.py): logged as a contract `stall`
+STALL_RE = re.compile(r"servo\s*(\d+)\s*:\s*expected\s*(-?\d+(?:\.\d+)?)\s*,\s*read\s*(-?\d+(?:\.\d+)?)")
 SUCCESS = {name: tuple(cap["success"]) for name, cap in CAPABILITIES.items()}
 
 
@@ -159,6 +162,10 @@ class Runner:
         expected = out.result in ok or branches.get(out.result) == []
         self.emit("step", session=sid, step=name, state="done" if expected else "failed",
                   result=out.result, summary=out.summary, block=block, path=path)
+        hit = STALL_RE.search(out.summary or "") if out.result not in ok else None
+        if hit:                                     # the console stopped on resistance: the W6 stall record
+            self.emit("stall", joint=int(hit.group(1)), expected=float(hit.group(2)), readback=float(hit.group(3)),
+                      where=name, reason=(out.summary or "")[:300])
         if out.result in branches:
             self.actions(branches[out.result], in_block, f"{path}.on_result.{out.result}")
         elif out.result not in ok and not (name == "verify" and out.result == "mismatch"):

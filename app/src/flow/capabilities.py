@@ -52,6 +52,10 @@ CAPABILITIES: dict[str, dict] = {
         params=dict(bins=P("str", "桶设计", None, help=BINS_HELP),
                     refine=P("enum", "近看补拍", False, enum=[False, True, "block"],
                              help="true：补拍看不全/得分低的块；block：只近看当前这一块"),
+                    min_views=P("int", "幻影门槛", 0, min=0, max=8,
+                                help="少于这么多视角看到、又没有贴纸的检测按扫描噪声去掉；0 不过滤。只用在开头那次带近看补拍的扫描："
+                                     "实机 2026-11-19 用 3 去掉 3 个幻影、没误伤真块；仿真 2026-11-20 不近看的扫描里真块只有 1–2 个视角，"
+                                     "用 3 会把真块当噪声（近端带 y < 11 cm 带补拍也会）"),
                     source=P("str", "离线场景", None, advanced=True,
                              help="用这份 located.json 代替真扫描（回放、测试用）")),
         results=["done", "empty", "failed"], success=["done"]),
@@ -97,8 +101,13 @@ CAPABILITIES: dict[str, dict] = {
     "pose": dict(
         group="motion", label="到命名位", moves=True, block=False, status="ready",
         help="到控制台的命名位姿（app/config/arm_limits.json named_poses），整条路径先检查再动",
-        params=dict(named=P("enum", "位姿", "observe_v1", enum=["observe_v1", "observe_v0", "upright"],
-                            required=True)),
+        params=dict(named=P("enum", "位姿", "observe_v1", enum=["observe_v1", "observe_v0", "upright", "gesture_view"],
+                            required=True, help="gesture_view：平视位，腕部相机正对前方看操作员的手（2026-11-19 实机）")),
+        results=["done", "failed"], success=["done"]),
+    "joints": dict(
+        group="motion", label="到关节角", moves=True, block=False, status="ready",
+        help="六轴绝对角度（null 表示该轴不动），控制台整条路径先检查再按速度分段走；舞蹈等预设动作就是一串这个",
+        params=dict(pose=P("pose", "关节角", None, required=True, help="[J1, J2, J3, J4, J5, J6]，度；null 不动")),
         results=["done", "failed"], success=["done"]),
     "gripper": dict(
         group="motion", label="夹爪", moves=True, block=False, status="ready",
@@ -112,9 +121,9 @@ CAPABILITIES: dict[str, dict] = {
         results=["done", "failed"], success=["done"]),
     # ---- interaction -----------------------------------------------------------------------------------
     "wait_gesture": dict(
-        group="interact", label="等手势", moves=False, block=False, status="partial",
-        needs="板上手势识别进程未接：要有识别端逐帧 POST /api/interact/gesture（网页调试面板可代发）",
-        help="等识别端报来指定手势（连续帧、阈值由控制台判），超时给 timeout",
+        group="interact", label="等手势", moves=False, block=False, status="ready",
+        help="等识别端报来指定手势（连续帧、阈值、冷却由网关的 intents 判）；识别端是 src/interact/bridge.py "
+             "（板上 hrnet.om，网页「手动操作」里可开关），也可在调试面板代发。没人比划就到点给 timeout",
         params=dict(label=P("enum", "手势", "ok", enum=["ok", "palm", "fist", "like"], required=True),
                     timeout_s=P("num", "超时", 60, min=1, max=3600, unit="s")),
         results=["matched", "timeout", "failed"], success=["matched"]),
@@ -127,17 +136,16 @@ CAPABILITIES: dict[str, dict] = {
         results=["matched", "timeout", "failed"], success=["matched"]),
     # ---- signal ----------------------------------------------------------------------------------------
     "led": dict(
-        group="signal", label="灯光", moves=False, block=False, status="unavailable",
-        needs="控制台没有 /api/led；扩展板 RGB 已实测能写（docs/05 §RGB），待板卡端加接口",
-        help="扩展板 RGB 灯颜色",
+        group="signal", label="灯光", moves=False, block=False, status="ready",
+        help="扩展板 RGB 灯颜色，经控制台 /api/led（I2C 只能由控制台进程写）；2026-11-19 实机目视绿/黄/红/灭正确。"
+             "约定：绿=放好，黄=夹空重试，红=失败，蓝=等操作员",
         params=dict(color=P("enum", "颜色", "green", enum=["off", "red", "green", "blue", "yellow", "white"],
                             required=True)),
         results=["done", "failed"], success=["done"]),
     "buzzer": dict(
-        group="signal", label="蜂鸣", moves=False, block=False, status="unavailable",
-        needs="控制台没有 /api/buzzer；扩展板蜂鸣器已实测能写（docs/05），待板卡端加接口",
-        help="蜂鸣一声",
-        params=dict(ms=P("int", "时长", 200, min=50, max=3000, unit="ms")),
+        group="signal", label="蜂鸣", moves=False, block=False, status="ready",
+        help="蜂鸣一声，经控制台 /api/beep；2026-11-19 调用成功，是否真的出声还没用耳朵确认。约定：短 120 ms=成功，长 400 ms=失败",
+        params=dict(ms=P("int", "时长", 120, min=20, max=1000, unit="ms")),
         results=["done", "failed"], success=["done"]),
     "say": dict(
         group="signal", label="语音播报", moves=False, block=False, status="unavailable",

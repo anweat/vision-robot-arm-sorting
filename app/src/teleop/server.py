@@ -116,6 +116,11 @@ class App:
             c.enable(owner, body.get('onsite'))
         elif path == '/api/heartbeat':
             c.heartbeat(owner)
+        elif path == '/api/led':            # {colour} or {r, g, b} (PR #7's feedback.py sends r/g/b)
+            return dict(ok=True, led=c.set_led(body.get('colour'), None if body.get('colour') is not None
+                                                else [body.get('r', 0), body.get('g', 0), body.get('b', 0)]))
+        elif path == '/api/beep':
+            return dict(ok=True, beep=c.beep(body.get('ms', 120)))
         elif path == '/api/stop':
             c.stop()
         elif path == '/api/jog':

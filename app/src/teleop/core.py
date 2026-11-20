@@ -57,6 +57,11 @@ def _slope(ys):
     return sum((i - mx) * (y - my) for i, y in enumerate(ys)) / sum((i - mx) ** 2 for i in range(n))
 
 
+# expansion-board light colours (2026-11-19, PR #7: RGB changes checked by eye; buzzer calls return, sound not
+# confirmed by ear). Yellow is (255, 200, 0) as in that test.
+LED_COLOURS = dict(off=(0, 0, 0), red=(255, 0, 0), green=(0, 255, 0), blue=(0, 0, 255), yellow=(255, 200, 0),
+                   white=(255, 255, 255))
+BEEP_MS = (20, 1000)
 LEASE_S = 2.0           # control lapses this long after the last command or heartbeat
 DRIVE_TIMEOUT_S = 0.3   # stick driving stops this long after the last stick update
 DRIVE_SETTLE_MS = 60
@@ -97,6 +102,8 @@ class Controller:
         self.drive_reason = ''
         self.last_touch = None  # result of the last touch probe (doc 33)
         self.time_scale = 1.0   # simulation only: segment times and waits are divided by this (sim_server --speed)
+        self.led = None         # last light colour set: dict(colour, rgb, at)
+        self.last_beep = None   # last beep: dict(ms, at)
         self.refresh()
 
     # ---- bookkeeping ------------------------------------------------------------------------------------
@@ -132,6 +139,53 @@ class Controller:
         finally:
             self.io.release()
 
+    # ---- light and buzzer -----------------------------------------------------------------------------
+    # The I2C bus belongs to this process: another process opening Arm_Device gets I2C errors (PR #7,
+    # 2026-11-19), so the pipeline, the flow and the pages ask for these through /api/led and /api/beep.
+    # Neither needs the lease (nothing moves). The simulator has no board: it only records the state.
+    def _board(self):
+        return getattr(self.arm, 'dev', None)
+
+    def set_led(self, colour=None, rgb=None):
+        if colour is not None:
+            if colour not in LED_COLOURS:
+                raise ValueError('颜色只允许 ' + '/'.join(LED_COLOURS))
+            rgb = LED_COLOURS[colour]
+        if not isinstance(rgb, (list, tuple)) or len(rgb) != 3 or \
+                any(isinstance(v, bool) or not isinstance(v, (int, float)) or not 0 <= v <= 255 for v in rgb):
+            raise ValueError('灯色要么给 colour，要么给 0–255 的 r/g/b')
+        rgb = [int(v) for v in rgb]
+        dev = self._board()
+        if dev is not None:
+            with self.io:
+                dev.Arm_RGB_set(*rgb)
+        elif self.hardware:
+            raise ValueError('这台设备没有灯带')
+        with self.gate:
+            self.led = dict(colour=colour or next((k for k, v in LED_COLOURS.items() if list(v) == rgb), None),
+                            rgb=rgb, at=time.time())
+        self.log('led', rgb=rgb)
+        return self.led
+
+    def beep(self, ms=120):
+        if isinstance(ms, bool) or not isinstance(ms, (int, float)) or not BEEP_MS[0] <= ms <= BEEP_MS[1]:
+            raise ValueError(f'蜂鸣时长只允许 {BEEP_MS[0]}–{BEEP_MS[1]} ms')
+        dev = self._board()
+        if dev is not None:
+            with self.io:                    # the servos are not held off for the whole beep, only for each write
+                dev.Arm_Buzzer_On(1)
+            try:
+                time.sleep(ms / 1000.0)
+            finally:
+                with self.io:
+                    dev.Arm_Buzzer_Off()
+        elif self.hardware:
+            raise ValueError('这台设备没有蜂鸣器')
+        with self.gate:
+            self.last_beep = dict(ms=int(ms), at=time.time())
+        self.log('beep', ms=int(ms))
+        return self.last_beep
+
     def status(self):
         with self.gate:
             valid = len(self.pose) == 6 and all(v is not None and math.isfinite(v) for v in self.pose)
@@ -153,6 +207,7 @@ class Controller:
                         runtime=dict(enforce_platform=self.base_cfg.get('runtime', {}).get('enforce_platform', False),
                                      enforce_table=self.base_cfg.get('runtime', {}).get('enforce_table', False)),
                         keep_out=safe_arm.workspace.load_keep_out(self.cfg),
+                        signal=dict(led=self.led, beep=self.last_beep),
                         standard_keep_out=safe_arm.workspace.load_keep_out(self.base_cfg))
 
     # ---- control (no enable step) --------------------------------------------------------------------

@@ -982,6 +982,157 @@
    "if": {
     "properties": {
      "event": {
+      "const": "pipeline_retry"
+     }
+    },
+    "required": [
+     "event"
+    ]
+   },
+   "then": {
+    "description": "[stable] 空爪后退回重扫、找回这一块再抓（attempt 第几次）",
+    "properties": {
+     "cube": {
+      "type": "array",
+      "items": {
+       "type": "number"
+      },
+      "minItems": 2,
+      "maxItems": 2
+     },
+     "category": {
+      "anyOf": [
+       {
+        "enum": [
+         "recyclable",
+         "kitchen",
+         "hazardous",
+         "other"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "attempt": {
+      "type": "integer"
+     },
+     "reason": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "cube",
+     "category",
+     "attempt",
+     "reason"
+    ]
+   }
+  },
+  {
+   "if": {
+    "properties": {
+     "event": {
+      "const": "pipeline_retry_failed"
+     }
+    },
+    "required": [
+     "event"
+    ]
+   },
+   "then": {
+    "description": "[stable] 空爪重试没能进行：退不回观察位、重扫失败或找不回这一块",
+    "properties": {
+     "cube": {
+      "type": "array",
+      "items": {
+       "type": "number"
+      },
+      "minItems": 2,
+      "maxItems": 2
+     },
+     "reason": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "cube",
+     "reason"
+    ]
+   }
+  },
+  {
+   "if": {
+    "properties": {
+     "event": {
+      "const": "pipeline_order"
+     }
+    },
+    "required": [
+     "event"
+    ]
+   },
+   "then": {
+    "description": "[stable] 本轮抓取顺序：能做的块离基座的距离（m），由近及远（E5）",
+    "properties": {
+     "order": {
+      "type": "array"
+     },
+     "note": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "order"
+    ]
+   }
+  },
+  {
+   "if": {
+    "properties": {
+     "event": {
+      "const": "gesture_gate"
+     }
+    },
+    "required": [
+     "event"
+    ]
+   },
+   "then": {
+    "description": "[stable] 扫描后等操作员比 OK 手势（2026-11-19 板上版本写过；app 里由流程脚本 wait_gesture 代替）",
+    "properties": {
+     "state": {
+      "type": "string"
+     },
+     "timeout_s": {
+      "type": "number"
+     },
+     "need": {
+      "type": "integer"
+     },
+     "seconds": {
+      "type": "number"
+     },
+     "pose": {
+      "type": "array"
+     },
+     "reason": {
+      "type": "string"
+     },
+     "note": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "state"
+    ]
+   }
+  },
+  {
+   "if": {
+    "properties": {
+     "event": {
       "const": "script_changed"
      }
     },
@@ -1096,7 +1247,7 @@
     ]
    },
    "then": {
-    "description": "[planned] 舵机堵转，已停止后续指令（W6）",
+    "description": "[stable] 舵机堵转/遇阻，控制台已停止后续指令（W6）；where 是哪一步（hover/put/grasp…）",
     "properties": {
      "joint": {
       "type": "integer"
@@ -1117,6 +1268,12 @@
       },
       "minItems": 6,
       "maxItems": 6
+     },
+     "where": {
+      "type": "string"
+     },
+     "reason": {
+      "type": "string"
      }
     },
     "required": [

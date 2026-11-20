@@ -37,9 +37,10 @@ def _split(key: str) -> tuple[str, str | None]:
 class Interaction:
     """State of the voice/gesture side: armed switch, gesture streak, cooldowns, the last recognitions."""
 
-    def __init__(self, execute, config: dict | None = None, clock=time.time, keep: int = 50):
+    def __init__(self, execute, config: dict | None = None, clock=time.time, keep: int = 50, pass_source: bool = False):
         self.cfg = config or load_config()
         self.execute, self.clock = execute, clock
+        self.pass_source = pass_source      # execute(command, preset, source=voice|gesture) when the caller wants it
         self.lock = threading.Lock()
         self.armed = False                  # a recogniser starts unarmed: one explicit act arms it (stop always works)
         self.seq = 0
@@ -128,7 +129,7 @@ class Interaction:
                 return self._note(dict(base, status="ignored", reason="冷却中"))
         self.last_fire[key] = now
         try:
-            info = self.execute(command, preset)
+            info = self.execute(command, preset, source=base["source"]) if self.pass_source else self.execute(command, preset)
         except NotImplementedError as exc:
             return self._note(dict(base, status="rejected", reason=str(exc), implemented=False))
         except ValueError as exc:

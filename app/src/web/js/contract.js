@@ -69,13 +69,17 @@ export const EVENTS = {
   mode_changed: { status: "stable", meaning: "作业模式切换", record: null },
   unknown_object: { status: "planned", meaning: "发现不属于四类的物体", record: null },
   bin_full: { status: "stable", meaning: "容器已满，停止投放", record: null },
-  stall: { status: "planned", meaning: "舵机堵转，已停止后续指令", record: null },
+  stall: { status: "stable", meaning: "舵机堵转/遇阻，已停止后续指令", record: null },
   interaction: { status: "stable", meaning: "手势、表情或语音触发且已受理执行的指令", record: null },
   step: { status: "stable", meaning: "分步流程的一步开始或结束", record: null },
   alarm: { status: "stable", meaning: "需要人确认的报警", record: null },
   alarm_ack: { status: "stable", meaning: "报警已确认", record: null },
   speed: { status: "stable", meaning: "控制台速度改动", record: null },
   script_changed: { status: "stable", meaning: "流程脚本在某一端被保存或删除", record: null },
+  pipeline_retry: { status: "stable", meaning: "空爪后退回重扫、找回再抓", record: null },
+  pipeline_retry_failed: { status: "stable", meaning: "空爪重试没能进行", record: null },
+  pipeline_order: { status: "stable", meaning: "本轮抓取顺序（由近及远）", record: null },
+  gesture_gate: { status: "stable", meaning: "扫描后等操作员比 OK 手势", record: null },
 };
 
 // 分步流程（文档 32 §2）：步骤名、显示名、要不要选块、会不会动臂
@@ -113,7 +117,9 @@ export const NOTICES = {
   table_z_disagrees: { level: "warn", title: "桌面高度与标定不符", text: (e) => `扫描 ${e.scan_cm} cm / 标定 ${e.calibrated_cm} cm，需重新标定` },
   bin_full: { level: "warn", title: "容器已满", text: (e) => `${e.bin} 已有 ${e.count} 块，不再投放` },
   unknown_object: { level: "warn", title: "发现未知物体", text: (e) => `${where(e)} 不抓取，图片已存档` },
-  stall: { level: "bad", title: "舵机堵转", text: (e) => `J${e.joint} 期望 ${e.expected}° 回读 ${e.readback}°` },
+  stall: { level: "bad", title: "舵机遇阻", text: (e) => `J${e.joint} 期望 ${e.expected}° 回读 ${e.readback}°${e.where ? `（${e.where}）` : ""}` },
+  pipeline_retry: { level: "warn", title: "空爪重试", text: (e) => `${categoryName(e.category)}${where(e)} ${e.reason ?? ""}` },
+  pipeline_retry_failed: { level: "bad", title: "重试没能进行", text: (e) => `${where(e)} ${e.reason ?? ""}` },
   stopped: { level: "info", title: "任务中止", text: (e) => e.reason ?? "" },
 };
 
@@ -122,6 +128,7 @@ export const FAULT_EVENTS = [
   "pipeline_missed", "pipeline_skip", "pipeline_approach_failed", "pipeline_put_failed",
   "pipeline_stuck", "gripper_not_closed", "gripper_still_asleep", "gripper_wake_refused",
   "stopped", "table_z_disagrees", "stall", "bin_full", "unknown_object", "alarm",
+  "pipeline_retry", "pipeline_retry_failed",
 ];
 
 export const isFault = (event) => FAULT_EVENTS.includes(event);

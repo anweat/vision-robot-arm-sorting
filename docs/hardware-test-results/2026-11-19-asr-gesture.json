@@ -1,0 +1,38 @@
+{
+  "test": "课程任务 2/3：WeNet 语音识别与 HRNet 手势分类（板上 NPU）",
+  "date": "2026-11-19",
+  "time": "09:35 (CST)",
+  "device": {
+    "board": "Atlas 200I DK A2 (davinci-mini, aarch64)",
+    "runtime": "CANN 6.2.RC1 / Ascend310B1，ais_bench",
+    "python": "/root/arm-app/venv-vision/bin/python",
+    "models": "data/models/wenet_asr/offline_encoder.om, data/models/gesture_hrnet/hrnet.om"
+  },
+  "speech": {
+    "entry": "src/audio/asr.py（包装课程提供的 model.py，未改写）",
+    "command": "python3 src/audio/asr.py --runs 1",
+    "audio": "data/models/wenet_asr/sample.wav（14.78 s 上限内）",
+    "result": "智能语音作为智能时代人机交互的关键接口各行各业爆发式的场景需求驱动行业发展进入黄金期",
+    "seconds": 0.3261,
+    "same_text_across_runs": true,
+    "note": "0.33 s 含 torchaudio 特征提取；10-16 的纯推理计时是 121 ms"
+  },
+  "gesture": {
+    "entry": "src/vision/gesture.py（ais_bench + OpenCV，不依赖 Arm_Lib）",
+    "command": "python3 src/vision/gesture.py --image <frame>",
+    "samples": "model-smoke/captures/<label>/<label>_000.jpg（课程采集的样本帧）",
+    "result": {
+      "like": {"label": "like", "confidence": 0.9916, "correct": true},
+      "ok": {"label": "ok", "confidence": 0.7115, "correct": true},
+      "palm": {"label": "palm", "confidence": 0.9991, "correct": true},
+      "fist": {"label": "palm", "confidence": 0.742, "correct": false}
+    },
+    "accuracy": "3/4（单帧，样本自采，与 10-16 记录的 fist 弱类一致）"
+  },
+  "not_done": [
+    "语音：三条指令（启动/跳舞/停止）的识别率统计未做，仍只有样例音频的文本一致性",
+    "语音：板上无可用音频硬件，录音只有开发机麦克风这条兜底路径",
+    "手势：多会话、逐帧真值的验收口径未做；fist 仍是最弱类",
+    "两者的端到端链路（识别进程 → /api/interact → 指令）未接，规则层 src/interact/intents.py 已就绪"
+  ]
+}

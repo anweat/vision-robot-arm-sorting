@@ -10,6 +10,7 @@ import { renderTree } from "./scripttree.js";
 
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const LAYOUT_KEY = "armHomeLayout";
+const LED_TEXT = { off: "灭", red: "红", green: "绿", blue: "蓝", yellow: "黄", white: "白" };
 
 async function cmd(payload, ok) {
   try {
@@ -205,6 +206,8 @@ export function createHomeView(root, { catalog }) {
         ["末端 cm", arm.tip_cm ? arm.tip_cm.map((v) => v.toFixed(1)).join(", ") : "—", ""],
         ["安全余量", arm.clearance_cm == null ? "—" : `${arm.clearance_cm.toFixed(1)} cm`, arm.clearance_cm < 0 ? "bad" : ""],
         ["速度", arm.speed ? `${Math.round(arm.speed.value)}°/s` : "—", ""],
+        ["灯", arm.signal?.led ? LED_TEXT[arm.signal.led.colour] ?? `rgb(${arm.signal.led.rgb.join(",")})` : "—", ""],
+        ["识别端", store.status.listen?.running ? "监听中" : "未开", store.status.listen?.running ? "good" : ""],
       ];
       const kvHtml = kv.map(([k, v, c]) => `<span>${k}</span><b class="${c}">${esc(v)}</b>`).join("");
       if ($("hState").dataset.sig !== kvHtml) { $("hState").dataset.sig = kvHtml; $("hState").innerHTML = kvHtml; }

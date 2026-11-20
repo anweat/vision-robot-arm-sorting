@@ -107,6 +107,8 @@
     "align_roll": true
   },
   "named_poses": {
+    "gesture_view": [90, 60, 80, 40, null, null],
+    "_gesture_view_note": "2026-11-19 (PR #7, run 20261119_181226): tip pitch 90, 24.3 cm above the table, 28.8 cm forward; the wrist camera looks straight ahead so an operator's raised hand is in view (the observe poses look down at the table).",
     "_note": "null keeps the joint's current reading",
     "upright": [
       90,

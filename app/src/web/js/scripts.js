@@ -226,6 +226,9 @@ export function createScriptsView(root, { catalog }) {
     } else if (spec.type === "num" || spec.type === "int") {
       input = `<input type="number" data-field="${esc(key)}" data-type="${spec.type}" value="${esc(v)}" placeholder="${esc(spec.default ?? "")}"
         ${spec.min != null ? `min="${spec.min}"` : ""} ${spec.max != null ? `max="${spec.max}"` : ""} step="${spec.type === "int" ? 1 : "any"}">`;
+    } else if (spec.type === "pose") {
+      const txt = Array.isArray(value) ? value.map((x) => (x === null ? "null" : x)).join(", ") : "";
+      input = `<input type="text" data-field="${esc(key)}" data-type="pose" value="${esc(txt)}" placeholder="90, 105, 5, 5, null, null">`;
     } else if (spec.type === "bool") {
       input = `<input type="checkbox" data-field="${esc(key)}" data-type="bool"${value ? " checked" : ""}>`;
     } else {
@@ -299,6 +302,11 @@ export function createScriptsView(root, { catalog }) {
     if (type === "bool") value = input.checked;
     else if (type === "enum") value = input.value === "__unset" ? undefined : JSON.parse(input.value);
     else if (type === "num" || type === "int") value = input.value === "" ? undefined : Number(input.value);
+    else if (type === "pose") {
+      const parts = input.value.split(/[,，\s]+/).filter(Boolean);
+      value = parts.length ? parts.map((x) => (/^(null|-|—)$/i.test(x) ? null : Number(x))) : undefined;
+      if (value && value.some((x) => x !== null && !Number.isFinite(x))) return toast("关节角要写数字或 null", "bad");
+    }
     else value = input.value === "" ? undefined : input.value;
     edit((sc) => {
       const a = getAt(sc, path);

@@ -77,6 +77,16 @@ EVENTS: dict[str, dict] = {
                   required=dict(kind="str", summary="str", needs_ack="bool"), optional=dict(block="str")),
     "alarm_ack": dict(status="stable", meaning="报警已被确认", required=dict(kind="str", by="str")),
     "speed": dict(status="stable", meaning="控制台速度改动（°/s）", required=dict(speed="num", source="str")),
+    # ---- the verified pipeline's retry, order and gesture gate (PR #7, 2026-11-19; writer: src/pipeline/run.py)
+    "pipeline_retry": dict(status="stable", meaning="空爪后退回重扫、找回这一块再抓（attempt 第几次）",
+                           required=dict(cube="xy", category="category?", attempt="int", reason="str")),
+    "pipeline_retry_failed": dict(status="stable", meaning="空爪重试没能进行：退不回观察位、重扫失败或找不回这一块",
+                                  required=dict(cube="xy", reason="str")),
+    "pipeline_order": dict(status="stable", meaning="本轮抓取顺序：能做的块离基座的距离（m），由近及远（E5）",
+                           required=dict(order="list"), optional=dict(note="str")),
+    "gesture_gate": dict(status="stable", meaning="扫描后等操作员比 OK 手势（2026-11-19 板上版本写过；app 里由流程脚本 wait_gesture 代替）",
+                         required=dict(state="str"),
+                         optional=dict(timeout_s="num", need="int", seconds="num", pose="list", reason="str", note="str")),
     # ---- flow scripts shared by every end (docs/atlas-200i-dk-a2/35; writer: src/web/serve.py)
     "script_changed": dict(status="stable", meaning="流程脚本在某一端被保存或删除；其他端据此重新拉取",
                            required=dict(name="str", action="str", by="str"), optional=dict(rev="str?")),
@@ -85,8 +95,9 @@ EVENTS: dict[str, dict] = {
                          required=dict(mode="str", source="str"), optional=dict(previous="str")),
     "unknown_object": dict(status="planned", meaning="发现不属于四类的物体，不抓取（E6）",
                            required=dict(cube="xy", image="str"), optional=dict(votes="obj")),
-    "stall": dict(status="planned", meaning="舵机堵转，已停止后续指令（W6）",
-                  required=dict(joint="int", expected="num", readback="num"), optional=dict(pose="pose")),
+    "stall": dict(status="stable", meaning="舵机堵转/遇阻，控制台已停止后续指令（W6）；where 是哪一步（hover/put/grasp…）",
+                  required=dict(joint="int", expected="num", readback="num"),
+                  optional=dict(pose="pose", where="str", reason="str")),
 }
 RECORD_RESULTS = ("sorted", "missed", "skipped", "failed", "cleared")
 MODES = ("manual", "preset", "auto")
