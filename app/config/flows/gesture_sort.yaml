@@ -15,7 +15,7 @@ steps:
   - step: scan             # 幻影门槛只用在这一次：带近看补拍，真块 5–8 个视角（实机）；近端带 y < 11 cm 仍可能被去掉
     with: {bins: bins_acrylic_v2_pair, refine: true, min_views: 3}
     on_result:
-      empty: [{step: led, with: {color: off}}, {stop: 桌上没有找到物块}]
+      empty: [{step: led, with: {color: "off"}}, {stop: 桌上没有找到物块}]
   - step: pose
     with: {named: gesture_view}
   - step: led
@@ -91,4 +91,4 @@ steps:
   - step: verify
     with: {scope: round}
   - step: led
-    with: {color: off}
+    with: {color: "off"}

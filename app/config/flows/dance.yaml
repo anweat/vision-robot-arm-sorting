@@ -37,4 +37,4 @@ steps:
   - step: wait
     with: {seconds: 0.8}
   - step: led
-    with: {color: off}
+    with: {color: "off"}
