@@ -9,7 +9,7 @@
 #
 # Files deleted from the repository stay on the board; they are not imported by anything that remains.
 # --restart does not move the arm (the console only reads the servos until a client sends a motion command),
-# but check the arm's surroundings before driving it (docs/05-板卡连接与硬件实测.md).
+# but check the arm's surroundings before driving it (docs/current/05-板卡连接与硬件实测.md).
 set -eu
 
 HOST="${BOARD_HOST:-root@192.168.137.100}"

@@ -1,4 +1,4 @@
-# 完整分拣流程（docs/atlas-200i-dk-a2/32-操作逻辑简化与分步任务.md §3.1）。
+# 完整分拣流程（docs/current/32-操作逻辑简化与分步任务.md §3.1）。
 # 编排器 src/flow/orchestrator.py 只解释这份脚本，抓取逻辑全在各步（src/flow/steps.py）里。
 # 改顺序、重试次数、核对频率、桶的对应关系都只改这里。仿真结果不代表实机。
 name: sort

@@ -372,7 +372,7 @@ def execute(sess: FlowSession, plan_src=None, console: str | None = None, really
     (no automatic recovery: use the console to back off).
 
     phases: run only the steps of these plan kinds (`pick`, `place`, `transit`), e.g. the grasp alone and the
-    place later (docs/atlas-200i-dk-a2/32 §2); the arm must then stand where the step before the first selected
+    place later (docs/current/32 §2); the arm must then stand where the step before the first selected
     one ends. grip_must_hold=False: a grip that does not hold is recorded, not a stop (the check step judges
     it). The returned dict carries the logged rows under `rows`."""
     p = load_json(plan_src) if plan_src is not None else sess.load("plan.json")

@@ -1,6 +1,6 @@
 """Automatic dataset for a 4-class block detector: the arm turns the blocks over and labels its own scans.
 
-Each block is one category on every face (its colour face and its four stickers, `docs/images/blocks/` photos), so a
+Each block is one category on every face (its colour face and its four stickers, `materials/photos/blocks/` photos), so a
 box around a whole block labelled with that block's category is right whichever face is up. The
 labels come from tracking, not from recognising:
 

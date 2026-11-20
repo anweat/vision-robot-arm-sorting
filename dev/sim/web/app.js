@@ -514,7 +514,7 @@ $('apiSend').onclick = async () => {
   }
 };
 
-// ---------------------------------------------------------------- sorting log (docs/atlas-200i-dk-a2/18-日志契约.md)
+// ---------------------------------------------------------------- sorting log (docs/current/18-日志契约.md)
 
 const RECORD = {pipeline_sorted: ['已分拣', 'ok'], pipeline_missed: ['夹空/滑脱', 'bad'], pipeline_skip: ['跳过', 'mid'],
                 pipeline_approach_failed: ['接近失败', 'bad'], pipeline_put_failed: ['投放失败', 'bad'], pipeline_cleared: ['挪开', 'mid']};

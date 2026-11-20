@@ -1,4 +1,4 @@
-"""Runs a flow script (config/flows/*.yaml) or one step on its own (docs/atlas-200i-dk-a2/32 §2–§3).
+"""Runs a flow script (config/flows/*.yaml) or one step on its own (docs/current/32 §2–§3).
 
     python src/flow/orchestrator.py --script config/flows/sort.yaml --console http://127.0.0.1:8770 --really
     python src/flow/orchestrator.py --script config/flows/sort.yaml --source data/flow/x/located.json   # dry run

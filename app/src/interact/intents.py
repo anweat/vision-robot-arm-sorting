@@ -5,7 +5,7 @@ This module decides whether that is a command: keyword match, probability thresh
 cooldown and the "armed" switch. It does not move anything; the caller supplies `execute(command, preset)`,
 which either does the thing or raises ValueError / NotImplementedError with the reason shown to the user.
 
-Wire format and rules: docs/atlas-200i-dk-a2/25-语音手势接口.md. Mapping and thresholds: config/interaction.json.
+Wire format and rules: docs/current/25-语音手势接口.md. Mapping and thresholds: config/interaction.json.
 """
 from __future__ import annotations
 

@@ -1,5 +1,5 @@
 // 日志契约 v1 的前端镜像。唯一来源是 src/tools/log_contract.py 的事件表，
-// 文档见 docs/atlas-200i-dk-a2/18-日志契约.md。改事件或字段先改那边的事件表。
+// 文档见 docs/current/18-日志契约.md。改事件或字段先改那边的事件表。
 // 契约外的事件要跳过，契约外的字段要忽略。
 
 export const CONTRACT_VERSION = 1;

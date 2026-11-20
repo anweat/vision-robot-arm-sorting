@@ -5,7 +5,7 @@
     python3 src/web/serve.py --log data/log.jsonl --lan --port 8080
 
 只依赖标准库。日志的读取、逐块记录与统计一律复用 src/tools/log_contract.py，
-与日志契约 v1（docs/atlas-200i-dk-a2/18-日志契约.md）保持一致；这里的路径与
+与日志契约 v1（docs/current/18-日志契约.md）保持一致；这里的路径与
 仿真后端（dev/sim/sim_server.py）同名同义，页面从仿真切到实机不用改。
 
     GET  /api/log            ?after&limit     事件分页（seq 为 1 起行号）

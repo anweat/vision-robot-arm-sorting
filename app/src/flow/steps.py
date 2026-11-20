@@ -1,4 +1,4 @@
-"""The steps of docs/atlas-200i-dk-a2/32-操作逻辑简化与分步任务.md §2, each callable on its own.
+"""The steps of docs/current/32-操作逻辑简化与分步任务.md §2, each callable on its own.
 
 Every step is `fn(ctx, **params) -> Outcome`. `Outcome.result` is a short word the flow script branches on
 (`on_result:` in config/flows/*.yaml); `summary` is the Chinese line a page shows. The steps reuse

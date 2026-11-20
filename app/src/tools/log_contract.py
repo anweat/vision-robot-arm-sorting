@@ -12,7 +12,7 @@ the code. A reader must ignore events it does not know and fields it does not kn
 what the writers promise to keep.
 
 STATUS of each event: 'stable' is written by the code today (seen in real-arm logs, or in the code path);
-'planned' is named in docs/atlas-200i-dk-a2/10-需求规格.md and has no writer yet -- its fields are a
+'planned' is named in docs/current/10-需求规格.md and has no writer yet -- its fields are a
 proposal to build against, and may still change until the writer exists.
 """
 from __future__ import annotations
@@ -69,7 +69,7 @@ EVENTS: dict[str, dict] = {
                               required=dict(scan_cm="num", calibrated_cm="num"), optional=dict(note="str")),
     "interaction": dict(status="stable", meaning="手势或语音触发、且已被受理执行的指令（E1、E7）；被忽略或拒绝的不写；语音没有 confidence",
                         required=dict(source="str", command="str"), optional=dict(confidence="num", detail="str")),
-    # ---- step-by-step flow and its alarms (docs/atlas-200i-dk-a2/32 §2.4; writer: src/flow/orchestrator.py)
+    # ---- step-by-step flow and its alarms (docs/current/32 §2.4; writer: src/flow/orchestrator.py)
     "step": dict(status="stable", meaning="分步流程的一步开始或结束（scan/plan/grasp/check/back_off/place/verify…，flow 为整轮）",
                  required=dict(session="str", step="str", state="str"),
                  optional=dict(result="str", summary="str", block="str", path="str")),
@@ -87,7 +87,7 @@ EVENTS: dict[str, dict] = {
     "gesture_gate": dict(status="stable", meaning="扫描后等操作员比 OK 手势（2026-11-19 板上版本写过；app 里由流程脚本 wait_gesture 代替）",
                          required=dict(state="str"),
                          optional=dict(timeout_s="num", need="int", seconds="num", pose="list", reason="str", note="str")),
-    # ---- flow scripts shared by every end (docs/atlas-200i-dk-a2/35; writer: src/web/serve.py)
+    # ---- flow scripts shared by every end (docs/current/35; writer: src/web/serve.py)
     "script_changed": dict(status="stable", meaning="流程脚本在某一端被保存或删除；其他端据此重新拉取",
                            required=dict(name="str", action="str", by="str"), optional=dict(rev="str?")),
     # ---- planned: no writer yet

@@ -1,5 +1,5 @@
 """The course STL meshes of the arm, thinned for the simulator page (dev/sim/web): the same parts the Blender scene
-(scripts/blender_arm_sim.py) is built from, so the page shows the arm's real shape instead of the planner's
+(dev/scripts/blender_arm_sim.py) is built from, so the page shows the arm's real shape instead of the planner's
 collision samples.
 
     uv run --with numpy python dev/sim/web_meshes.py [--cell-mm 2.5] [--stl-dir DIR] [--out data/sim/web_meshes.json]
@@ -11,7 +11,7 @@ the simulator serves data/sim's when present, else the repository's. After chang
 and refresh the repository copy:  ... web_meshes.py --out dev/sim/assets/web_meshes.json
 
 Each STL is in its URDF link frame (metres). link5 holds the whole gripper as separate shells; each shell is
-given to the part whose collision samples (app/config/gripper_geometry.json, scripts/blender_extract_gripper.py)
+given to the part whose collision samples (app/config/gripper_geometry.json, dev/scripts/blender_extract_gripper.py)
 lie nearest to it -- finger_right/left move with the four-bar coupler, upper_/lower_ links turn about their
 pivots, everything else is static -- so the page can open and close the fingers the way planning.gripper does.
 Thinning is vertex clustering on a grid of `--cell-mm`.

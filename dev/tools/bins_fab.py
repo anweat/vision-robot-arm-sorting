@@ -2,7 +2,7 @@
 
 Called from make_bins.py so the drawings, the runtime config and the stickers all come
 from one geometry model. Every value here is a design value: nothing has been cut or
-measured. The drawing set is meant to be sent to an acrylic shop as-is; docs/bins/README.md
+measured. The drawing set is meant to be sent to an acrylic shop as-is; materials/bins/README.md
 explains what each file is and what must be checked before ordering.
 """
 
@@ -243,7 +243,7 @@ def page_cover(c: Canvas, d: Design, a, stats: dict) -> None:
     c.text(16, 256, "亚克力分类垃圾桶", 10.0)
     c.text(16, 247, "打版图纸 · 插板式 4 桶 / 套", 5.0, DIM)
     c.line((16, 242), (222, 242), INK, 0.5)
-    c.text(16, 235, "依据：docs/atlas-200i-dk-a2/12-实体容器选型约束.md · 图纸编号 BIN-ACR-01", 2.8, NOTE)
+    c.text(16, 235, "依据：docs/archive/stage1-research/12-实体容器选型约束.md · 图纸编号 BIN-ACR-01", 2.8, NOTE)
 
     draw_iso(c, d, (14, 92, 226, 230), exploded=True, balloons=True, legend=True)
 

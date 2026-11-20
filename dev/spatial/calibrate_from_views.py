@@ -7,7 +7,7 @@
   uv run dev/spatial/calibrate_from_views.py data/captures/2026-09-24/charuco_1915 \
       --out-dir app/config/calibration
 
-Board: ChArUco 7x5, 15 mm squares, 11 mm markers, DICT_4X4_50 (docs/calibration/
+Board: ChArUco 7x5, 15 mm squares, 11 mm markers, DICT_4X4_50 (materials/calibration/
 charuco_15mm_fiducials_A4.pdf). Gripper poses come from the joint readback of each
 view through the URDF model in dofbot_kinematics, so hand-eye accuracy is limited by
 servo backlash (about 1-2 deg) and the unverified link lengths.

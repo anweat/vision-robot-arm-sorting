@@ -1,4 +1,4 @@
-"""What a flow script can ask the arm to do: the one table every end reads (docs/atlas-200i-dk-a2/35).
+"""What a flow script can ask the arm to do: the one table every end reads (docs/current/35).
 
 Standard library only: the gateway (src/web/serve.py) serves this table and checks scripts with it without
 numpy; the orchestrator (src/flow/orchestrator.py) runs the same names. Each entry says

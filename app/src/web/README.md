@@ -3,7 +3,7 @@
 下面的命令都在 `app/` 目录下执行（与板上 `/root/arm-app` 同一布局）；仿真后端在仓库的 `dev/sim/`。
 
 F1-1 的服务与 F1-2/3/4 的页面。只依赖标准库（服务端）与无构建的原生 ES Module（前端），
-日志一律按[日志契约 v1](../../../docs/atlas-200i-dk-a2/18-日志契约.md)读取，唯一来源是
+日志一律按[日志契约 v1](../../../docs/current/18-日志契约.md)读取，唯一来源是
 `src/tools/log_contract.py`。
 
 ## 跑起来
@@ -78,11 +78,11 @@ curl -X POST localhost:8080/api/timers -d '{"cancel":"t1761000000000"}'
 
 ## 验收数据
 
-`tests/test_w2_acceptance.py` 自带仿真控制台量下面三条，跑完把结论打印出来；
+`dev/tests/test_w2_acceptance.py` 自带仿真控制台量下面三条，跑完把结论打印出来；
 换 `--console` 指向实机即可在同一脚本上重跑，脚本不用改。
 
 ```sh
-python3 tests/test_w2_acceptance.py --out w2.txt
+python3 dev/tests/test_w2_acceptance.py --out w2.txt
 ```
 
 截至 2026-10-23 的实测（仿真执行侧）：
@@ -102,7 +102,7 @@ python3 tests/test_w2_acceptance.py --out w2.txt
 
 量不出来的指标一律报"无法测量"，不拿通过凑数。
 
-打开 <http://127.0.0.1:8080/>（2026-11-20 整理，详见[文档 35](../../../docs/atlas-200i-dk-a2/35-流程脚本与前端整理.md)）：
+打开 <http://127.0.0.1:8080/>（2026-11-20 整理，详见[文档 35](../../../docs/current/35-流程脚本与前端整理.md)）：
 
 | 页（`#hash`） | 内容 |
 |---|---|
@@ -148,7 +148,7 @@ python3 tests/test_w2_acceptance.py --out w2.txt
 `X-Token` 鉴权（页面经 `?token=` 或会话存储传递）；静态资源免鉴权，免得开了 token 白屏。
 `--lan` 不给 `--token` 时会自动生成一个并打印到终端，不裸奔。
 
-> 接口细节随后续迭代并入[接口文档](../../../docs/atlas-200i-dk-a2/15-接口文档.md) §8。
+> 接口细节随后续迭代并入[接口文档](../../../docs/current/15-接口文档.md) §8。
 
 ## 阶段一验收口径（10.23）
 

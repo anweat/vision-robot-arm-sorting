@@ -3,7 +3,7 @@
 Model: data/models/official_arm/yolov5s_bs1.om (see SOURCE.md there). Read on the board 2026-09-26:
 input `images` [1, 3, 640, 640] float16, output [1, 25200, 8] float16, i.e. 3 classes, matching the
 upstream coco_names.txt: Fish_bone, Newspaper, Syringe. Of the 16 sticker kinds on the project's blocks
-(docs/atlas-200i-dk-a2/07) it can therefore name at most these three; "other" has no class at all.
+(docs/current/07) it can therefore name at most these three; "other" has no class at all.
 
 Pre/post-processing mirror upstream npu_utils.py / det_utils.py (letterbox 640 with grey 114 padding,
 BGR->RGB, CHW, /255, float16; obj x class confidence, NMS), with numpy + OpenCV instead of torch.

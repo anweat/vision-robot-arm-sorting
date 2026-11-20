@@ -5,7 +5,7 @@
 
 It never imports Arm_Lib and cannot reach hardware. The arm is driven by the same Controller as the real
 console (app/src/teleop/core.py), so limits, keep-out checks, the enable/heartbeat/revision rules and the
-status object are the real ones; every /api/* path of docs/atlas-200i-dk-a2/15-接口文档.md §4 answers
+status object are the real ones; every /api/* path of docs/current/15-接口文档.md §4 answers
 here too. On top of that:
 
   * the wrist camera is rendered from the arm's pose and the blocks on the table (dev/sim/render.py)
@@ -14,7 +14,7 @@ here too. On top of that:
     the block detector against it
   * /snapshot.jpg, /stream.mjpg, /health mimic the board camera service (§6)
   * /api/log, /api/log/stream, /api/log/records, /api/log/summary and /api/scene serve the event log and
-    the last scan in the form of docs/atlas-200i-dk-a2/18-日志契约.md; POST /api/sim/sort runs the real
+    the last scan in the form of docs/current/18-日志契约.md; POST /api/sim/sort runs the real
     sorting pipeline against this simulation (dev/sim/run_pipeline.py) to fill that log
   * any origin may call it (CORS), and --lan listens on all interfaces, so a front end on another port
     or a phone can use it directly. That is acceptable only because nothing real moves.

@@ -1,5 +1,5 @@
 {
-  "_note": "语音/手势 -> 指令 的映射（docs/atlas-200i-dk-a2/25-语音手势接口.md）。2026-11-18（文档 32 §3.2）：ok 启动完整流程、palm 停止；fist/like 仍是 2026-11-13 需求方确认的合爪/松爪。语音/手势不做点动。带冒号的 key 是 command:preset，由 src/interact/intents.py 拆开交给执行侧。改这里不需要改代码。",
+  "_note": "语音/手势 -> 指令 的映射（docs/current/25-语音手势接口.md）。2026-11-18（文档 32 §3.2）：ok 启动完整流程、palm 停止；fist/like 仍是 2026-11-13 需求方确认的合爪/松爪。语音/手势不做点动。带冒号的 key 是 command:preset，由 src/interact/intents.py 拆开交给执行侧。改这里不需要改代码。",
   "voice": {
     "cooldown_s": 2.0,
     "words": {

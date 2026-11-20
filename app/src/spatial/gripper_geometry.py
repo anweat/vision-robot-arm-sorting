@@ -1,11 +1,11 @@
 """The gripper as the four-bar it is: where the pads, the fingertips and the whole gripper are for any J6.
 
 Geometry: config/gripper_geometry.json, extracted from the course link5.STL by
-scripts/blender_extract_gripper.py. Each finger is the coupler of a parallelogram (an idler link and a
+dev/scripts/blender_extract_gripper.py. Each finger is the coupler of a parallelogram (an idler link and a
 gear link of 30.0 mm, equal and parallel), so it does not turn: it translates on a 30 mm circle. Opening
 therefore pulls the pads back towards the wrist as well as apart -- 26 mm between "closed on a 3 cm block"
 and "open at J6 30". That axial travel is what the old empirical "+1 cm radially for the open gripper"
-was compensating (docs/atlas-200i-dk-a2/29-夹爪四连杆与抓取解算.md).
+was compensating (docs/current/29-夹爪四连杆与抓取解算.md).
 
 J6 -> jaw gap comes from the official table (config/gripper_model.json, two points confirmed on this arm);
 the gap -> link angle step is this geometry. Above the four-bar's 60.8 mm the table is clamped.

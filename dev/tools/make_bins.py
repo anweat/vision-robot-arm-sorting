@@ -95,7 +95,7 @@ def main() -> None:
     poses = [bin_pose(*rt) if len(rt) == 2 else (rt[0] * 10, rt[1] * 10, rt[2]) for rt in placements(a.place)]
     checks = [release_check(d, pose, arm, a.release_clearance_mm) for pose in poses]
 
-    out = ROOT / "docs" / "bins"
+    out = ROOT / "materials" / "bins"
     out.mkdir(exist_ok=True)
 
     from bins_fab import page_stickers, write_outputs  # local import: bins_fab only needs the geometry above
@@ -118,7 +118,7 @@ def main() -> None:
         entry["planned_release"] = chk
 
     cfg = {
-        "_status": f"design values from dev/tools/make_bins.py for docs/bins/{a.name}_*; slot-and-tab acrylic box, "
+        "_status": f"design values from dev/tools/make_bins.py for materials/bins/{a.name}_*; slot-and-tab acrylic box, "
                    "not cut, not measured; placements and release solutions are plans from the upstream link model only",
         "drawing": {"number": "BIN-ACR-01", "revision": a.revision, "date": a.drawing_date,
                     "set": a.parts_set if a.stickers_only else f"{a.name}_drawings.pdf"},

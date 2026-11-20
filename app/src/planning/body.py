@@ -1,5 +1,5 @@
 """Collision samples of the whole arm in the base frame, vectorized: links 1-4 from the course meshes
-(config/arm_links_geometry.json, scripts/blender_extract_links.py) and the four-bar gripper (+ held block).
+(config/arm_links_geometry.json, dev/scripts/blender_extract_links.py) and the four-bar gripper (+ held block).
 
 The link frames are the URDF chain of dofbot_kinematics (servo - 90 about z); link5 uses the real mesh frame
 (gripper_geometry.link5_pose: mirrored J5 and the 2.15 mm offset).

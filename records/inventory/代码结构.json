@@ -1,0 +1,2504 @@
+[
+  {
+    "path": "dev/scripts/course_group_motion_test.py",
+    "syntax": "parsed-not-executed",
+    "imports": [
+      "Arm_Lib",
+      "json",
+      "time"
+    ],
+    "symbols": [
+      {
+        "name": "read_all",
+        "line": 13,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "validate_pose",
+        "line": 27,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "main",
+        "line": 35,
+        "kind": "FunctionDef"
+      }
+    ],
+    "calls": [
+      "Arm_Device",
+      "ValueError",
+      "abs",
+      "arm.Arm_serial_servo_read",
+      "arm.Arm_serial_servo_write6",
+      "enumerate",
+      "json.dumps",
+      "len",
+      "main",
+      "per_servo.append",
+      "print",
+      "range",
+      "read_all",
+      "target.append",
+      "time.sleep",
+      "validate_pose",
+      "values.append",
+      "zip"
+    ]
+  },
+  {
+    "path": "dev/scripts/course_pose_read_test.py",
+    "syntax": "parsed-not-executed",
+    "imports": [
+      "Arm_Lib",
+      "json",
+      "time"
+    ],
+    "symbols": [
+      {
+        "name": "course_read_once",
+        "line": 20,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "read_with_retries",
+        "line": 28,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "checked_write",
+        "line": 39,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "main",
+        "line": 46,
+        "kind": "FunctionDef"
+      }
+    ],
+    "calls": [
+      "Arm_Device",
+      "ValueError",
+      "arm.Arm_serial_servo_read",
+      "arm.Arm_serial_servo_write",
+      "arm.Arm_serial_servo_write6",
+      "baseline.items",
+      "checked_write",
+      "course_read_once",
+      "json.dumps",
+      "main",
+      "print",
+      "range",
+      "read_with_retries",
+      "samples.append",
+      "time.sleep",
+      "values.append"
+    ]
+  },
+  {
+    "path": "dev/scripts/hardware_smoke_test.py",
+    "syntax": "parsed-not-executed",
+    "imports": [
+      "Arm_Lib",
+      "__future__",
+      "argparse",
+      "cv2",
+      "json",
+      "time",
+      "typing"
+    ],
+    "symbols": [
+      {
+        "name": "arm_device",
+        "line": 22,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "read_angle",
+        "line": 28,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "read_raw_position",
+        "line": 39,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "safe_write",
+        "line": 51,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "read_arm_state",
+        "line": 60,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "test_rgb",
+        "line": 78,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "test_buzzer",
+        "line": 86,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "test_camera",
+        "line": 95,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "choose_probe_target",
+        "line": 117,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "test_motion",
+        "line": 128,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "center_unreadable_servos",
+        "line": 165,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "main",
+        "line": 193,
+        "kind": "FunctionDef"
+      }
+    ],
+    "calls": [
+      "Arm_Device",
+      "RuntimeError",
+      "ValueError",
+      "abs",
+      "argparse.ArgumentParser",
+      "arm.Arm_Buzzer_Off",
+      "arm.Arm_Buzzer_On",
+      "arm.Arm_RGB_set",
+      "arm.Arm_get_hardversion",
+      "arm.Arm_ping_servo",
+      "arm.Arm_serial_servo_read",
+      "arm.Arm_serial_servo_write",
+      "arm.bus.read_word_data",
+      "arm.bus.write_byte_data",
+      "arm_device",
+      "camera.isOpened",
+      "camera.read",
+      "camera.release",
+      "center_unreadable_servos",
+      "choose_probe_target",
+      "cv2.VideoCapture",
+      "group.add_argument",
+      "json.dumps",
+      "main",
+      "parser.add_argument",
+      "parser.add_mutually_exclusive_group",
+      "parser.error",
+      "parser.parse_args",
+      "print",
+      "range",
+      "read_angle",
+      "read_arm_state",
+      "read_raw_position",
+      "results.append",
+      "safe_write",
+      "samples.append",
+      "str",
+      "test_buzzer",
+      "test_camera",
+      "test_motion",
+      "test_rgb",
+      "time.sleep"
+    ]
+  },
+  {
+    "path": "dev/scripts/inventory_resources.py",
+    "syntax": "parsed-not-executed",
+    "imports": [
+      "ast",
+      "collections",
+      "csv",
+      "hashlib",
+      "json",
+      "pathlib"
+    ],
+    "symbols": [
+      {
+        "name": "inspect_code",
+        "line": 12,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "category",
+        "line": 29,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "main",
+        "line": 51,
+        "kind": "FunctionDef"
+      }
+    ],
+    "calls": [
+      "''.join",
+      "(OUT / '代码结构.json').write_text",
+      "(OUT / '全部资源.csv').open",
+      "(OUT / '盘点统计.json').write_text",
+      "OUT.mkdir",
+      "Path",
+      "Path(__file__).resolve",
+      "ROOT.rglob",
+      "any",
+      "ast.parse",
+      "ast.unparse",
+      "ast.walk",
+      "calls.add",
+      "category",
+      "cell.get",
+      "cells.append",
+      "code.append",
+      "collections.Counter",
+      "csv.DictWriter",
+      "dict",
+      "digest.hexdigest",
+      "digest.update",
+      "enumerate",
+      "functions.append",
+      "hashlib.sha256",
+      "imports.add",
+      "imports.update",
+      "inspect_code",
+      "isinstance",
+      "iter",
+      "json.dumps",
+      "json.loads",
+      "len",
+      "main",
+      "notebook.get",
+      "p.startswith",
+      "path.as_posix",
+      "path.is_file",
+      "path.name.endswith",
+      "path.open",
+      "path.read_text",
+      "path.relative_to",
+      "path.stat",
+      "path.suffix.lower",
+      "print",
+      "relative.as_posix",
+      "rows.append",
+      "set",
+      "sorted",
+      "str",
+      "stream.read",
+      "sum",
+      "type",
+      "writer.writeheader",
+      "writer.writerows"
+    ]
+  },
+  {
+    "path": "dev/scripts/organize_stage2.py",
+    "syntax": "parsed-not-executed",
+    "imports": [
+      "bs4",
+      "concurrent.futures",
+      "hashlib",
+      "html",
+      "json",
+      "os",
+      "pathlib",
+      "re",
+      "urllib.parse",
+      "urllib.request"
+    ],
+    "symbols": [
+      {
+        "name": "download",
+        "line": 28,
+        "kind": "FunctionDef"
+      }
+    ],
+    "calls": [
+      "''.join",
+      "'\\n'.join",
+      "'\\n\\n'.join",
+      "(OUT / 'README.md').write_text",
+      "(OUT / 'assets').mkdir",
+      "(OUT / 'index.html').write_text",
+      "(OUT / '代码片段' / (stem + '.md')).write_text",
+      "(OUT / '代码片段').mkdir",
+      "(OUT / '课程原始内容.json').read_text",
+      "(OUT / '资源下载清单.json').write_text",
+      "(OUT / (stem + '.html')).write_text",
+      "(OUT / (stem + '.txt')).write_text",
+      "BeautifulSoup",
+      "ValueError",
+      "attr.lower",
+      "attr.lower().startswith",
+      "block.get_text",
+      "block.get_text().replace",
+      "code_parts.append",
+      "code_path.write_text",
+      "concurrent.futures.ThreadPoolExecutor",
+      "content_type.startswith",
+      "enumerate",
+      "executor.map",
+      "hashlib.sha256",
+      "hashlib.sha256(url.encode()).hexdigest",
+      "html.escape",
+      "iframe.get",
+      "iframe.get('src', '').startswith",
+      "iframe.replace_with",
+      "index.append",
+      "json.dumps",
+      "json.loads",
+      "len",
+      "list",
+      "local.is_file",
+      "mapping.get",
+      "os.path.relpath",
+      "pathlib.Path",
+      "pathlib.Path(__file__).resolve",
+      "pathlib.Path(os.path.relpath(local, OUT)).as_posix",
+      "print",
+      "raw.lower",
+      "raw.lower().startswith",
+      "re.search",
+      "re.sub",
+      "resources.append",
+      "response.headers.get_content_type",
+      "response.read",
+      "sections.append",
+      "set",
+      "sorted",
+      "soup.find_all",
+      "soup.get_text",
+      "soup.new_tag",
+      "str",
+      "sum",
+      "tag.get",
+      "tag.has_attr",
+      "target.exists",
+      "target.stat",
+      "target.write_bytes",
+      "text_parts.append",
+      "unwanted.decompose",
+      "url.encode",
+      "urllib.parse.unquote",
+      "urllib.parse.urljoin",
+      "urllib.parse.urlparse",
+      "urllib.request.urlopen",
+      "urls.add"
+    ]
+  },
+  {
+    "path": "资料/官方资料/Atlas-200I-DK-A2-机械臂/ros2_robot_arm-upstream/ros2_ws/src/dofbot_garbage_yolov5/dofbot_garbage_yolov5/__init__.py",
+    "syntax": "parsed-not-executed",
+    "imports": [],
+    "symbols": [],
+    "calls": []
+  },
+  {
+    "path": "资料/官方资料/Atlas-200I-DK-A2-机械臂/ros2_robot_arm-upstream/ros2_ws/src/dofbot_garbage_yolov5/dofbot_garbage_yolov5/main.py",
+    "syntax": "parsed-not-executed",
+    "imports": [
+      "Arm_Lib",
+      "cv2",
+      "numpy",
+      "os",
+      "pathlib",
+      "time",
+      "utils.dofbot_config",
+      "utils.garbage_identify"
+    ],
+    "symbols": [
+      {
+        "name": "main",
+        "line": 16,
+        "kind": "FunctionDef"
+      }
+    ],
+    "calls": [
+      "ArmCalibration",
+      "Arm_Lib.Arm_Device",
+      "GarbageIdentify",
+      "Path",
+      "Path(__file__).resolve",
+      "arm.Arm_serial_servo_write6_array",
+      "calibration.perspective_transform",
+      "capture.isOpened",
+      "capture.read",
+      "cv.VideoCapture",
+      "cv.resize",
+      "dp.reshape",
+      "len",
+      "main",
+      "np.fromfile",
+      "os.path.dirname",
+      "os.path.join",
+      "print",
+      "read_XYT",
+      "sleep",
+      "target.garbage_grap",
+      "target.garbage_run"
+    ]
+  },
+  {
+    "path": "资料/官方资料/Atlas-200I-DK-A2-机械臂/ros2_robot_arm-upstream/ros2_ws/src/dofbot_garbage_yolov5/dofbot_garbage_yolov5/utils/det_utils.py",
+    "syntax": "parsed-not-executed",
+    "imports": [
+      "cv2",
+      "numpy",
+      "time",
+      "torch",
+      "torchvision"
+    ],
+    "symbols": [
+      {
+        "name": "letterbox",
+        "line": 25,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "xyxy2xywh",
+        "line": 78,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "non_max_suppression",
+        "line": 92,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "xywh2xyxy",
+        "line": 241,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "scale_coords",
+        "line": 255,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "clip_coords",
+        "line": 278,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "nms",
+        "line": 298,
+        "kind": "FunctionDef"
+      }
+    ],
+    "calls": [
+      "(x[:, 5:6] == torch.tensor(classes, device=x.device)).any",
+      "(x[:, 5:mi] > conf_thres).nonzero",
+      "LOGGER.warning",
+      "box_iou",
+      "boxes[:, 0].clamp_",
+      "boxes[:, 1].clamp_",
+      "boxes[:, 2].clamp_",
+      "boxes[:, 3].clamp_",
+      "boxes[:, [0, 2]].clip",
+      "boxes[:, [1, 3]].clip",
+      "clip_coords",
+      "conf.view",
+      "cv2.copyMakeBorder",
+      "cv2.resize",
+      "enumerate",
+      "int",
+      "iou.sum",
+      "isinstance",
+      "j.float",
+      "j[:, None].float",
+      "lb[:, 0].long",
+      "len",
+      "min",
+      "non_max_suppression",
+      "np.copy",
+      "np.mod",
+      "output[xi].to",
+      "prediction.cpu",
+      "range",
+      "round",
+      "time.time",
+      "torch.cat",
+      "torch.mm",
+      "torch.mm(weights, x[:, :4]).float",
+      "torch.tensor",
+      "torch.zeros",
+      "torchvision.ops.nms",
+      "weights.sum",
+      "x.clone",
+      "x[:, 4].argsort",
+      "x[:, 5:mi].max",
+      "xywh2xyxy"
+    ]
+  },
+  {
+    "path": "资料/官方资料/Atlas-200I-DK-A2-机械臂/ros2_robot_arm-upstream/ros2_ws/src/dofbot_garbage_yolov5/dofbot_garbage_yolov5/utils/dofbot_config.py",
+    "syntax": "parsed-not-executed",
+    "imports": [
+      "Arm_Lib",
+      "cv2",
+      "numpy"
+    ],
+    "symbols": [
+      {
+        "name": "ArmCalibration",
+        "line": 9,
+        "kind": "ClassDef"
+      },
+      {
+        "name": "write_XYT",
+        "line": 131,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "read_XYT",
+        "line": 141,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "__init__",
+        "line": 10,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "calibration_map",
+        "line": 21,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "morphological_processing",
+        "line": 72,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "perspective_transform",
+        "line": 98,
+        "kind": "FunctionDef"
+      }
+    ],
+    "calls": [
+      "Arm_Lib.Arm_Device",
+      "cv.GaussianBlur",
+      "cv.approxPolyDP",
+      "cv.circle",
+      "cv.contourArea",
+      "cv.cvtColor",
+      "cv.drawContours",
+      "cv.findContours",
+      "cv.getPerspectiveTransform",
+      "cv.moments",
+      "cv.morphologyEx",
+      "cv.threshold",
+      "cv.warpPerspective",
+      "enumerate",
+      "int",
+      "len",
+      "line.find",
+      "np.float32",
+      "np.int_",
+      "np.ones",
+      "np.squeeze",
+      "open",
+      "range",
+      "rf.flush",
+      "rf.readlines",
+      "self.arm.Arm_serial_servo_write6_array",
+      "self.morphological_processing",
+      "str",
+      "wf.flush",
+      "wf.write"
+    ]
+  },
+  {
+    "path": "资料/官方资料/Atlas-200I-DK-A2-机械臂/ros2_robot_arm-upstream/ros2_ws/src/dofbot_garbage_yolov5/dofbot_garbage_yolov5/utils/garbage_grap.py",
+    "syntax": "parsed-not-executed",
+    "imports": [
+      "Arm_Lib",
+      "time"
+    ],
+    "symbols": [
+      {
+        "name": "GarbageGrapMove",
+        "line": 9,
+        "kind": "ClassDef"
+      },
+      {
+        "name": "__init__",
+        "line": 10,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "move",
+        "line": 18,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "arm_run",
+        "line": 55,
+        "kind": "FunctionDef"
+      }
+    ],
+    "calls": [
+      "Arm_Lib.Arm_Device",
+      "self.arm.Arm_serial_servo_write",
+      "self.arm.Arm_serial_servo_write6_array",
+      "self.move",
+      "sleep"
+    ]
+  },
+  {
+    "path": "资料/官方资料/Atlas-200I-DK-A2-机械臂/ros2_robot_arm-upstream/ros2_ws/src/dofbot_garbage_yolov5/dofbot_garbage_yolov5/utils/garbage_identify.py",
+    "syntax": "parsed-not-executed",
+    "imports": [
+      "Arm_Lib",
+      "ais_bench.infer.interface",
+      "cv2",
+      "cv_bridge",
+      "dofbot_info.srv",
+      "garbage_grap",
+      "npu_utils",
+      "numpy",
+      "os",
+      "pathlib",
+      "rclpy",
+      "sensor_msgs.msg",
+      "sys",
+      "time",
+      "torch"
+    ],
+    "symbols": [
+      {
+        "name": "GarbageIdentify",
+        "line": 33,
+        "kind": "ClassDef"
+      },
+      {
+        "name": "__init__",
+        "line": 34,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "garbage_grap",
+        "line": 93,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "garbage_run",
+        "line": 122,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "get_pos",
+        "line": 154,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "server_joint",
+        "line": 210,
+        "kind": "FunctionDef"
+      }
+    ],
+    "calls": [
+      "(xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view",
+      "(xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist",
+      "Arm_Lib.Arm_Device",
+      "CvBridge",
+      "GarbageGrapMove",
+      "InferSession",
+      "Kinemarics.Request",
+      "Path",
+      "Path(__file__).resolve",
+      "cv.circle",
+      "cv.putText",
+      "cv.resize",
+      "enumerate",
+      "f.readline",
+      "float",
+      "get_labels_from_txt",
+      "infer_image",
+      "int",
+      "len",
+      "list",
+      "msg.items",
+      "np.int_",
+      "open",
+      "os.path.dirname",
+      "os.path.join",
+      "print",
+      "rclpy.create_node",
+      "rclpy.init",
+      "rclpy.spin_until_future_complete",
+      "reversed",
+      "round",
+      "self.arm.Arm_Buzzer_On",
+      "self.arm.Arm_serial_servo_write6_array",
+      "self.bridge.cv2_to_imgmsg",
+      "self.client.call_async",
+      "self.client.wait_for_service",
+      "self.frame.copy",
+      "self.future.result",
+      "self.get_pos",
+      "self.grap_move.arm_run",
+      "self.image_pub.publish",
+      "self.node.create_client",
+      "self.node_pub.create_publisher",
+      "self.server_joint",
+      "sleep",
+      "sorted",
+      "str",
+      "torch.tensor",
+      "torch.tensor(xyxy).view",
+      "xyxy2xywh"
+    ]
+  },
+  {
+    "path": "资料/官方资料/Atlas-200I-DK-A2-机械臂/ros2_robot_arm-upstream/ros2_ws/src/dofbot_garbage_yolov5/dofbot_garbage_yolov5/utils/npu_utils.py",
+    "syntax": "parsed-not-executed",
+    "imports": [
+      "cv2",
+      "det_utils",
+      "numpy",
+      "torch"
+    ],
+    "symbols": [
+      {
+        "name": "preprocess_image",
+        "line": 14,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "draw_bbox",
+        "line": 22,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "get_labels_from_txt",
+        "line": 63,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "draw_prediction",
+        "line": 71,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "infer_image",
+        "line": 76,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "xyxy2xywh",
+        "line": 93,
+        "kind": "FunctionDef"
+      }
+    ],
+    "calls": [
+      "'{:.4f}'.format",
+      "'{} {} {} {} {} {}\\n'.format",
+      "boxout[0].numpy",
+      "cv2.putText",
+      "cv2.rectangle",
+      "dict",
+      "draw_bbox",
+      "draw_prediction",
+      "enumerate",
+      "f.readlines",
+      "float",
+      "img[:, :, ::-1].transpose",
+      "int",
+      "isinstance",
+      "label.strip",
+      "letterbox",
+      "model.infer",
+      "nms",
+      "np.ascontiguousarray",
+      "np.copy",
+      "open",
+      "preprocess_image",
+      "scale_coords",
+      "str",
+      "torch.tensor",
+      "x.clone"
+    ]
+  },
+  {
+    "path": "资料/官方资料/Atlas-200I-DK-A2-机械臂/ros2_robot_arm-upstream/ros2_ws/src/dofbot_garbage_yolov5/setup.py",
+    "syntax": "parsed-not-executed",
+    "imports": [
+      "glob",
+      "os",
+      "setuptools"
+    ],
+    "symbols": [],
+    "calls": [
+      "glob",
+      "os.path.join",
+      "setup"
+    ]
+  },
+  {
+    "path": "资料/官方资料/Atlas-200I-DK-A2-机械臂/ros2_robot_arm-upstream/ros2_ws/src/dofbot_garbage_yolov5/test/test_det_utils.py",
+    "syntax": "parsed-not-executed",
+    "imports": [
+      "cv2",
+      "dofbot_garbage_yolov5.utils.det_utils",
+      "numpy",
+      "os",
+      "pathlib"
+    ],
+    "symbols": [
+      {
+        "name": "TestDETUtils",
+        "line": 10,
+        "kind": "ClassDef"
+      },
+      {
+        "name": "setup_method",
+        "line": 11,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "test_letter_box",
+        "line": 26,
+        "kind": "FunctionDef"
+      }
+    ],
+    "calls": [
+      "Path",
+      "Path(__file__).resolve",
+      "cv2.imread",
+      "isinstance",
+      "letterbox",
+      "os.path.dirname",
+      "os.path.join"
+    ]
+  },
+  {
+    "path": "资料/官方资料/Atlas-200I-DK-A2-机械臂/ros2_robot_arm-upstream/ros2_ws/src/dofbot_garbage_yolov5/test/test_garbage_identify.py",
+    "syntax": "parsed-not-executed",
+    "imports": [
+      "dofbot_garbage_yolov5.utils.garbage_identify",
+      "numpy"
+    ],
+    "symbols": [
+      {
+        "name": "TestGarbageIdentify",
+        "line": 6,
+        "kind": "ClassDef"
+      },
+      {
+        "name": "setup_method",
+        "line": 7,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "test_garbage_run",
+        "line": 13,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "test_garbage_run_garbage_index",
+        "line": 19,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "test_garbage_grap_green",
+        "line": 25,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "test_garbage_grap_red",
+        "line": 32,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "test_garbage_grap_blue",
+        "line": 39,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "test_garbage_grap_gray",
+        "line": 46,
+        "kind": "FunctionDef"
+      }
+    ],
+    "calls": [
+      "GarbageIdentify",
+      "isinstance",
+      "np.zeros",
+      "self.garbage_identify.garbage_grap",
+      "self.garbage_identify.garbage_run"
+    ]
+  },
+  {
+    "path": "资料/官方资料/Atlas-200I-DK-A2-机械臂/ros2_robot_arm-upstream/ros2_ws/src/dofbot_garbage_yolov5/test/test_npu_utils.py",
+    "syntax": "parsed-not-executed",
+    "imports": [
+      "ais_bench.infer.interface",
+      "cv2",
+      "dofbot_garbage_yolov5.utils.npu_utils",
+      "numpy",
+      "os",
+      "pathlib"
+    ],
+    "symbols": [
+      {
+        "name": "TestNPUUtils",
+        "line": 16,
+        "kind": "ClassDef"
+      },
+      {
+        "name": "setup_method",
+        "line": 17,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "test_preprocess_image",
+        "line": 35,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "test_infer_image",
+        "line": 42,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "test_get_labels_from_txt",
+        "line": 51,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "test_xyxy2xywh",
+        "line": 56,
+        "kind": "FunctionDef"
+      }
+    ],
+    "calls": [
+      "InferSession",
+      "Path",
+      "Path(__file__).resolve",
+      "cv2.imread",
+      "get_labels_from_txt",
+      "infer_image",
+      "isinstance",
+      "np.array",
+      "os.path.dirname",
+      "os.path.join",
+      "preprocess_image",
+      "xyxy2xywh"
+    ]
+  },
+  {
+    "path": "资料/官方资料/Atlas-200I-DK-A2-机械臂/ros2_robot_arm-upstream/ros2_ws/src/dofbot_garbage_yolov5/tools/相机校准.ipynb",
+    "cells": [
+      {
+        "cell_index_zero_based": 2,
+        "syntax": "parsed-not-executed",
+        "imports": [
+          "Arm_Lib",
+          "IPython.display",
+          "cv2",
+          "dofbot_config",
+          "garbage_identify",
+          "ipywidgets",
+          "os",
+          "sys",
+          "threading",
+          "time"
+        ],
+        "symbols": [],
+        "calls": [
+          "sys.path.append"
+        ]
+      },
+      {
+        "cell_index_zero_based": 4,
+        "syntax": "parsed-not-executed",
+        "imports": [],
+        "symbols": [],
+        "calls": [
+          "ArmCalibration",
+          "Arm_Lib.Arm_Device",
+          "GarbageIdentify",
+          "os.path.dirname",
+          "os.path.join",
+          "os.path.realpath",
+          "print",
+          "read_XYT"
+        ]
+      },
+      {
+        "cell_index_zero_based": 6,
+        "syntax": "parsed-not-executed",
+        "imports": [
+          "Arm_Lib"
+        ],
+        "symbols": [],
+        "calls": [
+          "Arm_Lib.Arm_Device",
+          "arm.Arm_serial_servo_write6_array"
+        ]
+      },
+      {
+        "cell_index_zero_based": 8,
+        "syntax": "parsed-not-executed",
+        "imports": [],
+        "symbols": [],
+        "calls": [
+          "widgets.Button",
+          "widgets.HBox",
+          "widgets.Image",
+          "widgets.IntSlider",
+          "widgets.Layout",
+          "widgets.Output",
+          "widgets.VBox"
+        ]
+      },
+      {
+        "cell_index_zero_based": 10,
+        "syntax": "parsed-not-executed",
+        "imports": [],
+        "symbols": [
+          {
+            "name": "calibration_model_Callback",
+            "line": 2,
+            "kind": "FunctionDef"
+          },
+          {
+            "name": "calibration_OK_Callback",
+            "line": 7,
+            "kind": "FunctionDef"
+          },
+          {
+            "name": "calibration_cancel_Callback",
+            "line": 12,
+            "kind": "FunctionDef"
+          }
+        ],
+        "calls": [
+          "calibration_cancel.on_click",
+          "calibration_model.on_click",
+          "calibration_ok.on_click",
+          "print"
+        ]
+      },
+      {
+        "cell_index_zero_based": 11,
+        "syntax": "parsed-not-executed",
+        "imports": [],
+        "symbols": [
+          {
+            "name": "exit_button_Callback",
+            "line": 1,
+            "kind": "FunctionDef"
+          }
+        ],
+        "calls": [
+          "exit_button.on_click",
+          "print"
+        ]
+      },
+      {
+        "cell_index_zero_based": 13,
+        "syntax": "parsed-not-executed",
+        "imports": [],
+        "symbols": [
+          {
+            "name": "camera",
+            "line": 1,
+            "kind": "FunctionDef"
+          }
+        ],
+        "calls": [
+          "calibration.calibration_map",
+          "calibration.perspective_transform",
+          "capture.get",
+          "capture.isOpened",
+          "capture.read",
+          "capture.release",
+          "cv.VideoCapture",
+          "cv.destroyAllWindows",
+          "cv.imencode",
+          "cv.imencode('.jpg', img)[1].tobytes",
+          "cv.resize",
+          "dp.tofile",
+          "len",
+          "print",
+          "write_XYT"
+        ]
+      },
+      {
+        "cell_index_zero_based": 15,
+        "syntax": "parsed-not-executed",
+        "imports": [],
+        "symbols": [],
+        "calls": [
+          "display",
+          "threading.Thread",
+          "threading.Thread(target=camera).start"
+        ]
+      },
+      {
+        "cell_index_zero_based": 16,
+        "syntax": "parsed-not-executed",
+        "imports": [],
+        "symbols": [],
+        "calls": []
+      },
+      {
+        "cell_index_zero_based": 17,
+        "syntax": "parsed-not-executed",
+        "imports": [],
+        "symbols": [],
+        "calls": []
+      },
+      {
+        "cell_index_zero_based": 18,
+        "syntax": "parsed-not-executed",
+        "imports": [],
+        "symbols": [],
+        "calls": []
+      },
+      {
+        "cell_index_zero_based": 19,
+        "syntax": "parsed-not-executed",
+        "imports": [],
+        "symbols": [],
+        "calls": []
+      }
+    ]
+  },
+  {
+    "path": "资料/官方资料/Atlas-200I-DK-A2-机械臂/ros2_robot_arm-upstream/ros2_ws/src/dofbot_moveit/launch/dofbot_moveit.launch.py",
+    "syntax": "parsed-not-executed",
+    "imports": [
+      "ament_index_python.packages",
+      "launch",
+      "launch.actions",
+      "launch.conditions",
+      "launch.substitutions",
+      "launch_ros.actions",
+      "launch_ros.parameter_descriptions"
+    ],
+    "symbols": [
+      {
+        "name": "generate_launch_description",
+        "line": 11,
+        "kind": "FunctionDef"
+      }
+    ],
+    "calls": [
+      "Command",
+      "DeclareLaunchArgument",
+      "IfCondition",
+      "LaunchConfiguration",
+      "LaunchDescription",
+      "Node",
+      "ParameterValue",
+      "UnlessCondition",
+      "get_package_share_path",
+      "print",
+      "str"
+    ]
+  },
+  {
+    "path": "资料/官方资料/Atlas-200I-DK-A2-机械臂/ros2_robot_arm-upstream/ros2_ws/src/dofbot_moveit/launch/kinematic_server.launch.py",
+    "syntax": "parsed-not-executed",
+    "imports": [
+      "ament_index_python.packages",
+      "launch",
+      "launch_ros.actions",
+      "os"
+    ],
+    "symbols": [
+      {
+        "name": "generate_launch_description",
+        "line": 9,
+        "kind": "FunctionDef"
+      }
+    ],
+    "calls": [
+      "LaunchDescription",
+      "Node",
+      "get_package_share_directory",
+      "launch.substitutions.LaunchConfiguration",
+      "os.path.join"
+    ]
+  },
+  {
+    "path": "资料/官方资料/Atlas-200I-DK-A2-机械臂/ros2_robot_arm-upstream/ros2_ws/src/robot_arm_bringup/launch/block_cls_bringup.launch.py",
+    "syntax": "parsed-not-executed",
+    "imports": [
+      "launch",
+      "launch_ros.actions"
+    ],
+    "symbols": [
+      {
+        "name": "generate_launch_description",
+        "line": 5,
+        "kind": "FunctionDef"
+      }
+    ],
+    "calls": [
+      "LaunchDescription",
+      "Node"
+    ]
+  },
+  {
+    "path": "资料/官方资料/Atlas-200I-DK-A2-机械臂/ros2_robot_arm-upstream/ros2_ws/src/robot_arm_bringup/launch/color_stacking_bringup.launch.py",
+    "syntax": "parsed-not-executed",
+    "imports": [
+      "launch",
+      "launch_ros.actions"
+    ],
+    "symbols": [
+      {
+        "name": "generate_launch_description",
+        "line": 5,
+        "kind": "FunctionDef"
+      }
+    ],
+    "calls": [
+      "LaunchDescription",
+      "Node"
+    ]
+  },
+  {
+    "path": "资料/官方资料/Atlas-200I-DK-A2-机械臂/ros2_robot_arm-upstream/ros2_ws/src/robot_arm_bringup/robot_arm_bringup/__init__.py",
+    "syntax": "parsed-not-executed",
+    "imports": [],
+    "symbols": [],
+    "calls": []
+  },
+  {
+    "path": "资料/官方资料/Atlas-200I-DK-A2-机械臂/ros2_robot_arm-upstream/ros2_ws/src/robot_arm_bringup/setup.py",
+    "syntax": "parsed-not-executed",
+    "imports": [
+      "glob",
+      "os",
+      "setuptools"
+    ],
+    "symbols": [],
+    "calls": [
+      "glob",
+      "os.path.join",
+      "setup"
+    ]
+  },
+  {
+    "path": "资料/官方资料/Atlas-200I-DK-A2-机械臂/ros2_robot_arm-upstream/ros2_ws/src/robot_arm_color_stacking/robot_arm_color_stacking/__init__.py",
+    "syntax": "parsed-not-executed",
+    "imports": [],
+    "symbols": [],
+    "calls": []
+  },
+  {
+    "path": "资料/官方资料/Atlas-200I-DK-A2-机械臂/ros2_robot_arm-upstream/ros2_ws/src/robot_arm_color_stacking/robot_arm_color_stacking/main.py",
+    "syntax": "parsed-not-executed",
+    "imports": [
+      "Arm_Lib",
+      "cv2",
+      "numpy",
+      "os",
+      "pathlib",
+      "time",
+      "utils.dofbot_config",
+      "utils.stacking_target"
+    ],
+    "symbols": [
+      {
+        "name": "main",
+        "line": 16,
+        "kind": "FunctionDef"
+      }
+    ],
+    "calls": [
+      "ArmCalibration",
+      "Arm_Lib.Arm_Device",
+      "Path",
+      "Path(__file__).resolve",
+      "arm.Arm_serial_servo_write6_array",
+      "calibration.perspective_transform",
+      "capture.isOpened",
+      "capture.read",
+      "capture.release",
+      "cv.VideoCapture",
+      "cv.destroyAllWindows",
+      "cv.resize",
+      "dp.reshape",
+      "len",
+      "main",
+      "np.fromfile",
+      "os.path.dirname",
+      "os.path.join",
+      "print",
+      "read_XYT",
+      "sleep",
+      "stacking_GetTarget",
+      "target.select_color",
+      "target.target_run"
+    ]
+  },
+  {
+    "path": "资料/官方资料/Atlas-200I-DK-A2-机械臂/ros2_robot_arm-upstream/ros2_ws/src/robot_arm_color_stacking/robot_arm_color_stacking/utils/det_utils.py",
+    "syntax": "parsed-not-executed",
+    "imports": [
+      "cv2",
+      "numpy",
+      "time",
+      "torch",
+      "torchvision"
+    ],
+    "symbols": [
+      {
+        "name": "letterbox",
+        "line": 25,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "xyxy2xywh",
+        "line": 78,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "non_max_suppression",
+        "line": 92,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "xywh2xyxy",
+        "line": 243,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "scale_coords",
+        "line": 257,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "clip_coords",
+        "line": 280,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "nms",
+        "line": 300,
+        "kind": "FunctionDef"
+      }
+    ],
+    "calls": [
+      "(x[:, 5:6] == torch.tensor(classes, device=x.device)).any",
+      "(x[:, 5:mi] > conf_thres).nonzero",
+      "LOGGER.warning",
+      "box_iou",
+      "boxes[:, 0].clamp_",
+      "boxes[:, 1].clamp_",
+      "boxes[:, 2].clamp_",
+      "boxes[:, 3].clamp_",
+      "boxes[:, [0, 2]].clip",
+      "boxes[:, [1, 3]].clip",
+      "clip_coords",
+      "conf.view",
+      "cv2.copyMakeBorder",
+      "cv2.resize",
+      "enumerate",
+      "int",
+      "iou.sum",
+      "isinstance",
+      "j.float",
+      "j[:, None].float",
+      "lb[:, 0].long",
+      "len",
+      "min",
+      "non_max_suppression",
+      "np.copy",
+      "np.mod",
+      "output[xi].to",
+      "prediction.cpu",
+      "range",
+      "round",
+      "time.time",
+      "torch.cat",
+      "torch.mm",
+      "torch.mm(weights, x[:, :4]).float",
+      "torch.tensor",
+      "torch.zeros",
+      "torchvision.ops.nms",
+      "weights.sum",
+      "x.clone",
+      "x[:, 4].argsort",
+      "x[:, 5:mi].max",
+      "xywh2xyxy"
+    ]
+  },
+  {
+    "path": "资料/官方资料/Atlas-200I-DK-A2-机械臂/ros2_robot_arm-upstream/ros2_ws/src/robot_arm_color_stacking/robot_arm_color_stacking/utils/dofbot_config.py",
+    "syntax": "parsed-not-executed",
+    "imports": [
+      "Arm_Lib",
+      "cv2",
+      "numpy",
+      "random"
+    ],
+    "symbols": [
+      {
+        "name": "ArmCalibration",
+        "line": 10,
+        "kind": "ClassDef"
+      },
+      {
+        "name": "write_XYT",
+        "line": 113,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "read_XYT",
+        "line": 123,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "__init__",
+        "line": 11,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "calibration_map",
+        "line": 20,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "morphological_processing",
+        "line": 58,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "perspective_transform",
+        "line": 81,
+        "kind": "FunctionDef"
+      }
+    ],
+    "calls": [
+      "Arm_Lib.Arm_Device",
+      "cv.GaussianBlur",
+      "cv.approxPolyDP",
+      "cv.circle",
+      "cv.contourArea",
+      "cv.cvtColor",
+      "cv.drawContours",
+      "cv.findContours",
+      "cv.getPerspectiveTransform",
+      "cv.moments",
+      "cv.morphologyEx",
+      "cv.threshold",
+      "cv.warpPerspective",
+      "enumerate",
+      "int",
+      "len",
+      "line.find",
+      "np.float32",
+      "np.int_",
+      "np.ones",
+      "np.squeeze",
+      "open",
+      "range",
+      "rf.flush",
+      "rf.readlines",
+      "self.arm.Arm_serial_servo_write6_array",
+      "self.morphological_processing",
+      "str",
+      "wf.flush",
+      "wf.write"
+    ]
+  },
+  {
+    "path": "资料/官方资料/Atlas-200I-DK-A2-机械臂/ros2_robot_arm-upstream/ros2_ws/src/robot_arm_color_stacking/robot_arm_color_stacking/utils/npu_utils.py",
+    "syntax": "parsed-not-executed",
+    "imports": [
+      "cv2",
+      "det_utils",
+      "numpy",
+      "torch"
+    ],
+    "symbols": [
+      {
+        "name": "preprocess_image",
+        "line": 8,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "draw_bbox",
+        "line": 16,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "get_labels_from_txt",
+        "line": 57,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "draw_prediction",
+        "line": 65,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "infer_image",
+        "line": 70,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "xyxy2xywh",
+        "line": 89,
+        "kind": "FunctionDef"
+      }
+    ],
+    "calls": [
+      "'{:.4f}'.format",
+      "'{} {} {} {} {} {}\\n'.format",
+      "boxout[0].numpy",
+      "cv2.putText",
+      "cv2.rectangle",
+      "dict",
+      "draw_bbox",
+      "draw_prediction",
+      "enumerate",
+      "f.readlines",
+      "float",
+      "img[:, :, ::-1].transpose",
+      "int",
+      "isinstance",
+      "label.strip",
+      "letterbox",
+      "model.infer",
+      "nms",
+      "np.ascontiguousarray",
+      "np.copy",
+      "open",
+      "preprocess_image",
+      "print",
+      "scale_coords",
+      "str",
+      "torch.tensor",
+      "x.clone"
+    ]
+  },
+  {
+    "path": "资料/官方资料/Atlas-200I-DK-A2-机械臂/ros2_robot_arm-upstream/ros2_ws/src/robot_arm_color_stacking/robot_arm_color_stacking/utils/stacking_grap.py",
+    "syntax": "parsed-not-executed",
+    "imports": [
+      "Arm_Lib",
+      "time"
+    ],
+    "symbols": [
+      {
+        "name": "stacking_grap",
+        "line": 9,
+        "kind": "ClassDef"
+      },
+      {
+        "name": "__init__",
+        "line": 10,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "move",
+        "line": 19,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "arm_run",
+        "line": 57,
+        "kind": "FunctionDef"
+      }
+    ],
+    "calls": [
+      "Arm_Lib.Arm_Device",
+      "self.arm.Arm_serial_servo_write",
+      "self.arm.Arm_serial_servo_write6_array",
+      "self.move",
+      "sleep"
+    ]
+  },
+  {
+    "path": "资料/官方资料/Atlas-200I-DK-A2-机械臂/ros2_robot_arm-upstream/ros2_ws/src/robot_arm_color_stacking/robot_arm_color_stacking/utils/stacking_target.py",
+    "syntax": "parsed-not-executed",
+    "imports": [
+      "Arm_Lib",
+      "ais_bench.infer.interface",
+      "cv2",
+      "cv_bridge",
+      "dofbot_info.srv",
+      "npu_utils",
+      "numpy",
+      "os",
+      "pathlib",
+      "rclpy",
+      "sensor_msgs.msg",
+      "stacking_grap",
+      "sys",
+      "time",
+      "torch"
+    ],
+    "symbols": [
+      {
+        "name": "stacking_GetTarget",
+        "line": 29,
+        "kind": "ClassDef"
+      },
+      {
+        "name": "__init__",
+        "line": 30,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "target_run",
+        "line": 89,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "select_color",
+        "line": 127,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "get_pos",
+        "line": 156,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "server_joint",
+        "line": 217,
+        "kind": "FunctionDef"
+      }
+    ],
+    "calls": [
+      "(xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view",
+      "(xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist",
+      "Arm_Lib.Arm_Device",
+      "CvBridge",
+      "InferSession",
+      "Kinemarics.Request",
+      "Path",
+      "Path(__file__).resolve",
+      "cv.circle",
+      "cv.putText",
+      "cv.resize",
+      "enumerate",
+      "f.readline",
+      "float",
+      "get_labels_from_txt",
+      "infer_image",
+      "int",
+      "len",
+      "list",
+      "msg.items",
+      "msg.values",
+      "np.int_",
+      "open",
+      "os.path.dirname",
+      "os.path.join",
+      "print",
+      "rclpy.create_node",
+      "rclpy.init",
+      "rclpy.spin_until_future_complete",
+      "reversed",
+      "round",
+      "self.arm.Arm_Buzzer_On",
+      "self.arm.Arm_serial_servo_write",
+      "self.arm.Arm_serial_servo_write6_array",
+      "self.bridge.cv2_to_imgmsg",
+      "self.client.call_async",
+      "self.client.wait_for_service",
+      "self.future.result",
+      "self.get_pos",
+      "self.grap.arm_run",
+      "self.image.copy",
+      "self.image_pub.publish",
+      "self.node.create_client",
+      "self.node_pub.create_publisher",
+      "self.server_joint",
+      "sleep",
+      "sorted",
+      "stacking_grap",
+      "str",
+      "torch.tensor",
+      "torch.tensor(xyxy).view",
+      "xyxy2xywh"
+    ]
+  },
+  {
+    "path": "资料/官方资料/Atlas-200I-DK-A2-机械臂/ros2_robot_arm-upstream/ros2_ws/src/robot_arm_color_stacking/setup.py",
+    "syntax": "parsed-not-executed",
+    "imports": [
+      "glob",
+      "os",
+      "setuptools"
+    ],
+    "symbols": [],
+    "calls": [
+      "glob",
+      "os.path.join",
+      "setup"
+    ]
+  },
+  {
+    "path": "资料/官方资料/Atlas-200I-DK-A2-机械臂/依赖包源码/Arm_Lib.py",
+    "syntax": "parsed-not-executed",
+    "imports": [
+      "smbus",
+      "time"
+    ],
+    "symbols": [
+      {
+        "name": "Arm_Device",
+        "line": 7,
+        "kind": "ClassDef"
+      },
+      {
+        "name": "__init__",
+        "line": 9,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "Arm_serial_servo_write",
+        "line": 14,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "Arm_serial_servo_write_any",
+        "line": 53,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "Arm_serial_servo_write_offset_switch",
+        "line": 77,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "Arm_serial_servo_write_offset_state",
+        "line": 88,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "Arm_serial_servo_write6_array",
+        "line": 99,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "Arm_serial_servo_write6",
+        "line": 144,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "Arm_serial_servo_read",
+        "line": 188,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "Arm_serial_servo_read_any",
+        "line": 217,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "Arm_ping_servo",
+        "line": 236,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "Arm_get_hardversion",
+        "line": 256,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "Arm_serial_set_torque",
+        "line": 269,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "Arm_serial_set_id",
+        "line": 279,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "Arm_Product_Select",
+        "line": 286,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "Arm_RGB_set",
+        "line": 293,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "Arm_Button_Mode",
+        "line": 300,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "Arm_reset",
+        "line": 307,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "Arm_PWM_servo_write",
+        "line": 314,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "Arm_Clear_Action",
+        "line": 324,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "Arm_Action_Study",
+        "line": 332,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "Arm_Action_Mode",
+        "line": 339,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "Arm_Read_Action_Num",
+        "line": 346,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "Arm_Buzzer_On",
+        "line": 357,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "Arm_Buzzer_Off",
+        "line": 365,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "bus_servo_control",
+        "line": 371,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "__change_value",
+        "line": 408,
+        "kind": "FunctionDef"
+      },
+      {
+        "name": "bus_servo_control_array6",
+        "line": 415,
+        "kind": "FunctionDef"
+      }
+    ],
+    "calls": [
+      "int",
+      "len",
+      "print",
+      "self.Arm_serial_servo_write6",
+      "self.__change_value",
+      "self.bus.read_byte_data",
+      "self.bus.read_word_data",
+      "self.bus.write_byte_data",
+      "self.bus.write_i2c_block_data",
+      "smbus.SMBus",
+      "str",
+      "time.sleep"
+    ]
+  },
+  {
+    "path": "资料/官方资料/Atlas-200I-DK-A2-机械臂/依赖包源码/__init__.py",
+    "syntax": "parsed-not-executed",
+    "imports": [
+      "Arm_Lib"
+    ],
+    "symbols": [],
+    "calls": []
+  },
+  {
+    "path": "资料/展开资源/arm_line1/arm_line1/Clamping_block.ipynb",
+    "cells": [
+      {
+        "cell_index_zero_based": 0,
+        "syntax": "parsed-not-executed",
+        "imports": [
+          "Arm_Lib",
+          "time"
+        ],
+        "symbols": [
+          {
+            "name": "arm_clamp_block",
+            "line": 7,
+            "kind": "FunctionDef"
+          },
+          {
+            "name": "arm_move",
+            "line": 14,
+            "kind": "FunctionDef"
+          },
+          {
+            "name": "arm_move_up",
+            "line": 25,
+            "kind": "FunctionDef"
+          }
+        ],
+        "calls": [
+          "Arm.Arm_serial_servo_write",
+          "Arm_Device",
+          "arm_clamp_block",
+          "arm_move",
+          "int",
+          "range",
+          "time.sleep"
+        ]
+      }
+    ]
+  },
+  {
+    "path": "资料/展开资源/arm_line1/arm_line1/Learning_pos.ipynb",
+    "cells": [
+      {
+        "cell_index_zero_based": 0,
+        "syntax": "parsed-not-executed",
+        "imports": [
+          "Arm_Lib",
+          "time"
+        ],
+        "symbols": [],
+        "calls": [
+          "Arm.Arm_Action_Study",
+          "Arm.Arm_Button_Mode",
+          "Arm_Device",
+          "time.sleep"
+        ]
+      },
+      {
+        "cell_index_zero_based": 1,
+        "syntax": "parsed-not-executed",
+        "imports": [],
+        "symbols": [],
+        "calls": [
+          "Arm.Arm_Button_Mode"
+        ]
+      },
+      {
+        "cell_index_zero_based": 2,
+        "syntax": "parsed-not-executed",
+        "imports": [
+          "Arm_Lib",
+          "time"
+        ],
+        "symbols": [
+          {
+            "name": "main",
+            "line": 6,
+            "kind": "FunctionDef"
+          }
+        ],
+        "calls": [
+          "Arm.Arm_serial_servo_read",
+          "Arm_Device",
+          "main",
+          "print",
+          "range",
+          "time.sleep"
+        ]
+      },
+      {
+        "cell_index_zero_based": 3,
+        "syntax": "parsed-not-executed",
+        "imports": [],
+        "symbols": [],
+        "calls": []
+      },
+      {
+        "cell_index_zero_based": 4,
+        "syntax": "parsed-not-executed",
+        "imports": [],
+        "symbols": [],
+        "calls": []
+      },
+      {
+        "cell_index_zero_based": 5,
+        "syntax": "parsed-not-executed",
+        "imports": [],
+        "symbols": [],
+        "calls": []
+      }
+    ]
+  },
+  {
+    "path": "资料/展开资源/arm_line2/arm_line2/Clamping_block.ipynb",
+    "cells": [
+      {
+        "cell_index_zero_based": 0,
+        "syntax": "parsed-not-executed",
+        "imports": [
+          "Arm_Lib",
+          "IPython.display",
+          "PIL",
+          "ais_bench.infer.interface",
+          "cv2",
+          "ipywidgets",
+          "numpy",
+          "os",
+          "pathlib",
+          "sys",
+          "time",
+          "torch",
+          "torchvision",
+          "torchvision.transforms"
+        ],
+        "symbols": [
+          {
+            "name": "xyxy2xywh",
+            "line": 22,
+            "kind": "FunctionDef"
+          },
+          {
+            "name": "xywh2xyxy",
+            "line": 30,
+            "kind": "FunctionDef"
+          },
+          {
+            "name": "non_max_suppression",
+            "line": 39,
+            "kind": "FunctionDef"
+          },
+          {
+            "name": "nms",
+            "line": 144,
+            "kind": "FunctionDef"
+          },
+          {
+            "name": "clip_coords",
+            "line": 150,
+            "kind": "FunctionDef"
+          },
+          {
+            "name": "scale_coords",
+            "line": 160,
+            "kind": "FunctionDef"
+          },
+          {
+            "name": "letterbox",
+            "line": 174,
+            "kind": "FunctionDef"
+          },
+          {
+            "name": "preprocess_image",
+            "line": 206,
+            "kind": "FunctionDef"
+          },
+          {
+            "name": "draw_bbox",
+            "line": 211,
+            "kind": "FunctionDef"
+          },
+          {
+            "name": "get_labels_from_txt",
+            "line": 226,
+            "kind": "FunctionDef"
+          },
+          {
+            "name": "draw_prediction",
+            "line": 234,
+            "kind": "FunctionDef"
+          },
+          {
+            "name": "infer_image",
+            "line": 238,
+            "kind": "FunctionDef"
+          },
+          {
+            "name": "garbage_identify",
+            "line": 260,
+            "kind": "ClassDef"
+          },
+          {
+            "name": "arm_clamp_block",
+            "line": 309,
+            "kind": "FunctionDef"
+          },
+          {
+            "name": "arm_move",
+            "line": 316,
+            "kind": "FunctionDef"
+          },
+          {
+            "name": "arm_move_up",
+            "line": 327,
+            "kind": "FunctionDef"
+          },
+          {
+            "name": "camera",
+            "line": 359,
+            "kind": "FunctionDef"
+          },
+          {
+            "name": "__init__",
+            "line": 261,
+            "kind": "FunctionDef"
+          },
+          {
+            "name": "get_pos",
+            "line": 265,
+            "kind": "FunctionDef"
+          },
+          {
+            "name": "garbage_run",
+            "line": 292,
+            "kind": "FunctionDef"
+          }
+        ],
+        "calls": [
+          "'{:.4f}'.format",
+          "'{} {} {} {} {} {}\\n'.format",
+          "(x[:, 5:6] == torch.tensor(classes, device=x.device)).any",
+          "(x[:, 5:mi] > conf_thres).nonzero",
+          "(xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view",
+          "(xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist",
+          "Arm.Arm_serial_servo_write",
+          "Arm_Device",
+          "InferSession",
+          "LOGGER.warning",
+          "arm_clamp_block",
+          "arm_move",
+          "box_iou",
+          "boxes[:, 0].clamp_",
+          "boxes[:, 1].clamp_",
+          "boxes[:, 2].clamp_",
+          "boxes[:, 3].clamp_",
+          "boxes[:, [0, 2]].clip",
+          "boxes[:, [1, 3]].clip",
+          "boxout[0].numpy",
+          "camera",
+          "capture.isOpened",
+          "capture.read",
+          "capture.release",
+          "clip_coords",
+          "conf.view",
+          "cv.VideoCapture",
+          "cv.circle",
+          "cv.putText",
+          "cv.resize",
+          "cv2.copyMakeBorder",
+          "cv2.imencode",
+          "cv2.imencode('.jpg', img)[1].tobytes",
+          "cv2.putText",
+          "cv2.rectangle",
+          "cv2.resize",
+          "dict",
+          "display",
+          "draw_bbox",
+          "draw_prediction",
+          "enumerate",
+          "f.readlines",
+          "float",
+          "garbage_identify",
+          "get_labels_from_txt",
+          "img[:, :, ::-1].transpose",
+          "infer_image",
+          "int",
+          "iou.sum",
+          "isinstance",
+          "j.float",
+          "j[:, None].float",
+          "label.strip",
+          "lb[:, 0].long",
+          "len",
+          "letterbox",
+          "min",
+          "model.infer",
+          "msg.append",
+          "nms",
+          "non_max_suppression",
+          "np.ascontiguousarray",
+          "np.copy",
+          "np.int_",
+          "np.mod",
+          "open",
+          "output[xi].to",
+          "prediction.cpu",
+          "preprocess_image",
+          "print",
+          "range",
+          "reversed",
+          "round",
+          "scale_coords",
+          "self.frame.copy",
+          "self.get_pos",
+          "sleep",
+          "str",
+          "target.garbage_run",
+          "time.sleep",
+          "time.time",
+          "torch.cat",
+          "torch.mm",
+          "torch.mm(weights, x[:, :4]).float",
+          "torch.tensor",
+          "torch.tensor(xyxy).view",
+          "torch.zeros",
+          "torchvision.ops.nms",
+          "weights.sum",
+          "widgets.Image",
+          "widgets.Layout",
+          "x.clone",
+          "x[:, 4].argsort",
+          "x[:, 5:mi].max",
+          "xywh2xyxy",
+          "xyxy2xywh"
+        ]
+      }
+    ]
+  },
+  {
+    "path": "资料/展开资源/arm_line2/arm_line2/Learning_pos.ipynb",
+    "cells": [
+      {
+        "cell_index_zero_based": 0,
+        "syntax": "parsed-not-executed",
+        "imports": [
+          "Arm_Lib",
+          "time"
+        ],
+        "symbols": [],
+        "calls": [
+          "Arm.Arm_Action_Study",
+          "Arm.Arm_Button_Mode",
+          "Arm_Device",
+          "time.sleep"
+        ]
+      },
+      {
+        "cell_index_zero_based": 1,
+        "syntax": "parsed-not-executed",
+        "imports": [],
+        "symbols": [],
+        "calls": [
+          "Arm.Arm_Button_Mode"
+        ]
+      },
+      {
+        "cell_index_zero_based": 2,
+        "syntax": "parsed-not-executed",
+        "imports": [
+          "Arm_Lib",
+          "time"
+        ],
+        "symbols": [
+          {
+            "name": "main",
+            "line": 6,
+            "kind": "FunctionDef"
+          }
+        ],
+        "calls": [
+          "Arm.Arm_serial_servo_read",
+          "Arm_Device",
+          "main",
+          "print",
+          "range",
+          "time.sleep"
+        ]
+      },
+      {
+        "cell_index_zero_based": 3,
+        "syntax": "parsed-not-executed",
+        "imports": [],
+        "symbols": [],
+        "calls": []
+      },
+      {
+        "cell_index_zero_based": 4,
+        "syntax": "parsed-not-executed",
+        "imports": [],
+        "symbols": [],
+        "calls": []
+      },
+      {
+        "cell_index_zero_based": 5,
+        "syntax": "parsed-not-executed",
+        "imports": [],
+        "symbols": [],
+        "calls": []
+      }
+    ]
+  },
+  {
+    "path": "资料/课程说明/第二阶段-机械臂基础控制/代码片段/01-step-07.py",
+    "syntax": "parsed-not-executed",
+    "imports": [
+      "Arm_Lib"
+    ],
+    "symbols": [],
+    "calls": [
+      "Arm_Device"
+    ]
+  },
+  {
+    "path": "资料/课程说明/第二阶段-机械臂基础控制/代码片段/02-solution-03.py",
+    "syntax": "parsed-not-executed",
+    "imports": [
+      "Arm_Lib",
+      "time"
+    ],
+    "symbols": [],
+    "calls": []
+  },
+  {
+    "path": "资料/课程说明/第二阶段-机械臂基础控制/代码片段/02-solution-05.py",
+    "syntax": "parsed-not-executed",
+    "imports": [],
+    "symbols": [
+      {
+        "name": "main",
+        "line": 2,
+        "kind": "FunctionDef"
+      }
+    ],
+    "calls": [
+      "Arm.Arm_RGB_set",
+      "main",
+      "print",
+      "time.sleep"
+    ]
+  },
+  {
+    "path": "资料/课程说明/第二阶段-机械臂基础控制/代码片段/02-step-01.py",
+    "syntax": "parsed-not-executed",
+    "imports": [
+      "Arm_Lib"
+    ],
+    "symbols": [],
+    "calls": []
+  },
+  {
+    "path": "资料/课程说明/第二阶段-机械臂基础控制/代码片段/03-solution-03.py",
+    "syntax": "parsed-not-executed",
+    "imports": [
+      "Arm_Lib",
+      "time"
+    ],
+    "symbols": [],
+    "calls": []
+  },
+  {
+    "path": "资料/课程说明/第二阶段-机械臂基础控制/代码片段/04-solution-03.py",
+    "syntax": "parsed-not-executed",
+    "imports": [
+      "Arm_Lib",
+      "time"
+    ],
+    "symbols": [],
+    "calls": []
+  },
+  {
+    "path": "资料/课程说明/第二阶段-机械臂基础控制/代码片段/04-solution-05.py",
+    "syntax": "parsed-not-executed",
+    "imports": [],
+    "symbols": [
+      {
+        "name": "main",
+        "line": 2,
+        "kind": "FunctionDef"
+      }
+    ],
+    "calls": [
+      "Arm.Arm_serial_servo_read",
+      "main",
+      "print",
+      "range",
+      "time.sleep"
+    ]
+  },
+  {
+    "path": "资料/课程说明/第二阶段-机械臂基础控制/代码片段/05-solution-03.py",
+    "syntax": "parsed-not-executed",
+    "imports": [
+      "Arm_Lib",
+      "time"
+    ],
+    "symbols": [],
+    "calls": []
+  },
+  {
+    "path": "资料/课程说明/第二阶段-机械臂基础控制/代码片段/06-solution-03.py",
+    "syntax": "parsed-not-executed",
+    "imports": [
+      "Arm_Lib",
+      "time"
+    ],
+    "symbols": [],
+    "calls": []
+  },
+  {
+    "path": "资料/课程说明/第二阶段-机械臂基础控制/代码片段/06-solution-05.py",
+    "syntax": "parsed-not-executed",
+    "imports": [],
+    "symbols": [
+      {
+        "name": "ctrl_all_servo",
+        "line": 3,
+        "kind": "FunctionDef"
+      }
+    ],
+    "calls": [
+      "Arm.Arm_serial_servo_write6",
+      "time.sleep"
+    ]
+  },
+  {
+    "path": "资料/课程说明/第二阶段-机械臂基础控制/代码片段/06-solution-06.py",
+    "syntax": "parsed-not-executed",
+    "imports": [],
+    "symbols": [
+      {
+        "name": "main",
+        "line": 2,
+        "kind": "FunctionDef"
+      }
+    ],
+    "calls": [
+      "Arm.Arm_serial_servo_write6",
+      "ctrl_all_servo",
+      "main",
+      "print",
+      "time.sleep"
+    ]
+  },
+  {
+    "path": "资料/课程说明/第二阶段-机械臂基础控制/代码片段/07-solution-03.py",
+    "syntax": "parsed-not-executed",
+    "imports": [
+      "Arm_Lib",
+      "time"
+    ],
+    "symbols": [],
+    "calls": []
+  },
+  {
+    "path": "资料/课程说明/第二阶段-机械臂基础控制/代码片段/07-solution-06.py",
+    "syntax": "parsed-not-executed",
+    "imports": [],
+    "symbols": [
+      {
+        "name": "main",
+        "line": 3,
+        "kind": "FunctionDef"
+      }
+    ],
+    "calls": [
+      "Arm.Arm_serial_servo_write",
+      "Arm.Arm_serial_servo_write6",
+      "main",
+      "print",
+      "time.sleep"
+    ]
+  }
+]

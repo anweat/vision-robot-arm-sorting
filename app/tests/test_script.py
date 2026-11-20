@@ -1,4 +1,4 @@
-"""Flow scripts v2 (docs/atlas-200i-dk-a2/35): the capability table, the checker with paths, the shared
+"""Flow scripts v2 (docs/current/35): the capability table, the checker with paths, the shared
 script store, the new console actions in the orchestrator (repeat, path on step events, refusing an
 unavailable capability before anything moves), and the gateway's /api/scripts endpoints.
 

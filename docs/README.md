@@ -1,30 +1,18 @@
 # 文档索引
 
-更新：2026-11-19。
+更新：2026-11-20。
 
-| 想看 | 去哪 |
-|---|---|
-| 项目入口：目标、设备、全部专题文档 | [Atlas 200I DK A2 工作区总览](atlas-200i-dk-a2/README.md) |
-| 板卡应用怎么部署、启动、测试，各部分实机/仿真状态 | [app/README](../app/README.md) |
-| 仓库为什么分成 `app/`、`dev/`、`archive/`，什么搬到了哪 | [34 仓库结构与应用版本](atlas-200i-dk-a2/34-仓库结构与应用版本.md) |
-| 硬件安全边界与全部实机实测（按日期倒序） | [05 板卡连接与硬件实测](05-板卡连接与硬件实测.md) |
-| 接口：控制台、网关、日志契约 | [15 接口文档](atlas-200i-dk-a2/15-接口文档.md)、[18 日志契约](atlas-200i-dk-a2/18-日志契约.md)、[31 板载端分离](atlas-200i-dk-a2/31-板载端分离与中继通信.md)、[32 操作逻辑简化](atlas-200i-dk-a2/32-操作逻辑简化与分步任务.md) |
-| 仿真后端 | [16 仿真模块](atlas-200i-dk-a2/16-仿真模块.md) |
-| 设计决定 | [decisions/](decisions/0001-视觉空间与执行分层.md) |
-| 离线实验 | [experiments/](experiments/多视角方块定位离线实验.md) |
+| 目录 | 内容 | 还更新吗 |
+|---|---|---|
+| [`current/`](current/README.md) | **现行文档**：任务清单、开发指南、启动指南、安全边界与实测、接口与契约、流程脚本、几何与规划、仿真、垃圾桶 | 是，新结论写在这里 |
+| [`defense/`](defense/README.md) | 答辩与汇报材料：需求审查（2026-10-09）、中期汇报（2026-11-20） | 只在下一次答辩前新增一个子目录 |
+| [`archive/`](archive/README.md) | 按阶段归档的过程文档：课程包盘点、调研与基线、需求审查到中期的调研/建议/草案 | 否，结论以 `current/` 为准 |
+| [`decisions/`](decisions/0001-视觉空间与执行分层.md) | 设计决定记录（ADR） | 是 |
+| `images/` | 现行文档的配图；`images/sim/` 是 Blender 渲染 | 是 |
 
-## 目录
+文档以外：
 
-| 目录 | 内容 |
-|---|---|
-| `atlas-200i-dk-a2/` | 专题文档（01–34），新结论写在这里 |
-| `05-板卡连接与硬件实测.md` | 硬件实测总记录，也是 `AGENTS.md` 引用的安全边界 |
-| `bins/`、`calibration/` | 垃圾桶打版包（DXF/PDF）、可打印的地图与标定板 |
-| `images/` | 文档配图；`images/blocks/` 是物块贴面照片，`images/sim/` 是 Blender 渲染 |
-| `hardware-test-results/` | 板上冒烟与模型测试的原始 JSON |
-| `inventory/` | `scripts/inventory_resources.py` 生成的资料盘点（2026-09 快照） |
-| `sim/` | Blender 回放视频 |
-| `archive/early/` | 2026-09-14 的课程包盘点与早期方案（原 `docs/01`–`04` 和旧总览），不再更新，结论以专题文档为准 |
-| `archive/print/` | 需求审查的打印件（docx/pdf） |
+- 实测与实验的原始结果在 [`records/`](../records/README.md)，打印和制作用的资料在 [`materials/`](../materials/README.md)。
+- 日志契约的 JSON Schema 和回放样例属于应用，在 `app/contracts/`、`app/samples/`。
 
-日志契约的 JSON Schema 和回放样例属于应用，在 `app/contracts/`、`app/samples/`。
+第一次来：先读 [37 中期后任务清单](current/37-中期后任务清单.md)和 [38 中期后开发指南](current/38-中期后开发指南.md)。

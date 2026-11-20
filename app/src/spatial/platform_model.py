@@ -2,7 +2,7 @@
 
 A rounded square seen from above (corner radius `outline.corner_radius_m`) whose top edge rolls down
 with radius `lid.edge_radius_m`, top at `top_z_m`, in the forward-kinematics base frame. Used by the
-Blender scene (scripts/blender_arm_sim.py), the hardware-log check (scripts/blender_platform_check.py),
+Blender scene (dev/scripts/blender_arm_sim.py), the hardware-log check (dev/scripts/blender_platform_check.py),
 the control keep-out (src/spatial/workspace.py, with keep_out.platform_shape = "rounded_square") and tests.
 
 `depth(x, y, z)` is how far a point is inside the platform (metres, > 0 inside, < 0 outside, the

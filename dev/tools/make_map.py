@@ -153,10 +153,10 @@ def main() -> None:
     draw.line([px(3.0, bar_y), px(13.0, bar_y)], fill=0, width=3)
     draw.text((px(13.3, bar_y)[0], px(0, bar_y)[1] - 22), "100 mm", fill=0, font=small)
 
-    pdf = ROOT / "docs" / "calibration" / f"{args.name}.pdf"
+    pdf = ROOT / "materials" / "maps" / f"{args.name}.pdf"
     page.save(pdf, resolution=DPI)
     cfg = {
-        "_status": f"design layout of docs/calibration/{args.name}.pdf; exact only if printed at 100%",
+        "_status": f"design layout of materials/maps/{args.name}.pdf; exact only if printed at 100%",
         "dictionary": "DICT_4X4_50", "side_m": args.side_cm / 100, "ids": list(layout),
         "map_frame": "origin at the centre of the page's near edge; X right (arm's right), Y away from the arm, metres",
         "corner_order": "ArUco order TL, TR, BR, BL with the marker top pointing to +Y",

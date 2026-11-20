@@ -1,0 +1,12 @@
+docs/atlas-200i-dk-a2/21-语音手势接入基线.md
+scripts/README.md
+src/web/backends/__init__.py
+src/web/backends/base.py
+src/web/backends/console.py
+src/web/backends/real.py
+src/web/backends/sim.py
+src/web/js/components.js
+src/web/task.py
+tests/test_backends.py
+tests/test_task.py
+tests/test_web_api.py

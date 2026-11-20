@@ -1,5 +1,5 @@
 {
- "_status": "2026-11-06. Model + calibration mix. Every number carries its source and evidence level; see docs/atlas-200i-dk-a2/27-夹爪与整臂建模.md for the full derivation and the error budget. Do not promote 'official document' numbers to 'measured on this arm' without the calibration step in that doc.",
+ "_status": "2026-11-06. Model + calibration mix. Every number carries its source and evidence level; see docs/current/27-夹爪与整臂建模.md for the full derivation and the error budget. Do not promote 'official document' numbers to 'measured on this arm' without the calibration step in that doc.",
  "_frame": {
   "name": "link5 (servo-5 frame)",
   "origin": "centre of the J5 axis",
@@ -121,7 +121,7 @@
   "max_gap_confirmed_source": "operator measurement 2026-11-13 (fully open jaw)"
  },
  "geometry": {
-  "source": "Isaac Sim Yahboom Dofbot USD, extracted by scripts/extract_isaac_dofbot.py (data/reference/isaac_dofbot/geometry.json)",
+  "source": "Isaac Sim Yahboom Dofbot USD, extracted by dev/scripts/extract_isaac_dofbot.py (data/reference/isaac_dofbot/geometry.json)",
   "evidence": "official model of the same robot family, not a measurement of this arm; arm link lengths agree with the upstream URDF to 0.03 cm except J4->J5",
   "j5_to_fingertip_m": 0.11699,
   "j5_to_fingertip_note": "highest point of the distal finger plate in the default pose; the upstream IK uses a hard-coded 0.12 m",

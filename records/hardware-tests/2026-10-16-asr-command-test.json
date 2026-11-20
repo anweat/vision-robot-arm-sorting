@@ -1,0 +1,71 @@
+{
+  "date": "2026-10-16",
+  "goal": "E7 是否可走“通用中文 ASR + 关键词匹配”，重点是真识别（TP）与误报（FP）",
+  "setup": {
+    "model": "wenet_asr/offline_encoder.om (assets-v4), Ascend310B1",
+    "board": "192.168.137.100 / 310B / CANN 6.2.RC1 / /root/miniconda3/bin/python 3.9.2",
+    "audio": "macOS 内置麦克风 (AVFoundation :0) 16 kHz 单声道；板上无可用音频硬件，按项目兜底方案由开发机收音",
+    "tool": "dev/scripts/model_smoke_test.py asr"
+  },
+  "controls": {
+    "digital_silence_14.7s": {
+      "transcript": "",
+      "note": "纯数字静音 → 空输出，模型不会凭空产出指令词"
+    },
+    "quiet_window_3.0-6.0s_amped16dB": {
+      "transcript": "启动启动",
+      "note": "原以为是无语音对照，但事后据操作员说明与电平分析，该窗口很可能压到真实语音开头，**对照不干净，不能作为误报证据**"
+    }
+  },
+  "true_positive_recording": {
+    "content": "操作员依次说 启动 / 跳舞 / 停止，随后是与其同伴的日常对话",
+    "processing": "20 s 原始录音，+16 dB，截到模型上限 14.7 s",
+    "frames": 1468,
+    "transcript": "启动跳舞停止启动启动启动启中他湾他他的路三录音我问启动就可以了",
+    "runs": "3 次运行文本完全一致",
+    "result": "PASS —— 三条指令按正确顺序被识别；尾段是操作员自己的对话（经操作员确认），不是幻觉"
+  },
+  "false_positive_recording": {
+    "content": "操作员按指令从 1 数到 10，随后与同伴交谈；全程不含启动/跳舞/停止",
+    "processing": "22 s 原始录音切三段，各 +20 dB",
+    "windows": [
+      {
+        "window": "0.0-7.3s",
+        "frames": 728,
+        "transcript": "二三四五六七八九",
+        "command_hits": []
+      },
+      {
+        "window": "7.3-14.6s",
+        "frames": 728,
+        "transcript": "候是大一",
+        "command_hits": []
+      },
+      {
+        "window": "14.6-22.0s",
+        "frames": 738,
+        "transcript": "我想解决一下他的问题我看一下你这是几个",
+        "command_hits": []
+      }
+    ],
+    "result": "22 秒非指令语音中没有任何一次出现指令词；模型把 2-9 的数字听对了，说明是真实识别而非空转"
+  },
+  "conclusion": {
+    "true_positive": "三条指令可被正确识别",
+    "false_positive": "本次 22 秒样本内未观察到；样本量不足以给出误报率",
+    "verdict": "“通用 ASR + 关键词匹配”方向可行，但需要更多样本才能定误报率与识别率"
+  },
+  "engineering_notes": [
+    "本机麦克风拾音电平偏低：第一段原始 mean -38.4 dB / peak -19.6 dB，需 +16 dB 才可用；第二段安静段需 +20 dB。真实系统要有 AGC 或提高录音电平。",
+    "按噪声底自动裁剪不可靠：噪声底 -44.2 dB、阈值取 floor+8 dB 时误判 3.25 s 处为语音起点，实际人声在 18.5 s 之后，导致一次空识别。裁剪必须结合电平峰值而不是只看噪声底。",
+    "模型是静态输入（1478 帧 = 14.78 s），超过即截断；两次录音都超过，必须裁剪。",
+    "贪心 CTC 只给文本，没有置信度分数，因此“是否命中指令”只能靠文本匹配，无法用分数辅助判据。",
+    "第三段对话被部分转错（如“候是大一”），属通用模型的正常水平，不影响指令词判定。"
+  ],
+  "not_tested": [
+    "误报率与识别率（样本量：1 段指令 + 1 段非指令）",
+    "多人同时说话、舵机噪声、远场等真实工况",
+    "板载音频硬件（仍未实测）",
+    "端到端时延：本次只测推理，未含收音、VAD、关键词匹配与去抖"
+  ]
+}

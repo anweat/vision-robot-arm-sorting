@@ -40,7 +40,7 @@ def model_dir(path: str | Path | None = None) -> Path:
     d = Path(path) if path else DEFAULT_DIR
     missing = [n for n in ("offline_encoder.om", "vocab.txt", "model.py") if not (d / n).is_file()]
     if missing:
-        raise AsrUnavailable(f"{d} 缺少 {', '.join(missing)}（见 docs/atlas-200i-dk-a2/19 或 Release assets-v4）")
+        raise AsrUnavailable(f"{d} 缺少 {', '.join(missing)}（见 docs/archive/stage2-midterm/19 或 Release assets-v4）")
     return d
 
 

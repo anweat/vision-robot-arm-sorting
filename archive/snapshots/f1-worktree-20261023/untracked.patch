@@ -1,0 +1,2063 @@
+diff --git "a/docs/atlas-200i-dk-a2/21-\350\257\255\351\237\263\346\211\213\345\212\277\346\216\245\345\205\245\345\237\272\347\272\277.md" "b/docs/atlas-200i-dk-a2/21-\350\257\255\351\237\263\346\211\213\345\212\277\346\216\245\345\205\245\345\237\272\347\272\277.md"
+new file mode 100644
+index 0000000..65fa18a
+--- /dev/null
++++ "b/docs/atlas-200i-dk-a2/21-\350\257\255\351\237\263\346\211\213\345\212\277\346\216\245\345\205\245\345\237\272\347\272\277.md"
+@@ -0,0 +1,373 @@
++# 语音手势接入基线（E7 语音 / E1 手势）
++
++更新：2026-10-23｜分支 `f1-arm-interface`｜范围：**文档与脚本整理**，本轮不接页面、不改
++`src/web/serve.py`、前端 JS 与测试。
++
++本文把「E7 语音控制」和「E1 手势+表情交互」现有的**资产、板上实测数字、脚本、接入设计与边界**
++收在一处，供下一步实现和排期直接引用。沿用[工作区总览](README.md)的三档口径，并额外区分
++**本机核对**（本次在开发机读文件/算哈希）与**未测**：
++
++| 档位 | 含义 |
++|---|---|
++| 文件存在 | 文件在本机路径下确实存在，或公开 URL 可下；只说明“有这个东西” |
++| 本机核对 | 2026-10-23 在开发机上对文件本体做的只读核对（字节数、SHA-256、`strings`） |
++| 板卡实测 | 2026-10-16 在 Atlas 200I DK A2（`Ascend310B1`）上跑出的数字，条件与原始数据见[硬件实测](../05-板卡连接与硬件实测.md) |
++| 尚未测 | 没有数字，或数字不能当验收指标（单会话、样本不足、真值不逐帧） |
++
++模型来源、候选对比与优先级见[语音与手势模型调研](19-语音与手势模型调研.md)与
++[手势模型调研明细](20-手势模型调研明细.md)；本文不重复推导。
++
++## 0. 结论速览
++
++| 能力 | 资产 | 可用性 | 识别率 | 接入状态 |
++|---|---|---|---|---|
++| E7 语音识别 | WeNet offline encoder `offline_encoder.om` + `vocab.txt`（官方 Atlas 200I DK A2 语音样例） | **板卡实测通过**：10 轮文本一致，NPU 推理中位 **121.0 ms** | **未测**：1 段指令录音（三条全中）+ 22 s 非指令录音（零命中），样本量不足以给识别率/误报率 | 只做了脚本级验证；未接 `/api/cmd`、未接页面 |
++| E1 手势识别 | 课程 4 类分类器 `hrnet.om`（`fist`/`like`/`ok`/`palm`） | **板卡实测通过**：输出 `[1,4]`、中位 **9.07 ms**、与 ONNX argmax 一致 | **未测（验收口径）**：训练域验证集 97.9%，现场单会话 71.2%（80% 中心裁剪后 92.1%）；都不能当准确率 | 只做了脚本级验证；无手部 ROI、无实时管线 |
++| 双模型 + 检测器共存 | 语音 + 手势 + 本项目 v3 检测器 | **板卡实测**：三模型可同时驻留（+482 MB），**session 不能跨线程共享** | — | 选型结论已定：每线程自建 session，或一模型一进程 |
++| 页面/接口接入 | `POST /api/cmd`（`source=voice`/`gesture`）+ `interaction` 事件 | 接口已存在（`src/web/serve.py`），语音/手势侧**尚未有任何调用方** | — | **本轮不接**，原因与下一步见 §4 |
++
++一句话：**模型侧已经不是瓶颈**（语音 121 ms、手势 9 ms，板卡上确认）；现在缺的是
++「识别率验收数字」和「从识别进程到 `/api/cmd` 的受控通路」。在这两件完成前，E1/E7
++**不能作为自动分拣的主通道**（§3.5）。
++
++## 1. 资产与板上实测
++
++### 1.1 语音：WeNet offline encoder
++
++| 项 | 值 | 依据 |
++|---|---|---|
++| 来源 | 官方 `ascend-devkit` 的 `src/E2E-Sample/Voice`（“智能语音台灯”），依赖包含 OM 的 `e2e_voice_lamp.zip`（**68,425,473 B**，2026-10-16 实测 HTTP 200） | [19 号文档 §1.1](19-语音与手势模型调研.md) |
++| 可重转的 ONNX | `offline_encoder_sim.onnx`（150,743,984 B）；官方 ATC 命令：`atc --model=offline_encoder_sim.onnx --framework=5 --output=offline_encoder --input_format=ND --input_shape="speech:1,1478,80;speech_lengths:1" --log=error --soc_version=Ascend310B1` | [19 号文档 §1.1](19-语音与手势模型调研.md) |
++| 本机原件 | `资料/展开资源/wenet/WeNet/`：`offline_encoder.om`（78,518,659 B）、`vocab.txt`（121,018 B）、`sample.wav`（983,084 B）；**没有 `model.py`** | 本机核对 2026-10-23 |
++| SHA-256（OM） | `19c64a53117db9ccb736503771c7006b16a43a22861c4dd0bbf4dd74506c813c` | 与官方包内文件逐字节一致；2026-10-23 本机复算一致 |
++| SHA-256（vocab） | `e270c82b324f2c91ac8f28ccf9a91c7cf450ab9a8ca7168f5f85c7a7e346e3e3` | 同上 |
++| OM 内构建信息 | CANN 6.2.RC1 aarch64 的 `atc.bin`，`--soc_version=Ascend310B1`，输入/输出张量名与官方导出脚本一致 | OM 内嵌命令 + `strings`；[19 号文档 §1.2](19-语音与手势模型调研.md) |
++| 发布位置 | Release `assets-v4` 的 `asr_wenet_offline_encoder.zip`（含 `model.py`、`sample.wav`），落位约定 `data/models/wenet_asr/` | [资产清单](09-资产清单.md) |
++
++**板上实测（2026-10-16，`310B` / CANN `6.2.RC1` / `/root/miniconda3/bin/python` 3.9.2 / `ais_bench` / `onnxruntime 1.14.0`，工具 [`scripts/model_smoke_test.py`](../../scripts/model_smoke_test.py)）**，原始数据
++[2026-10-16-model-smoke.json](../hardware-test-results/2026-10-16-model-smoke.json)：
++
++| 项 | 值 |
++|---|---|
++| 输入（OM 描述） | `speech` `[1, 1478, 80]` float32；`speech_lengths` `[1]` int32 |
++| 输出（OM 描述） | `encoder_out` `[1, 368, 256]` f32、`encoder_out_lens` `[1]` int32、`ctc_log_probs` `[1, 368, 11008]` f32、`beam_log_probs` `[1, 368, 10]` f32、`beam_log_probs_idx` `[1, 368, 10]` int64 |
++| 样例音频 | `sample.wav` 48 kHz 单声道 **10.24 s** → 16 kHz 后 **1022** 帧，pad 到 1478，**未触顶、无截断** |
++| 识别文本 | 智能语音作为智能时代人机交互的关键接口各行各业爆发式的场景需求驱动行业发展进入黄金期 |
++| 一致性 | **10 轮文本完全相同** |
++| 首次加载 | 约 **2.9–3.0 s**（[05 号文档](../05-板卡连接与硬件实测.md)记 2939.6 ms，原始 JSON 记 2990.5 ms；含 ACL 初始化，仅首次） |
++| 前处理 fbank | 中位 **77.6 ms**（74.5–136.4） |
++| **NPU 推理** | 中位 **121.0 ms**（120.6–138.9） |
++| 后处理（贪心 CTC + 查表） | 中位 **0.83 ms** |
++| 单句模型侧合计 | 中位约 **199.4 ms**（原始 JSON 合计 199.438 ms；[05 号文档](../05-板卡连接与硬件实测.md)写作“约 199.5 ms”，差在小数舍入） |
++
++**语音指令实测（同一批，`model_smoke_test.py asr` 跑在板上，录音在开发机）**，原始数据
++[2026-10-16-asr-command-test.json](../hardware-test-results/2026-10-16-asr-command-test.json)：
++
++- **真识别**：操作员依次说“启动 / 跳舞 / 停止”，20 s 录音 +16 dB、截到模型上限 14.7 s（1468 帧），
++  3 次运行文本一致；前三个词正是三条指令且顺序正确，尾段是操作员自己的对话（经确认，不是幻觉）。
++- **误报**：另一段 22 s、全程无指令词的录音切三段各 +20 dB，三段识别文本中**没有任何指令词**；
++  纯数字静音 14.7 s 空输入输出为空。
++- 结论：**“通用中文 ASR + 关键词匹配”方向可行**，但样本量是 1 段指令 + 1 段非指令，
++  **不足以给出识别率与误报率**。
++
++已知限制（详见 [19 号文档 §5](19-语音与手势模型调研.md) 与
++[05 号文档](../05-板卡连接与硬件实测.md)）：
++
++- 模型是**静态输入**：1478 帧 = **14.78 s** 上限，超长必须在前处理里截断。
++- 后处理是**贪心 CTC，只给文本、不给置信度**；“是否命中指令”只能靠文本/拼音匹配，没有分数可用。
++- 开发机麦克风电平偏低，实测需 **+16～+20 dB** 才可用；真实系统要有 AGC。
++- 按噪声底自动裁剪不可靠（噪声底 −44.2 dB、`floor+8 dB` 会把 3.25 s 误判为起点，实际人声在 18.5 s 后）。
++- 板上 USB 音频模块**仍未实测**；本次与官方样例一致，走“开发机/网页收音 → 下发”的兜底形态。
++- 词表对“启动/跳舞/停止”的覆盖**未单独验证**，只有上述一次真实录音的证据。
++
++### 1.2 手势：课程 HRNet 四分类器
++
++| 项 | 值 | 依据 |
++|---|---|---|
++| 来源 | 课程任务 3 手势包（`https://staticfile.eduplus.net/dataSet/systemLib/659ef8b7bad34bbe8eb00d2d74c56660.zip`，2026-10-16 实测 HTTP 200，**1,569,889,522 B**）。**未整包下载**，只用 HTTP Range 读中央目录（53,966 项）与两个小文件核对结构 | [20 号文档 §7](20-手势模型调研明细.md) |
++| 原始出处 | **未找到**。可确证的只有：网络结构与昇腾官方 `HRNet-Image-Classification` 同源、标签顺序由课程端侧 Notebook 给出。应按“本地私有训练产物”对待，不要对外声称是某个开源/官方模型 | [20 号文档 §7.3](20-手势模型调研明细.md) |
++| 本机原件 | `资料/展开资源/手势识别训练及转换好的模型/手势识别训练及转换好的模型/`：`hrnet.om`（46,803,711 B）、`hrnet.onnx`（77,462,516 B）、`hrnet.pth`（77,945,715 B） | 本机核对 2026-10-23 |
++| SHA-256（OM） | `4ce486cd0345813b0d15b2c05e51ec3109c2a07dbe16f0f488131dd3ac03d43c` | 2026-10-23 本机实算（此前无记录） |
++| 发布位置 | Release `assets-v4` 的 `gesture_hrnet_4cls.zip`（含 `hrnet.om`、`hrnet.onnx`、`labels.txt`），落位约定 `data/models/gesture_hrnet/` | [资产清单](09-资产清单.md) |
++| 模型规格 | 224×224 四分类（**不是关键点模型**），输入 `input [1,3,224,224]` float32，输出 `output [1,4]` float32；RGB、`/255`、**未做归一化**；阈值 0.6；类别 `0=fist 1=like 2=ok 3=palm` | OM 描述 + 课程 `hand_gesture_arm.ipynb`；[20 号文档 §7.2/§7.4](20-手势模型调研明细.md) |
++| 芯片 | OM 内只出现 `Ascend310B1`（无 `Ascend310`/`Ascend310P`） | 2026-10-23 本机 `strings` 复核（`Ascend310B1` 后只跟一个分隔字符） |
++| OM 内嵌转换命令 | `atc --output_type=FP32 --input_shape=input:1,3,224,224 --input_format=NCHW --output=./model_2 --soc_version=Ascend310B1 --framework=5 --model=./model_2.onnx`，工具链路径含 `ascend-toolkit/6.2.RC1/x86_64-linux` | 2026-10-23 本机 `strings` 读出；`1×3×224×224` 由此**从“Notebook 反推”升级为 OM 自带命令确认**（此前 [20 号文档 §7.4](20-手势模型调研明细.md) 只能标为推断） |
++
++**板上实测（2026-10-16，条件同上）**，原始数据
++[2026-10-16-model-smoke.json](../hardware-test-results/2026-10-16-model-smoke.json)：
++
++| 项 | 值 |
++|---|---|
++| 输入（OM 描述） | `input` `[1, 3, 224, 224]` float32 |
++| 输出（OM 描述） | `output` `[1, 4]` float32 → **硬件上确认了 4 类**（此前 ONNX/`.pth` 解析结论由此闭环；曾有一版误判为 64 类，已更正） |
++| 合成输入延迟 | 中位 **9.10 ms**（9.05–9.79） |
++| 真实图像延迟 | 中位 **9.07 ms**（9.03–9.75） |
++| 与 ONNX 对照（种子 20261016 合成输入） | `max_abs_diff` **0.00139**，argmax 一致（3） |
++| 与 ONNX 对照（真实图像，无手势的标定板画面） | `max_abs_diff` **0.00094**，argmax 一致（0）；**这一行只证明“真实图像→归一化→OM”通路可用，不是精度证据** |
++| ONNX 参照环境 | 板上 `onnxruntime 1.14.0`，CPUExecutionProvider |
++
++### 1.3 识别率：已经测到的与没有测到的
++
++**训练域（课程自带 `Gesture/val/<class>/`，每类等距抽 60 张，板上跑）**，原始数据
++[2026-10-16-gesture-accuracy.json](../hardware-test-results/2026-10-16-gesture-accuracy.json)：
++
++| 真实类别 | idx0 | idx1 | idx2 | idx3 | 正确率 | 该类平均概率峰值 |
++|---|---|---|---|---|---|---|
++| fist | **58** | 1 | 0 | 1 | **96.7%** | idx0 = 0.949 |
++| like | 1 | **58** | 1 | 0 | **96.7%** | idx1 = 0.939 |
++| ok | 0 | 1 | **59** | 0 | **98.3%** | idx2 = 0.970 |
++| palm | 0 | 0 | 0 | **60** | **100%** | idx3 = 0.992 |
++
++总体 **97.9%**。这同时是**标签顺序与课程 Notebook 一致**的决定性证据（`0=fist 1=like 2=ok 3=palm`）。
++
++**现场域（腕部相机前真实做手势，每个手势一个会话、约 100 帧）**：
++
++| 实际 | 帧数 | 判 idx0 | idx1 | idx2 | idx3 | 命中率 |
++|---|---|---|---|---|---|---|
++| fist | 101 | 6 | 0 | 0 | **95** | **5.9%** |
++| like | 101 | 7 | **94** | 0 | 0 | 93.1% |
++| ok | 102 | 1 | 14 | **87** | 0 | 85.3% |
++| palm | 102 | 0 | 0 | 0 | **102** | 100.0% |
++
++合计 **71.2%**，只有 `fist` 塌掉。**这组数字不能当准确率**：每类只有一个会话、相邻帧高度相关，
++真值是“操作员当时比的是哪个”，不是逐帧标注；它只说明方向与失败模式。
++
++**背景是主因，不是手型**：固定中心裁剪把合计从 71.2% 拉到 **92.1%（80% 裁剪最优）**，
++`fist` 从 5.9% 到 77.2%；但没有任何比例对所有手势都好（`like` ≤70% 崩、`ok` ≤50% 崩），
++说明要做的是**手部 ROI 检测**，而不是写死裁剪比例。
++
++**结论：识别率仍未测（验收口径）。** 需求是 ≥3 类、≥80%、≤1.2 s（[需求规格](10-需求规格.md)），
++现有 71.2% / 97.9% / 92.1% 三个数字分别属于「单会话现场」「训练域验证集」「离线裁剪实验」，
++**都不能直接写成达标**；需要多会话、逐帧标注重测。
++
++### 1.4 仓库约定：文件在哪、哪些机器能打开
++
++- `资料/` 与 `data/` **不入库**，模型与物块贴面挂在 Release `assets-v4` / `assets-v3`；
++  换模型发新 Release，不覆盖旧包。**指向这些路径的链接只在持有目录的机器上能打开**，
++  新克隆的仓库里没有这些文件（[工作区总览](README.md)、[资产清单](09-资产清单.md)）。
++- 本次核对时（2026-10-23）本机状态：
++  - `资料/展开资源/wenet/WeNet/` 有 OM + vocab + sample.wav，**缺 `model.py`**（`assets-v4` 的
++    `asr_wenet_offline_encoder.zip` 里有；官方 v2 目录另给 `model.py` 源文件，本机未取）。
++  - `资料/展开资源/手势识别训练及转换好的模型/…/` 有 om/onnx/pth。
++  - `data/models/` 下当前只有 `blocks4/` 与 `official_arm/`，按约定应落位的
++    `wenet_asr/`、`gesture_hrnet/` **尚未出现**；板上实测用的是调试目录 `/root/model-smoke/…`，
++    不是 `data/models/`。所以“`data/models/wenet_asr/` 有文件”目前是**约定**，不是本机事实。
++- OM 是可重建产物：语音可用官方 `offline_encoder_sim.onnx` + 上面的 ATC 命令重转；手势可用
++  `hrnet.onnx` + `atc --framework=5 --model=hrnet.onnx --input_format=NCHW --input_shape="input:1,3,224,224" --soc_version=Ascend310B1`
++  重转（该条**未在板上执行过**，属推断示例）。本项目的重转环境是
++  [`scripts/convert_om.sh`](../../scripts/convert_om.sh)（Mac 容器内、板卡 CANN 6.2.RC1，不需要板卡；
++  已解决 Python 3.10、numpy 2.x、`libascend_hal.so`、`libxml2` 四个坑）。
++- Release 包本身的 SHA-256 也记在原始 JSON，便于核对下载：[model-smoke](../hardware-test-results/2026-10-16-model-smoke.json)
++  记 asr 包 `6a659ab69cca4d05d29203e5738e1ef3580914b03f89f1636853670f749a5439`、
++  手势包 `6538e9c4ba3ca472815a8c30e0b3fe07614957bc8eb3b69172e6c8b5cb49dad2`。
++
++## 2. 脚本逐个说明
++
++全部脚本的索引在 [`scripts/README.md`](../../scripts/README.md)（本轮新建）。本节只展开与
++语音/手势直接相关的 5 个，以及其他脚本里需要知道的约束。
++
++### 2.1 语音/手势相关脚本
++
++| 脚本 | 用途 | 输入 → 输出 | 依赖 | 跑在哪 | 已知限制 |
++|---|---|---|---|---|---|
++| [`model_smoke_test.py`](../../scripts/model_smoke_test.py) | 一次性冒烟：OM 能否加载、输出规格、各阶段耗时；可选与 ONNX 逐值对照 | `asr --dir <含 om/vocab.txt/model.py>` 或 `gesture --dir <含 hrnet.om>`；`--wav` / `--image` / `--runs` / `--seed` → 末尾 JSON（`--out` 另存干净副本） | `ais_bench`、`numpy`；（手势可选 `cv2`、`onnxruntime`） | **板卡** | 导入 `model.py`/`ais_bench`，板外不可跑；手势会写 `/tmp/gesture_smoke_input.npy`；`asr` 目录缺 `model.py` 时导入失败；不做识别率 |
++| [`gesture_capture.py`](../../scripts/gesture_capture.py) | 从板载相机服务抓帧、逐帧跑 `hrnet.om`、按阈值统计 | `--label {fist,like,ok,palm} [--seconds 5] [--dir …] [--out …] [--threshold 0.6]` → 帧图保存到 `<out>/<label>/`，控制台 JSON + 追加 `<out>/results.json` | `ais_bench`、`numpy`、`cv2`、板载相机服务（`:8080/snapshot.jpg`） | **板卡** | 相机由 `board_camera_server.py` 独占，脚本只能轮询快照；**整图 224×224，无手部 ROI**，背景会主导结果；`label` 是人工声明的真值，产物不是逐帧标注；结果只代表本会话 |
++| [`gesture_val_eval.py`](../../scripts/gesture_val_eval.py) | 在课程验证集上算混淆矩阵，判定标签顺序与训练域表现 | `--images <val 目录> --dir <含 hrnet.om> [--write out.json]` → 控制台表格 + 可选 JSON | `ais_bench`、`numpy`、`cv2` | **板卡** | 只扫 `*.jpg`，课程包目录清单记录为 `*.jpeg`，复用前要先改名/转换，否则会 0 张或漏图；验证集来自 1.57 GB 课程包，**不在仓库里**；只测训练域，不代表现场 |
++| [`npu_concurrency_test.py`](../../scripts/npu_concurrency_test.py) | 三模型（语音/手势/检测器）能否共存、线程并发与多进程的延迟/吞吐 | `--dir <根目录，含 wenet_asr/、gesture_hrnet/、detector/> [--seconds 6]` → JSON（含 `npu-smi` 显存前后） | `ais_bench`、`numpy`；`npu-smi` | **板卡** | 用**合成张量**（zeros/ones），shape 静态、算力有代表性但不是真实画面吞吐；会把三个模型同时驻留；子进程模式不覆盖异常路径 |
++| [`npu_thread_variants.py`](../../scripts/npu_thread_variants.py) | 窄问题的对照实验：线程崩溃是不是“session 跨线程共享”导致；验证线程内自建 session | `--dir <根目录> [--seconds 5]` → JSON（变体 A/B/C） | `ais_bench`、`numpy` | **板卡** | 同样是合成输入；只回答 session/线程归属，不测真实管线 |
++
++**三个模型共存与并发的板卡结论（2026-10-16）**，原始数据
++[2026-10-16-npu-concurrency.json](../hardware-test-results/2026-10-16-npu-concurrency.json)：
++
++- **共存可以**：三个 `InferSession` 同时加载到 device 0 成功，显存 1515 → 1997 MB（+482 MB，总 3513 MB，余约 1.5 GB）。
++- 单独基准：asr 120.7 ms、gesture 9.14 ms、detector 12.80 ms。
++- **跨线程复用同一个 session 必崩**：变体 B 三个线程共用一个 session，三次都 `ACL: general failure`、0 次迭代。
++- **每个线程各自建 session 可行**：asr 222.0 ms（1.84×）、gesture 21.8 ms（2.36×）、detector 32.2 ms（2.51×）。
++- 一模型一进程也可行但手势明显更差（63.1 ms，6.90×，原因未查明），**选型以“线程内自建 session”为准**。
++- 实时余量：手势 21.8 ms ≈ 46 fps，而腕部相机只有 **7.6 fps**；语音按句触发。模型侧对 E1 的
++  ≤1.2 s、E7 的 ≤2 s 都有余量。
++- 未测：真实画面下的吞吐、长跑热/内存稳定性、加第四个模型的边界。
++
++### 2.2 其他脚本（与交互无关，但会共用板卡/相机）
++
++| 脚本 | 一句话 | 注意 |
++|---|---|---|
++| [`hardware_smoke_test.py`](../../scripts/hardware_smoke_test.py) | 板卡硬件诊断：只读回读、RGB、蜂鸣器、相机、单舵机小步、居中不可读舵机 | **会驱动硬件**，其中 `--motion`/`--center-unreadable` **会动机械臂**，执行前查[硬件安全边界](../05-板卡连接与硬件实测.md)；`--camera` 直接开 `/dev/video0`，要先停相机服务 |
++| [`course_group_motion_test.py`](../../scripts/course_group_motion_test.py) | 验证课程的 `Arm_serial_servo_write6` 六舵机批量路径（±5° 小步后复位） | **会动机械臂**；只读失败会中止；结果 JSON 打屏 |
++| [`course_pose_read_test.py`](../../scripts/course_pose_read_test.py) | 跑课程“全 90°”姿态并核对回读，然后按基线复位 | **会动机械臂**；不可读的关节不会被复位 |
++| [`convert_om.sh`](../../scripts/convert_om.sh) | ONNX → `Ascend310B1` OM（Mac 容器） | 需要 Docker 镜像与 `~/Ascend` 下的板卡 CANN 副本；默认输入 `data/models/blocks4/v3/best.onnx` |
++| [`deploy_to_board.sh`](../../scripts/deploy_to_board.sh) | `src/`+`config/` 同步到板卡并重启相机服务 | 需要 SSH 可达与密码/密钥；会改板上 `/root/arm-app` |
++| [`start_console.sh`](../../scripts/start_console.sh) | 板卡重启后恢复相机服务、手机反向隧道、控制台与 Mac 端口转发 | 需要先开 SSH ControlMaster；实机运动仍需页面“现场确认 + 使能” |
++| [`inventory_resources.py`](../../scripts/inventory_resources.py) | 只读盘点：文件清单、SHA-256、Python/Notebook 结构 | 纯标准库；写 `docs/inventory/`；不执行模型或机械臂代码 |
++| [`organize_course_guides.py`](../../scripts/organize_course_guides.py) | 把课程导出 JSON 整理成离线图文归档 | 纯标准库；需要浏览器导出的 JSON；会写 `资料/` |
++| [`organize_stage2.py`](../../scripts/organize_stage2.py) | 整理第二阶段课程导出（图片本地化、代码片段拆分） | 依赖 `bs4`；访问 `10.126.59.136`；会写 `资料/` |
++| [`build_print_docs.js`](../../scripts/build_print_docs.js) | Markdown → 可打印 `.docx`/`.pdf`（`docs/print/`） | 需要 node 与 `docx`/`marked@12`/`image-size`；PDF 走本机 Chrome |
++| [`connect_board.ps1`](../../scripts/connect_board.ps1) | Windows PowerShell 下一键 SSH 连板 | 仅 Windows |
++
++## 3. 接入设计（只设计，不实现）
++
++### 3.1 目标数据流
++
++```text
++[麦克风 / 腕部相机]
++        │  （板上：每线程自建 InferSession；收音按兜底方案从开发机/网页来）
++        ▼
++[识别进程：ASR 贪心 CTC + 关键词匹配  /  HRNet 四分类 + 多帧确认 + 手部 ROI]
++        │  归一化成“意图”：{source, command, detail, confidence}
++        │  去抖 / 冷却 / 阈值 / 任务状态检查
++        ▼
++POST /api/cmd  {cmd, source:"voice"|"gesture", ...}   ← 唯一入口，不直接碰控制台
++        ▼
++src/web/serve.py  →  控制台 /api/*（操作权、使能、revision、限位、禁入区）
++        │  受理的指令写 interaction {source, command, detail, confidence}；拒绝只回 error
++        ▼
++机械臂（实机还需页面“现场确认”）
++```
++
++要点：**识别端只调 `/api/cmd`**，不直接调控制台、不自己判限位/禁入区；所有运动仍由
++`serve.py` 转给控制台，安全检查保持在一处（[接口文档](15-接口文档.md) §8.1）。语音、手势、
++定时都从这一个口子下发（`src/web/serve.py` 的 `SOURCES` 白名单已含 `voice`/`gesture`）。
++
++### 3.2 指令映射（草案，需硬件组确认）
++
++`POST /api/cmd` 的 `cmd` 白名单与行为见[接口文档](15-接口文档.md) §8.2。当前可落地程度不同：
++
++| 来源 | 识别结果 | 映射到 | 现状 | 说明 |
++|---|---|---|---|---|
++| voice | “停止” | `{"cmd":"stop","source":"voice"}` | **可用**（`stop` 分支写 `stopped` 并放开操作权） | 任何时刻都应允许；不做“急停”承诺 |
++| voice | “启动” | `{"cmd":"start","source":"voice"}` | **部分可用**：仿真后端可启动；实机后端任务启停尚未支持（`Capabilities.task=False`），返回 501 | 识别端必须把 501 当拒绝显示，不能假装启动 |
++| voice | “跳舞” | `{"cmd":"run_preset","preset":"dance","source":"voice"}` | **未实现**：`run_preset` 返回 501，待硬件组提供预设动作（H2-8） | 预设动作没写之前不假造 |
++| gesture | `palm` / `like` / `ok` / `fist` | 待定（候选：`set_mode`、`stop`、`run_preset`） | **未定**，只有 `stop`/`set_mode` 现在就能安全落地 | 四类手势的语义**必须由需求方确认**，不要按直觉绑定运动 |
++| 任意 | 未知/低置信度/未命中 | 不下发 | — | 只写调试日志（实现上可直接丢弃），**不写 `interaction`**；识别不等于命令 |
++
++约束：语音/手势**不得**映射到 `set_joints` / `move_to` / `gripper` 这类直接运动指令的任意参数，
++只能走已定义的固定语义；否则一次误识别就可能产生不可预期的运动。
++
++### 3.3 `interaction` 事件
++
++字段按[日志契约](18-日志契约.md) §3 的拟定条目（`src/tools/log_contract.py` 的 `EVENTS`）：
++
++| 字段 | 类型 | 是否必有 | 含义 |
++|---|---|---|---|
++| `source` | str | 必有 | `voice` / `gesture`（与 `POST /api/cmd` 的 `source` 一致） |
++| `command` | str | 必有 | 实际下发的 `cmd`（如 `stop`、`start`、`run_preset`），不是识别原文 |
++| `confidence` | num | 可选 | **手势**可给分类概率；**语音没有**（贪心 CTC 只给文本），不要编造 |
++| `detail` | str | 可选 | 原始识别文本 / 手势标签 / 预设名 / 拒绝原因等，供页面展示和排障 |
++
++现状与差距（本轮只记录，不改代码）：
++
++- `interaction` 在事件表里仍是 **planned**（`src/tools/log_contract.py` 的 `EVENTS`），但代码里已有
++  写入点：任务启动时由 `src/web/task.py` 的 `TaskTracker` 写 `{source, command:"start"}`；新增定时
++  任务时由 `src/web/serve.py` 的定时分支写 `{source:"web", command:"add_timer", detail:<repeat>}`。
++  正式接入前应按 [AGENTS.md](../../AGENTS.md) 的流程把事件表状态改为 stable，再重新生成
++  `docs/contracts/log_event.schema.json`。
++- **被拒绝的指令不写半条事件**（[接口文档](15-接口文档.md) §8.2）：拒绝由 `serve.py` 返回中文
++  `error`，识别端把它当失败展示；只有真正被执行/受理的指令才写 `interaction`。
++- 语音没有置信度，页面不能对所有 `interaction` 都假定有 `confidence`。
++- 本分支的 `serve.py` 正在重构（新增 `src/web/backends/`、`src/web/task.py`），函数位置与行号会变；
++  本文引用按符号名（`SOURCES`、`_cmd`、`TaskTracker`）核对，不把行号当契约。
++
++### 3.4 安全闸门（四条都必须过）
++
++1. **操作权**：只有 `serve.py` 持有控制台的 token 与 owner；语音/手势不得绕过它直接调控制台。
++   其他客户端持有操作权时按控制台返回拒绝（`src/teleop/core.py` 的 `enable`）。
++2. **使能（enabled）**：运动前必须 `enable`，控制台使能只有 2 s、由网关后台定时续期（当前约 1 s
++   一次）；任何 `source` 都不能免掉这一步。
++3. **任务运行中拒绝**：任务运行中（`status.task.state == "running"`，或控制台 `busy`）时，
++   语音/手势只允许 `stop`；其余指令返回拒绝（F1 网关对运行中任务的手动运动返回 409
++   `task_running`）并说明原因。这条防止“分拣中比个手势把预设动作插进去”。
++4. **实机需现场确认**：实机 `enable` 在控制台侧要求 `onsite=True` **且画面新鲜**
++   （`src/teleop/core.py` 的 `enable`）。对外服务必须把页面上的现场确认透传到 `onsite`
++   （`/api/cmd {"cmd":"enable","onsite":true}` 或 `/api/arm/enable`），并且语音/手势进程
++   **不能自己产生**这个确认：识别侧只发指令，不发 `onsite`。这条透传链路随 F1 网关重构补齐，
++   接 E1/E7 之前要在实机上联调确认，不能只看仿真。
++
++补充：`stop` 在任何闸门下都应放行；`stop` 的语义是“停止后续指令”，不是急停，页面文案不要写成急停
++（[AGENTS.md](../../AGENTS.md) 的安全约定）。
++
++### 3.5 边界：识别率未测前，不能作为自动分拣主通道
++
++- **自动分拣主通道仍是“扫描 → 检测 → 抓取/投放”闭环**（v3 YOLOv8n 检测器 + 多视角定位），
++  类别判定只看检测与贴纸证据，**不看语音/手势**。
++- E1/E7 目前只能作为**指令通道（旁路）**：启动/停止/预设动作，且 `start` 在实机尚未实现。
++- 在识别率验收前，语音/手势**不得**：
++  - 触发“自动分拣开始”而无需人工确认（仿真可先用于演示）；
++  - 参与类别判定、投放决策或安全联锁；
++  - 成为无人值守流程的一环。
++- 兜底通道保留：网页手动控制始终可用；识别进程异常时不得影响控制台与分拣主流程。
++- 验收口径（[需求规格](10-需求规格.md)）：E1 ≥3 类、≥80%、指令响应 ≤1.2 s；E7 三条指令安静环境
++  ≥80%、指令到动作 ≤2 s；两者都还没有验收数字。
++
++### 3.6 防误触（设计约束）
++
++- **语音**：文本/拼音关键词匹配 + 去抖 + 冷却；至少连续 N 次命中（或同一句内多词）才下发；
++  没有置信度，所以用“重复确认 + 有效窗口 + 冷却”代替分数。
++- **手势**：阈值 0.6 + **连续 N 帧一致**（课程 Notebook 每 60 帧判一次 ≈8 s，必须改成逐帧/每 2–3 帧，
++  并做多帧确认）；静态输入 224×224，必须加手部 ROI，否则背景主导。
++- **会话开始**：识别进程启动后先进入“未武装”状态，需一次显式动作（页面点击/固定手势）才允许下发，
++  避免上电即误触发。
++- 所有识别结果都先写“意图”，再经路由；路由拒绝时只显示原因，不写执行事件。
++
++## 4. 本轮不接页面的原因与下一步
++
++### 4.1 本轮只做文档与脚本的原因
++
++1. **识别率没有验收数字**：手势只有单会话 71.2%、语音只有 1 段指令 + 1 段非指令；现在接页面
++   等于把演示数字当验收指标（§1.3、§3.5）。
++2. **前端/后端正在同一 worktree 重构**：`src/web/js/*`、`index.html`、`style.css` 由前端任务
++   在改，`serve.py` 不在本任务可改范围（且正在被 F1 网关重构）；此时接语音/手势会与两边冲突，
++   也无法稳定验收。
++3. **实机闸门需要联调**：实机 `enable` 要求 `onsite=True` 且画面新鲜；F1 网关正在补齐
++   “页面现场确认 → onsite”的透传（`/api/arm/enable`、`/api/cmd enable`），语音/手势接入必须
++   等这条链路在实机上验过。同时实机任务启停尚未支持（`Capabilities.task=False`），
++   语音“启动”在实机只会得到 501（§3.4 第 4 条、§3.2）。
++4. **事件契约状态未转正**：`interaction` 还是 planned；先改事件表 + 生成 schema，再接写入方，
++   顺序不能反（[日志契约](18-日志契约.md) 开头、[AGENTS.md](../../AGENTS.md)）。
++5. **板载音频未实测**：E7 只能走“开发机/网页收音”，这决定了常驻服务的形态，不能先按板上麦克风假设写页面。
++6. **本轮交付物只有两份文档**：`docs/atlas-200i-dk-a2/21-语音手势接入基线.md` 与
++   `scripts/README.md`；未改 `serve.py` / 前端 / 测试 / 其他脚本。
++
++### 4.2 下一步清单
++
++| # | 事项 | 产出 | 依赖 | 排期位置（[分工与任务量](17-分工与任务量.md)） |
++|---|---|---|---|---|
++| 1 | **手势识别率评估**：多会话、逐帧标注、含/不含 ROI 对照；语音多说话人/噪声/舵机噪声样本 | 混淆矩阵 + 识别率/误报率记录 | 手部 ROI（`hand_detection_Gitee` 或自训 YOLO）；课程验证集整包 | 先于页面接入；E1 验收在第三/四阶段 |
++| 2 | **板端常驻识别服务**：每线程自建 session（或一模型一进程）、相机快照轮询、AGC/VAD、关键词匹配、看门狗 | 可常驻的识别进程 + 资源占用记录 | 变体 C 结论、板上音频结论（E7 可能是开发机收音） | H2-6（手势，6 人日）/ H2-7（语音，5 人日） |
++| 3 | **事件接入**：`log_contract.py` 把 `interaction` 转 stable + 重生成 schema；`serve.py` 在受理指令时写 `{source, command, detail, confidence}` | 契约变更 + schema + 测试 | 本轮文档、日志契约流程 | F1 服务侧，与 H2 并行 |
++| 4 | **页面面板**：交互事件列表、`source` 显示、实机“现场确认”开关；语音/手势状态 | 前端页签/卡片 | 前端重构（task-3）、F1 契约 | 第三阶段“语音、手势、定时等指令来源的显示”（F1-5，1 人日） |
++| 5 | **实机联调与验收**：接 `stop`/`start`/`run_preset` 前先做单指令联调；E1/E7 验收整改 | 联调记录 + 验收结论 | H1-3（实机任务启停）、H2-8（预设动作）、上表 1–4 | 第三阶段接入实机，第四阶段验收（11.27 / 12.11 节点） |
++
++与 E1/E7 排期的关系：模型可用性已完成（2026-10-16），**验收仍排在第三、四阶段**；需求里的
++E1 优先级高于 E7（[分工与任务量](17-分工与任务量.md) 建议砍功能时先砍 E7、再 E1），
++因此识别率评估与 ROI 应优先服务 E1。
++
++## 5. 证据索引
++
++**文档**
++
++- [语音与手势模型调研](19-语音与手势模型调研.md)：来源链、ATC 参数、候选、板上实测汇总
++- [手势模型调研明细](20-手势模型调研明细.md)：逐条证据、候选横向对比、优先级
++- [板卡连接与硬件实测](../05-板卡连接与硬件实测.md)：2026-10-16 的四段原始记录（模型冒烟、手势识别率、
++  三模型并发、语音指令）
++- [接口文档](15-接口文档.md) §8/§8.1/§8.2：对外服务与 `POST /api/cmd`
++- [日志契约](18-日志契约.md) §3：`interaction` 字段（planned）
++- [资产清单](09-资产清单.md)：`assets-v4` 两个模型包的内容与落位
++- [需求规格](10-需求规格.md)：E1/E7 验收指标与兜底方案
++- [分工与任务量](17-分工与任务量.md)：H2-6/H2-7、F1-5 与阶段排期
++- [工作区总览](README.md)：三档口径与 2026-10-16 语音/手势结论
++
++**脚本**
++
++- [`scripts/model_smoke_test.py`](../../scripts/model_smoke_test.py)、
++  [`scripts/gesture_capture.py`](../../scripts/gesture_capture.py)、
++  [`scripts/gesture_val_eval.py`](../../scripts/gesture_val_eval.py)、
++  [`scripts/npu_concurrency_test.py`](../../scripts/npu_concurrency_test.py)、
++  [`scripts/npu_thread_variants.py`](../../scripts/npu_thread_variants.py)
++- 全量索引：[`scripts/README.md`](../../scripts/README.md)
++
++**原始数据（`docs/hardware-test-results/`）**
++
++- [2026-10-16-model-smoke.json](../hardware-test-results/2026-10-16-model-smoke.json)
++- [2026-10-16-gesture-accuracy.json](../hardware-test-results/2026-10-16-gesture-accuracy.json)
++- [2026-10-16-npu-concurrency.json](../hardware-test-results/2026-10-16-npu-concurrency.json)
++- [2026-10-16-asr-command-test.json](../hardware-test-results/2026-10-16-asr-command-test.json)
+diff --git a/scripts/README.md b/scripts/README.md
+new file mode 100644
+index 0000000..72f8637
+--- /dev/null
++++ b/scripts/README.md
+@@ -0,0 +1,96 @@
++# scripts 脚本索引
++
++更新：2026-10-23。本目录存放**资料盘点与受控硬件诊断脚本**（[工作区总览](../docs/atlas-200i-dk-a2/README.md)）。
++本文只是索引：**不移动、不改动任何脚本**；脚本的行为以源码为准，与语音/手势相关的结论与数字见
++[语音手势接入基线](../docs/atlas-200i-dk-a2/21-语音手势接入基线.md)。
++
++## 运行位置与前置
++
++| 位置 | 解释器 / 环境 | 说明 |
++|---|---|---|
++| **板卡**（Atlas 200I DK A2，`192.168.137.100`） | `/root/miniconda3/bin/python` 3.9.2；`numpy`、`cv2`、`torchaudio`、`ais_bench`、`onnxruntime 1.14.0` | 用 NPU 前先 `source /usr/local/Ascend/ascend-toolkit/set_env.sh`；调试目录常用 `/root/model-smoke/` |
++| **本机（macOS）** | `python3` + `numpy` / `opencv-python` / `onnxruntime`（离线视觉）；Docker 镜像 `cann-atc:6.2rc1-py39` | 只有 `convert_om.sh` 需要容器；其余本机脚本是资料维护类 |
++| **Windows（可选）** | PowerShell 5+、`ssh` | 仅 `connect_board.ps1` |
++
++- `data/` 与 `资料/` **不入库**；脚本里出现的这些路径只在持有目录的机器上有效。模型与贴面从
++  Release `assets-v3` / `assets-v4` 取回，见 [资产清单](../docs/atlas-200i-dk-a2/09-资产清单.md)。
++- **会驱动硬件的脚本**（`hardware_smoke_test.py` 的 `--motion/--center-unreadable` **会动机械臂**，
++  `--rgb/--buzzer` 会点亮/鸣响；`course_group_motion_test.py`、`course_pose_read_test.py` 也会动机械臂）
++  执行前必须先查
++  [硬件安全边界](../docs/05-板卡连接与硬件实测.md)，并人工确认设备周围安全。
++- 语音/手势模型脚本（`model_smoke_test.py`、`gesture_*`、`npu_*`）**不 import `Arm_Lib`、不驱动舵机**，
++  可以只做推理。
++
++## 一、语音 / 手势 / NPU（板上）
++
++| 脚本名 | 用途 | 怎么跑 | 依赖 | 是否需要板卡 | 输出 |
++|---|---|---|---|---|---|
++| [`model_smoke_test.py`](model_smoke_test.py) | OM 冒烟：加载、输入输出规格、各阶段耗时；手势可选与 ONNX 逐值对照 | `python3 scripts/model_smoke_test.py asr --dir <目录> [--wav x.wav] [--runs 3]`；`python3 scripts/model_smoke_test.py gesture --dir <目录> [--image hand.jpg] [--runs 20] [--seed 20261016]` | `ais_bench`、`numpy`（手势可选 `cv2`、`onnxruntime`） | **是** | 末尾 JSON；`--out` 另存干净副本；手势会写 `/tmp/gesture_smoke_input.npy` |
++| [`gesture_capture.py`](gesture_capture.py) | 从板载相机服务抓帧、逐帧跑 `hrnet.om`、按 0.6 阈值统计 | `python3 scripts/gesture_capture.py --label fist --seconds 5`（`--label` 必填：`fist`/`like`/`ok`/`palm`；`--dir` 默认 `/root/model-smoke/gesture_hrnet`；`--out` 默认 `/root/model-smoke/captures`） | `ais_bench`、`numpy`、`cv2`、板载相机服务 `:8080/snapshot.jpg` | **是**（且相机服务在跑） | `<out>/<label>/` 帧图 + `<out>/results.json` + 屏显 JSON |
++| [`gesture_val_eval.py`](gesture_val_eval.py) | 在课程验证集上算混淆矩阵，核对标签顺序与训练域表现 | `python3 scripts/gesture_val_eval.py --images val/gesture_val --dir gesture_hrnet [--write cm.json]` | `ais_bench`、`numpy`、`cv2` | **是** | 屏显混淆矩阵/准确率；`--write` 输出 JSON |
++| [`npu_concurrency_test.py`](npu_concurrency_test.py) | 三模型（语音/手势/检测器）共存、线程并发、一模型一进程的延迟与吞吐 | `python3 scripts/npu_concurrency_test.py --dir /root/model-smoke --seconds 6` | `ais_bench`、`numpy`、`npu-smi` | **是** | 末尾 JSON（含 `npu-smi` 显存前后、`--worker` 内部模式） |
++| [`npu_thread_variants.py`](npu_thread_variants.py) | 对照实验：session 跨线程共享是否必崩；线程内自建 session 是否可行 | `python3 scripts/npu_thread_variants.py --dir /root/model-smoke --seconds 5` | `ais_bench`、`numpy` | **是** | 末尾 JSON（变体 A/B/C） |
++
++`model_smoke_test.py asr` 要求 `--dir` 里同时有 `offline_encoder.om`、`vocab.txt`、`model.py` 和
++默认的 `sample.wav`（`assets-v4` 的 `asr_wenet_offline_encoder.zip` 齐全）；本机 `资料/展开资源/wenet/WeNet/`
++那份只有 om/vocab/wav，**缺 `model.py`**。手势的 ONNX 对照要求同目录有 `hrnet.onnx`（可选）。
++
++## 二、硬件诊断与机械臂（板上，可能产生运动）
++
++| 脚本名 | 用途 | 怎么跑 | 依赖 | 是否需要板卡 | 输出 |
++|---|---|---|---|---|---|
++| [`hardware_smoke_test.py`](hardware_smoke_test.py) | 六舵机回读、RGB、蜂鸣器、相机、单舵机小步、居中不可读舵机 | `python3 scripts/hardware_smoke_test.py --read-only`（或 `--rgb` `--buzzer` `--camera` `--motion [--step 5]` `--center-unreadable`），六个模式互斥且必选其一 | `Arm_Lib`（`--camera` 只需 `cv2`） | **是** | 屏显 JSON（`MOTION_TEST`/`CAMERA_TEST=PASS` 等） |
++| [`course_group_motion_test.py`](course_group_motion_test.py) | 验证课程 `Arm_serial_servo_write6` 六舵机批量路径：±5° 小步后复位 | `python3 scripts/course_group_motion_test.py` | `Arm_Lib` | **是** | 屏显 `COURSE_GROUP_MOTION_TEST` JSON |
++| [`course_pose_read_test.py`](course_pose_read_test.py) | 跑课程“全 90°”复位姿态并核对回读，再按基线复位 | `python3 scripts/course_pose_read_test.py` | `Arm_Lib` | **是** | 屏显 JSON（前后回读） |
++
++`hardware_smoke_test.py --camera` 直接 `cv2.VideoCapture(0)`，与板载相机服务抢 `/dev/video0`；
++跑之前先停 `board_camera_server.py`。
++
++## 三、部署、转换与运行（Mac / 板卡）
++
++| 脚本名 | 用途 | 怎么跑 | 依赖 | 是否需要板卡 | 输出 |
++|---|---|---|---|---|---|
++| [`convert_om.sh`](convert_om.sh) | ONNX → `Ascend310B1` `.om`（Mac 容器内，不需要板卡） | `sh scripts/convert_om.sh [data/models/blocks4/v3]` | Docker 镜像 `cann-atc:6.2rc1-py39`、`~/Ascend/cann-6.2.RC1-aarch64/ascend-toolkit` | **否** | `<模型目录>/blocks4_yolov8n.om`（7.1 MB 量级） |
++| [`deploy_to_board.sh`](deploy_to_board.sh) | `src/` + `config/` 同步到板上，并重启板载相机服务 | `sh scripts/deploy_to_board.sh` | `ssh`、`scp`/`tar`、`curl`；板卡可达 | **目标板卡** | 板上 `/root/arm-app/`；屏显相机健康检查 URL |
++| [`start_console.sh`](start_console.sh) | 板卡重启后恢复：相机服务、手机反向隧道、控制台（`--hardware --execute`）、Mac→板卡端口转发 | `scripts/start_console.sh [phone-ip:port]` | `ssh`（需先开 ControlMaster）、板卡上的 `venv-vision` | **是** | 板上服务/隧道；屏显 `http://127.0.0.1:8765/` |
++| [`connect_board.ps1`](connect_board.ps1) | Windows PowerShell 下一键探测 SSH 端口并连接 | `powershell -File scripts/connect_board.ps1 [-HostName 192.168.137.100] [-UserName root] [-Port 22]` | Windows PowerShell、`ssh`、`Test-NetConnection` | **是** | 交互式 SSH 会话 |
++
++## 四、资料与文档维护（本机）
++
++| 脚本名 | 用途 | 怎么跑 | 依赖 | 是否需要板卡 | 输出 |
++|---|---|---|---|---|---|
++| [`inventory_resources.py`](inventory_resources.py) | 只读盘点工作区：文件清单、大小、SHA-256、Python/Notebook 结构；不执行模型或机械臂代码 | `python3 scripts/inventory_resources.py` | Python 标准库 | **否** | `docs/inventory/全部资源.csv`、`代码结构.json`、`盘点统计.json` |
++| [`organize_course_guides.py`](organize_course_guides.py) | 把浏览器导出的课程 JSON 整理成离线图文归档 | `python3 -I scripts/organize_course_guides.py <export.json> <输出目录> [旧导出.json]` | Python 标准库 | **否** | 输出目录里的 `README.md`、`index.html`、图文/代码片段 |
++| [`organize_stage2.py`](organize_stage2.py) | 整理第二阶段课程导出：图片本地化、代码片段拆分、生成 HTML/TXT | `python3 scripts/organize_stage2.py`（先有 `资料/课程说明/第二阶段-机械臂基础控制/课程原始内容.json`） | `beautifulsoup4`、Python 标准库、可访问 `10.126.59.136` | **否** | `资料/课程说明/第二阶段-机械臂基础控制/` 下的 HTML/TXT/MD/图片 |
++| [`build_print_docs.js`](build_print_docs.js) | 把 `docs/atlas-200i-dk-a2/` 里指定的几份 Markdown 生成为可打印 `.docx`/`.pdf` | `NODE_PATH=<node_modules> node scripts/build_print_docs.js` | Node.js；`docx`、`marked@12`、`image-size`；PDF 需要本机 Google Chrome | **否** | `docs/print/*.docx`，有 Chrome 时另有 `*.pdf` |
++
++## 常见用法
++
++```sh
++# 板上：语音/手势 OM 冒烟（不 import Arm_Lib）
++source /usr/local/Ascend/ascend-toolkit/set_env.sh
++python3 scripts/model_smoke_test.py asr --dir /root/model-smoke/wenet_asr --runs 3 --out /tmp/asr.json
++python3 scripts/model_smoke_test.py gesture --dir /root/model-smoke/gesture_hrnet --runs 20 --out /tmp/gesture.json
++
++# 板上：现场手势抓拍（先把板载相机服务起在 :8080）
++python3 scripts/gesture_capture.py --label fist --seconds 5
++
++# 板上：训练域混淆矩阵
++python3 scripts/gesture_val_eval.py --images val/gesture_val --dir /root/model-smoke/gesture_hrnet --write /tmp/cm.json
++
++# 板上：三模型共存 / 线程归属
++python3 scripts/npu_concurrency_test.py --dir /root/model-smoke --seconds 6
++python3 scripts/npu_thread_variants.py --dir /root/model-smoke --seconds 5
++
++# 本机：资料盘点 / 打印件
++python3 scripts/inventory_resources.py
++NODE_PATH="$HOME/node_modules" node scripts/build_print_docs.js
++```
++
++## 约束
++
++- 本索引对应 2026-10-23 的 `scripts/` 现状（16 个文件：11 个 `.py`、3 个 `.sh`、1 个 `.js`、1 个 `.ps1`）；
++  新增脚本时请同步更新本表，不要为“整理”移动或改名现有脚本。
++- `gesture_capture.py` 的 `--dir`/`--out` 与 `npu_*` 的 `--dir` 默认值是**板上调试目录**
++  （`/root/model-smoke/`），不是仓库内的 `data/models/`；`model_smoke_test.py` 的 `--dir` 是必填参数。
++- 所有脚本的结论分级（文件存在 / 板卡实测 / 尚未测）以文档里的原始记录为准，不要只看脚本能否运行。
+diff --git a/src/web/backends/__init__.py b/src/web/backends/__init__.py
+new file mode 100644
+index 0000000..a982c61
+--- /dev/null
++++ b/src/web/backends/__init__.py
+@@ -0,0 +1,29 @@
++#!/usr/bin/env python3
++"""执行侧后端工厂。
++
++`--console <url>` 指向仿真或实机控制台；不指定时网关只有日志与定时任务，
++`GET /api/status` 里 backend=null。`--backend auto`（默认）看 bootstrap.status
++里有没有 `sim` 键；`--backend sim|real` 可强制，便于用离线控制台验证实机形态。
++"""
++from __future__ import annotations
++
++from .base import ArmBackend, BackendError, Capabilities
++from .console import ConsoleBackend, probe_kind
++from .real import RealBackend
++from .sim import SimBackend
++
++
++def create_backend(address: str | None, owner: str = "web", kind: str = "auto",
++                   timeout: float = 30.0) -> ArmBackend | None:
++    if not address:
++        return None
++    if kind not in ("auto", "sim", "real"):
++        raise ValueError("backend 只能是 auto/sim/real")
++    if kind == "auto":
++        kind = probe_kind(address)
++    cls = SimBackend if kind == "sim" else RealBackend
++    return cls(address, owner=owner, timeout=timeout)
++
++
++__all__ = ["ArmBackend", "BackendError", "Capabilities", "ConsoleBackend",
++           "RealBackend", "SimBackend", "create_backend"]
+diff --git a/src/web/backends/base.py b/src/web/backends/base.py
+new file mode 100644
+index 0000000..1e4196e
+--- /dev/null
++++ b/src/web/backends/base.py
+@@ -0,0 +1,166 @@
++#!/usr/bin/env python3
++"""执行侧后端抽象：仿真控制台和实机控制台是同一等级的两个实现。
++
++网页/网关只面对 `ArmBackend`，不关心对端是 `src/sim/sim_server.py` 还是
++`src/teleop/server.py`。能做什么由 `Capabilities` 声明，页面按能力裁剪组件，
++而不是在页面里写 `if sim`。
++
++    SimBackend   kind=sim   有任务启停、仿真世界、检测对照
++    RealBackend  kind=real  任务启停还要接流水线入口（H1-3），先声明为不支持
++
++两者都通过控制台的 HTTP 接口（接口文档 §4）执行动作：限位、禁入区、操作权和
++revision 仍由控制台一处把关，这一层不重复实现安全边界。
++"""
++from __future__ import annotations
++
++from dataclasses import asdict, dataclass, fields
++from typing import Any
++
++
++class BackendError(Exception):
++    """执行侧拒绝或不可达。`status` 是推荐回给浏览器的 HTTP 码，`code` 给前端做分支。"""
++
++    def __init__(self, message: str, status: int = 400, code: str | None = None,
++                 upstream: int | None = None):
++        super().__init__(message)
++        self.message = message
++        self.status = status
++        self.code = code
++        self.upstream = upstream
++
++    def as_dict(self) -> dict:
++        out = dict(ok=False, error=self.message)
++        if self.code:
++            out["code"] = self.code
++        return out
++
++
++@dataclass(frozen=True)
++class Capabilities:
++    """页面用这些标志决定显示什么；缺省一律 False，缺什么就明确不显示。"""
++
++    camera: bool = False
++    task: bool = False              # 网关任务启停（一次 start = 一轮）
++    task_rounds: bool = False       # 支持一次任务跑多轮
++    pose: bool = False              # /api/pose/plan + execute（J1–J5 单次规划）
++    home: bool = False              # /api/home/plan + execute（回观察位）
++    profile: bool = False           # /api/profile（限位档）
++    gripper: bool = False
++    record: bool = False
++    sample: bool = False
++    verify: bool = False
++    freeze: bool = False
++    calibrate: bool = False
++    measure: bool = False
++    export: bool = False
++    sim_world: bool = False
++    detect: bool = False
++    onsite: bool = False            # 使能必须现场确认（实机）
++
++    def as_dict(self) -> dict:
++        return {f.name: getattr(self, f.name) for f in fields(self)}
++
++
++class ArmBackend:
++    """执行侧接口。未实现的能力应抛 `BackendError(..., status=501, code=...)`。"""
++
++    kind = "offline"
++    name = "未接执行侧"
++
++    def __init__(self, address: str | None = None, owner: str = "web", timeout: float = 30.0):
++        self.address = (address or "").rstrip("/")
++        self.owner = owner
++        self.timeout = timeout
++
++    # ---- 元信息 -------------------------------------------------------
++    @property
++    def capabilities(self) -> Capabilities:
++        return Capabilities()
++
++    def describe(self, connected: bool = True, error: str | None = None) -> dict:
++        return dict(kind=self.kind, name=self.name, address=self.address or None,
++                    connected=connected, error=error,
++                    capabilities=self.capabilities.as_dict())
++
++    # ---- 查询 ---------------------------------------------------------
++    def bootstrap(self) -> dict:
++        raise BackendError("未接执行侧", status=501, code="no_backend")
++
++    def scene(self) -> dict | None:
++        return None
++
++    def status(self) -> dict:
++        raise BackendError("未接执行侧", status=501, code="no_backend")
++
++    # ---- 操作权 -------------------------------------------------------
++    def enable(self, onsite: bool = False) -> dict:
++        raise BackendError("未接执行侧", status=501, code="no_backend")
++
++    def heartbeat(self) -> dict:
++        raise BackendError("未接执行侧", status=501, code="no_backend")
++
++    def stop(self) -> dict:
++        raise BackendError("未接执行侧", status=501, code="no_backend")
++
++    # ---- 运动 ---------------------------------------------------------
++    def jog(self, joint: int, delta: int, revision: int | None = None) -> dict:
++        raise BackendError("未接执行侧", status=501, code="no_backend")
++
++    def cartesian(self, axis: str, amount: float, revision: int | None = None) -> dict:
++        raise BackendError("未接执行侧", status=501, code="no_backend")
++
++    def gripper(self, action: str, revision: int | None = None) -> dict:
++        raise BackendError("未接执行侧", status=501, code="no_backend")
++
++    def pose_plan(self, target: list) -> dict:
++        raise BackendError("该执行侧不支持姿态规划", status=501, code="pose_unsupported")
++
++    def pose_execute(self, plan_id: str, revision: int) -> dict:
++        raise BackendError("该执行侧不支持姿态规划", status=501, code="pose_unsupported")
++
++    def home_plan(self) -> dict:
++        raise BackendError("该执行侧不支持回观察位", status=501, code="home_unsupported")
++
++    def home_execute(self, plan_id: str, revision: int) -> dict:
++        raise BackendError("该执行侧不支持回观察位", status=501, code="home_unsupported")
++
++    def set_profile(self, name: str, onsite: bool = False) -> dict:
++        raise BackendError("该执行侧不支持档位切换", status=501, code="profile_unsupported")
++
++    # ---- 画面 ---------------------------------------------------------
++    def frame(self) -> bytes:
++        raise BackendError("该执行侧没有相机画面", status=404, code="camera_unsupported")
++
++    def phone_frame(self) -> bytes:
++        raise BackendError("该执行侧没有第二路相机", status=404, code="phone_unsupported")
++
++    def frozen_frame(self) -> bytes:
++        raise BackendError("还没有冻结帧", status=404, code="frozen_missing")
++
++    def annotated(self, which: str) -> bytes:
++        raise BackendError("该执行侧没有标注图", status=404, code="annotated_unsupported")
++
++    def export(self) -> dict:
++        raise BackendError("该执行侧不支持导出", status=501, code="export_unsupported")
++
++    # ---- 任务（网关概念，不是控制台接口） -----------------------------
++    def task_start(self, rounds: int = 1, blocks: int = 4, seed: int | None = None) -> dict:
++        raise BackendError("该执行侧暂不支持任务启动", status=501, code="task_unsupported")
++
++    def task_stop(self) -> dict:
++        raise BackendError("该执行侧暂不支持任务停止", status=501, code="task_unsupported")
++
++    def task_state(self) -> dict:
++        return dict(supported=False, running=False)
++
++    # ---- 生命周期 -----------------------------------------------------
++    def close(self) -> None:
++        pass
++
++    def __repr__(self) -> str:                      # 日志/错误里可读
++        return f"<{type(self).__name__} {self.kind} {self.address}>"
++
++
++def capabilities_from(**kwargs: Any) -> Capabilities:
++    """只给部分字段时其余仍为 False；测试与子类都用它。"""
++    return Capabilities(**kwargs)
+diff --git a/src/web/backends/console.py b/src/web/backends/console.py
+new file mode 100644
+index 0000000..2e074b2
+--- /dev/null
++++ b/src/web/backends/console.py
+@@ -0,0 +1,272 @@
++#!/usr/bin/env python3
++"""控制台（HTTP）后端：仿真 `src/sim/sim_server.py` 与实机 `src/teleop/server.py` 共用。
++
++接口文档 §4：GET 查询（status/frame/...）不需要 token；POST 动作要
++`X-Console-Token` 与 `owner`，运动还要新鲜 `revision`。控制台拒绝时回 409/400，
++中文原因原样向上透传。
++"""
++from __future__ import annotations
++
++import json
++import time
++import urllib.error
++import urllib.request
++
++from .base import ArmBackend, BackendError, Capabilities
++
++
++class ConsoleBackend(ArmBackend):
++    kind = "real"
++    name = "控制台"
++
++    def __init__(self, address: str, owner: str = "web", timeout: float = 30.0):
++        super().__init__(address, owner, timeout)
++        self.token: str | None = None
++        self._bootstrap: dict | None = None
++        self._last_status: dict | None = None
++        self._last_status_at: float = 0.0
++
++    # ---- HTTP ---------------------------------------------------------
++    def _build(self, path: str, body: dict | None, method: str | None):
++        data = json.dumps(body, ensure_ascii=False).encode() if body is not None else None
++        req = urllib.request.Request(self.address + path, data=data, method=method or ("POST" if data else "GET"))
++        if data:
++            req.add_header("Content-Type", "application/json")
++        if self.token:
++            req.add_header("X-Console-Token", self.token)
++        return req
++
++    def _once(self, path: str, body: dict | None = None, method: str | None = None):
++        req = self._build(path, body, method)
++        try:
++            with urllib.request.urlopen(req, timeout=self.timeout) as res:
++                raw = res.read()
++                mime = res.headers.get("Content-Type", "")
++        except urllib.error.HTTPError as exc:
++            raw = exc.read()
++            message, code = self._error_of(raw, exc.code, path)
++            raise BackendError(message, status=409 if exc.code == 409 else
++                               (400 if exc.code in (400, 422) else 502),
++                               code=code, upstream=exc.code) from None
++        except urllib.error.URLError as exc:
++            raise BackendError(f"连不上控制台 {self.address}：{exc.reason}", status=503,
++                               code="console_unreachable") from None
++        except (OSError, ValueError) as exc:
++            raise BackendError(f"控制台请求失败：{exc}", status=502, code="console_error") from None
++        if "json" in mime:
++            try:
++                return json.loads(raw or b"{}")
++            except ValueError:
++                raise BackendError("控制台返回了无效 JSON", status=502, code="bad_console_json")
++        return raw
++
++    @staticmethod
++    def _error_of(raw: bytes, upstream: int, path: str) -> tuple[str, str | None]:
++        try:
++            payload = json.loads(raw or b"{}")
++        except ValueError:
++            return f"控制台 {upstream} {path}", None
++        if isinstance(payload, dict):
++            return payload.get("error") or f"控制台 {upstream} {path}", payload.get("code")
++        return f"控制台 {upstream} {path}", None
++
++    def _request(self, path: str, body: dict | None = None, method: str | None = None,
++                 retry_token: bool = True):
++        """控制台重启会让旧凭证失效；按错误文案/409 重取一次 token 再试。"""
++        if self.token is None and path != "/api/bootstrap":
++            self._ensure_bootstrap()
++        try:
++            return self._once(path, body, method)
++        except BackendError as exc:
++            if not retry_token or "凭证" not in (exc.message or ""):
++                raise
++        self.token = None
++        self._ensure_bootstrap()
++        return self._once(path, body, method)
++
++    def _ensure_bootstrap(self) -> dict:
++        if self._bootstrap is None or self.token is None:
++            info = self._once("/api/bootstrap")
++            if not isinstance(info, dict):
++                raise BackendError("控制台 bootstrap 返回格式不对", status=502, code="bad_bootstrap")
++            self.token = info.get("token")
++            self._bootstrap = info
++        return self._bootstrap
++
++    def bootstrap(self) -> dict:
++        return self._ensure_bootstrap()
++
++    def scene(self) -> dict | None:
++        try:
++            return self._ensure_bootstrap().get("scene")
++        except BackendError:
++            return None
++
++    # ---- 状态 ---------------------------------------------------------
++    def status(self) -> dict:
++        raw = self._request("/api/status")
++        if not isinstance(raw, dict):
++            raise BackendError("控制台 status 返回格式不对", status=502, code="bad_status")
++        norm = self._normalize(raw)
++        self._last_status, self._last_status_at = norm, time.time()
++        return norm
++
++    def cached_status(self) -> dict | None:
++        return self._last_status
++
++    @staticmethod
++    def _normalize(raw: dict) -> dict:
++        """保留控制台给的全部字段，另加页面真正要用的厘米/骨架点。"""
++        out = dict(raw)
++        fk = raw.get("fk") if isinstance(raw.get("fk"), dict) else {}
++        chain = {k: [round(float(v) * 100, 2) for v in p]
++                 for k, p in fk.items() if isinstance(p, list) and len(p) == 3}
++        if chain:
++            chain["base"] = [0.0, 0.0, 0.0]
++        out["chain_cm"] = chain or None
++        out["tip_cm"] = chain.get("tip") if chain else None
++        pitch = fk.get("tip_pitch_deg")
++        out["tip_pitch_deg"] = pitch[0] if isinstance(pitch, list) and pitch else None
++        out["mode"] = raw.get("mode")
++        out["camera"] = raw.get("camera")
++        out["recording"] = raw.get("recording")
++        out["samples"] = raw.get("samples")
++        out["localization"] = raw.get("localization")
++        out["sim"] = raw.get("sim")
++        out["limits"] = raw.get("limits")
++        out["age_s"] = raw.get("age_s")
++        return out
++
++    def revision(self) -> int:
++        return int(self.status().get("revision") or 0)
++
++    def _refreshed(self) -> dict:
++        """动作后回读一次，顺手更新缓存。"""
++        try:
++            return self.status()
++        except BackendError:
++            return {}
++
++    # ---- 操作权 -------------------------------------------------------
++    def enable(self, onsite: bool = False) -> dict:
++        self._request("/api/enable", dict(owner=self.owner, onsite=bool(onsite)))
++        return self._refreshed()
++
++    def heartbeat(self) -> dict:
++        return self._request("/api/heartbeat", dict(owner=self.owner))
++
++    def stop(self) -> dict:
++        self._request("/api/stop", dict(owner=self.owner))
++        return self._refreshed()
++
++    # ---- 运动 ---------------------------------------------------------
++    def _motion(self, path: str, body: dict, revision: int | None = None) -> dict:
++        """自动补新鲜 revision；遇到「状态已变化」重取一次。"""
++        for attempt in range(2):
++            rev = revision if revision is not None else self.revision()
++            try:
++                self._request(path, dict(body, owner=self.owner, revision=rev))
++                return self._refreshed()
++            except BackendError as exc:
++                if revision is not None or attempt or not _revision_stale(exc):
++                    raise
++        raise BackendError("姿态已变化，请重试", status=409, code="revision_stale")
++
++    def jog(self, joint: int, delta: int, revision: int | None = None) -> dict:
++        return self._motion("/api/jog", dict(joint=int(joint), delta=int(delta)), revision)
++
++    def cartesian(self, axis: str, amount: float, revision: int | None = None) -> dict:
++        return self._motion("/api/cartesian", dict(axis=axis, amount=amount), revision)
++
++    def gripper(self, action: str, revision: int | None = None) -> dict:
++        return self._motion("/api/gripper", dict(action=action), revision)
++
++    def pose_plan(self, target: list) -> dict:
++        return self._request("/api/pose/plan", dict(owner=self.owner, target=list(target)))
++
++    def pose_execute(self, plan_id: str, revision: int) -> dict:
++        self._request("/api/pose/execute", dict(owner=self.owner, plan_id=plan_id, revision=int(revision)))
++        return self._refreshed()
++
++    def home_plan(self) -> dict:
++        return self._request("/api/home/plan", dict(owner=self.owner))
++
++    def home_execute(self, plan_id: str, revision: int) -> dict:
++        self._request("/api/home/execute", dict(owner=self.owner, plan_id=plan_id, revision=int(revision)))
++        return self._refreshed()
++
++    def set_profile(self, name: str, onsite: bool = False) -> dict:
++        self._request("/api/profile", dict(owner=self.owner, name=name, onsite=bool(onsite)))
++        return self._refreshed()
++
++    # ---- 录制/标定 ----------------------------------------------------
++    def record(self, on: bool, label: str = "", note: str = "") -> dict:
++        self._request("/api/record", dict(owner=self.owner, on=bool(on), label=label, note=note))
++        return self._refreshed()
++
++    def sample(self, kind: str, label: str = "", note: str = "") -> dict:
++        return self._request("/api/sample", dict(owner=self.owner, kind=kind, label=label, note=note))
++
++    def verify(self, kind: str, note: str = "") -> dict:
++        return self._request("/api/verify", dict(owner=self.owner, kind=kind, note=note))
++
++    def localization_save(self) -> dict:
++        return self._request("/api/localization/save", dict(owner=self.owner))
++
++    def freeze(self) -> dict:
++        return self._request("/api/freeze", dict(owner=self.owner))
++
++    def calibrate(self, frame_id: str, plane: str, points: list) -> dict:
++        return self._request("/api/calibrate", dict(owner=self.owner, frame_id=frame_id,
++                                                    plane=plane, points=points))
++
++    def measure(self, frame_id: str, pixels: list) -> dict:
++        return self._request("/api/measure", dict(owner=self.owner, frame_id=frame_id, pixels=pixels))
++
++    # ---- 画面 ---------------------------------------------------------
++    def _image(self, path: str) -> bytes:
++        raw = self._request(path)
++        if not isinstance(raw, (bytes, bytearray)):
++            raise BackendError(f"{path} 没有返回图片", status=502, code="bad_image")
++        return bytes(raw)
++
++    def frame(self) -> bytes:
++        return self._image("/api/frame")
++
++    def phone_frame(self) -> bytes:
++        return self._image("/api/phone")
++
++    def frozen_frame(self) -> bytes:
++        return self._image("/api/frozen")
++
++    def annotated(self, which: str) -> bytes:
++        if which not in ("board", "phone"):
++            raise BackendError("标注图只有 board/phone", status=400)
++        return self._image(f"/api/annotated/{which}")
++
++    def export(self) -> dict:
++        return self._request("/api/export")
++
++    # ---- 任务（控制台本身没有；子类实现） -----------------------------
++    def task_state(self) -> dict:
++        return dict(supported=False, running=False, source=self.kind)
++
++
++def _revision_stale(exc: BackendError) -> bool:
++    text = exc.message or ""
++    return exc.status == 409 and ("状态已变化" in text or "revision" in text.lower())
++
++
++def probe_kind(address: str, timeout: float = 5.0) -> str:
++    """bootstrap.status 里带 `sim` 的是仿真后端；否则按实机控制台对待。
++
++    实机控制台在离线模拟模式下 `mode` 也是 simulation，所以不能用 mode 区分。
++    """
++    url = address.rstrip("/") + "/api/bootstrap"
++    try:
++        with urllib.request.urlopen(url, timeout=timeout) as res:
++            info = json.loads(res.read() or b"{}")
++    except Exception:
++        return "real"
++    status = info.get("status") if isinstance(info, dict) else None
++    return "sim" if isinstance(status, dict) and "sim" in status else "real"
+diff --git a/src/web/backends/real.py b/src/web/backends/real.py
+new file mode 100644
+index 0000000..c0997de
+--- /dev/null
++++ b/src/web/backends/real.py
+@@ -0,0 +1,36 @@
++#!/usr/bin/env python3
++"""实机控制台后端（`src/teleop/server.py`）。
++
++与仿真后端同层：状态、运动、姿态规划、回观察位、档位、录制/采样/标定都走控制台
++接口（接口文档 §4），限位/禁入区/操作权仍由控制台把关。
++
++任务启停（跑一整轮分拣）在实机侧还没有验收过入口：`src/pipeline/run.py` 是人工
++守着的脚本，不能由网页无人确认地拉起。所以 `task` 能力为 False，明确返回 501，
++而不是假装能启动。
++"""
++from __future__ import annotations
++
++from .base import BackendError, Capabilities
++from .console import ConsoleBackend
++
++
++class RealBackend(ConsoleBackend):
++    kind = "real"
++    name = "实机控制台"
++
++    @property
++    def capabilities(self) -> Capabilities:
++        return Capabilities(
++            camera=True, task=False, task_rounds=False, pose=True, home=True,
++            profile=True, gripper=True, record=True, sample=True, verify=True,
++            freeze=True, calibrate=True, measure=True, export=True,
++            sim_world=False, detect=False, onsite=True,
++        )
++
++    def task_start(self, rounds: int = 1, blocks: int = 4, seed: int | None = None) -> dict:
++        raise BackendError("实机任务启停尚未接入（需先验收流水线入口，H1-3）",
++                           status=501, code="task_unsupported")
++
++    def task_stop(self) -> dict:
++        raise BackendError("实机任务启停尚未接入（需先验收流水线入口，H1-3）",
++                           status=501, code="task_unsupported")
+diff --git a/src/web/backends/sim.py b/src/web/backends/sim.py
+new file mode 100644
+index 0000000..5bb74dc
+--- /dev/null
++++ b/src/web/backends/sim.py
+@@ -0,0 +1,68 @@
++#!/usr/bin/env python3
++"""仿真控制台后端（`src/sim/sim_server.py`）。
++
++它和控制台是同一套 `/api/*`（仿真服务继承实机控制台的 App），另外多出：
++- `POST /api/sim/sort` / `/api/sim/sort/stop`、`GET /api/sim/sort`：跑真实分拣流水线
++- `/api/sim/world`、`/api/sim/detect` 等仿真世界与检测对照
++
++任务启停是网关概念，这里把仿真侧的入口包成和实机同名的 task 方法。
++"""
++from __future__ import annotations
++
++from .base import BackendError, Capabilities
++from .console import ConsoleBackend
++
++
++class SimBackend(ConsoleBackend):
++    kind = "sim"
++    name = "仿真控制台"
++
++    @property
++    def capabilities(self) -> Capabilities:
++        return Capabilities(
++            camera=True, task=True, task_rounds=True, pose=True, home=True,
++            profile=True, gripper=True, record=True, sample=True, verify=True,
++            freeze=True, export=True, sim_world=True, detect=True, onsite=False,
++            calibrate=False, measure=False,
++        )
++
++    # ---- 仿真世界 -----------------------------------------------------
++    def world(self) -> dict:
++        return self._request("/api/sim/world")
++
++    def options(self) -> dict:
++        return self._request("/api/sim/options")
++
++    def detect(self, conf: float = 0.25) -> dict:
++        return self._request(f"/api/sim/detect?conf={float(conf)}")
++
++    def annotated_world(self, conf: float = 0.25) -> bytes:
++        return self._image(f"/api/sim/annotated?conf={float(conf)}")
++
++    # ---- 任务 ---------------------------------------------------------
++    def task_start(self, rounds: int = 1, blocks: int = 4, seed: int | None = None) -> dict:
++        body: dict = dict(rounds=int(rounds), blocks=int(blocks))
++        if seed is not None:
++            body["seed"] = int(seed)
++        try:
++            return self._request("/api/sim/sort", body)
++        except BackendError as exc:
++            if "有页面持有操作权" in (exc.message or ""):
++                # 让调用方先 stop 再试；任务启动不该替用户抢操作权
++                raise BackendError("有页面持有操作权；先解除使能（stop）再启动任务",
++                                   status=409, code="arm_armed") from None
++            raise
++
++    def task_stop(self) -> dict:
++        return self._request("/api/sim/sort/stop", dict(source=self.owner))
++
++    def task_state(self) -> dict:
++        try:
++            state = self._request("/api/sim/sort")
++        except BackendError:
++            raise
++        if not isinstance(state, dict):
++            raise BackendError("仿真任务状态格式不对", status=502, code="bad_task_state")
++        state["supported"] = True
++        state["source"] = self.kind
++        return state
+diff --git a/src/web/js/components.js b/src/web/js/components.js
+new file mode 100644
+index 0000000..1a72c3b
+--- /dev/null
++++ b/src/web/js/components.js
+@@ -0,0 +1,198 @@
++// 可复用的展示组件：卡片 / 徽章 / 关节条 / 横幅 / 空态 / 表格。
++// 这里只负责结构，动态文字一律先由调用方 esc() 或本文件内部 esc()；sim/real 差异不在这里判断。
++
++import { esc } from "./format.js";
++import { JOINT_LIMITS } from "./contract.js";
++
++/** 单张指标卡 */
++export const card = (label, value = "—", { testid = "", tone = "" } = {}) =>
++  `<div class="card"><span>${esc(label)}</span>` +
++  `<b${testid ? ` data-testid="${esc(testid)}"` : ""} class="${esc(tone)}">${esc(value)}</b></div>`;
++
++/** 指标卡组 */
++export const cardGrid = (items) => `<div class="cards">${items.map((item) => card(item[0], item[1], item[2] ?? {})).join("")}</div>`;
++
++/** 状态徽章 */
++export const badge = (text, tone = "", testid = "") =>
++  `<span class="chip ${esc(tone)}"${testid ? ` data-testid="${esc(testid)}"` : ""}>${esc(text)}</span>`;
++
++/** 表格空态行 */
++export const emptyRow = (colspan, text = "没有数据") =>
++  `<tr><td colspan="${Math.max(1, colspan | 0)}" class="dim empty">${esc(text)}</td></tr>`;
++
++/** 表格：headers 是字符串数组，rows 是已转义的 <tr> HTML 数组 */
++export const tableHtml = ({ headers, rows, testid = "", className = "table", empty = "没有数据", emptyColspan } = {}) =>
++  `<table class="${esc(className)}"${testid ? ` data-testid="${esc(testid)}"` : ""}>` +
++  `<thead><tr>${(headers ?? []).map((h) => `<th>${esc(h)}</th>`).join("")}</tr></thead>` +
++  `<tbody>${rows && rows.length ? rows.join("") : emptyRow(emptyColspan ?? (headers ?? []).length, empty)}</tbody></table>`;
++
++/** 横幅：title/meta/actions 都是已转义的 HTML 片段（调用方负责 esc 动态值） */
++export const bannerHtml = ({ tone = "", title = "", meta = "", actions = "", testid = "" } = {}) =>
++  `<div class="banner ${esc(tone)}"${testid ? ` data-testid="${esc(testid)}"` : ""}>` +
++  (title ? `<b>${title}</b>` : "") +
++  (meta ? `<span>${meta}</span>` : "") +
++  (actions ?? "") +
++  `</div>`;
++
++/** 只在内容变化时写 textContent，避免 2 Hz 状态刷新造成闪烁 */
++export function setText(el, value, tone = "") {
++  if (!el) return;
++  const text = String(value ?? "—");
++  if (el.textContent !== text) el.textContent = text;
++  if (tone !== undefined) el.className = tone;
++}
++
++/** 单行空态（非表格） */
++export const emptyState = (text) => `<p class="empty dim">${esc(text)}</p>`;
++
++const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
++
++/**
++ * 六轴关节条。editable=false 时是只读回读条（实时页）；true 时是滑块（控制面板）。
++ * 回读值只接受调用方传入的 status.arm.joints_deg，绝不回落到日志 pose。
++ *
++ * @param {HTMLElement} host
++ * @param {{editable?: boolean, limits?: Array<{name:string,min:number,max:number}>,
++ *          testid?: {readback?: string, slider?: string, target?: string, dirty?: string}}} options
++ */
++export function createJointPanel(host, { editable = false, limits = JOINT_LIMITS, testid = {} } = {}) {
++  const names = limits.map((j, i) => j.name ?? `J${i + 1}`);
++  const rbId = testid.readback ?? (editable ? "ctl-joint-readback" : "joint-readback");
++  const rowId = testid.row ?? (editable ? "ctl-joint-row" : "joint-row");
++  const sliderId = editable ? (testid.slider ?? "joint-slider") : null;
++  const targetId = editable ? (testid.target ?? "joint-target") : null;
++  const dirtyId = editable ? (testid.dirty ?? "joint-dirty") : null;
++
++  host.innerHTML = limits.map((j, i) => `
++    <div class="joint${editable ? " editable" : ""}" data-joint="${i}" data-testid="${esc(rowId)}-j${i + 1}">
++      <span class="jname">${esc(names[i])}</span>
++      <strong class="jread" data-testid="${esc(rbId)}-j${i + 1}">—</strong>
++      ${editable
++        ? `<input class="jslider" type="range" min="${j.min}" max="${j.max}" step="1" value="${Math.round((j.min + j.max) / 2)}"
++             data-testid="${esc(sliderId)}-j${i + 1}" aria-label="${esc(names[i])}">
++           <em class="jtarget" data-testid="${esc(targetId)}-j${i + 1}">—</em>
++           <span class="jdirty" data-testid="${esc(dirtyId)}-j${i + 1}" hidden>已修改</span>`
++        : `<div class="bar"><i></i></div>`}` +
++    `</div>`).join("");
++
++  const rowEls = Array.from(host.querySelectorAll(".joint"));
++  const state = {
++    readback: new Array(limits.length).fill(null),
++    limits: limits.map((j) => ({ min: j.min, max: j.max })),
++    dirty: new Set(),
++  };
++
++  const sliderOf = (i) => rowEls[i]?.querySelector("input[type=range]") ?? null;
++  const readOf = (i) => rowEls[i]?.querySelector(".jread") ?? null;
++  const targetOf = (i) => rowEls[i]?.querySelector(".jtarget") ?? null;
++  const dirtyOf = (i) => rowEls[i]?.querySelector(".jdirty") ?? null;
++  const barOf = (i) => rowEls[i]?.querySelector(".bar i") ?? null;
++
++  function limitsOf(i, liveLimits) {
++    if (liveLimits) {
++      const l = liveLimits[String(i + 1)] ?? liveLimits[i + 1] ?? liveLimits[i];
++      if (Array.isArray(l) && l.length >= 2 && Number.isFinite(+l[0]) && Number.isFinite(+l[1])) {
++        return { min: +l[0], max: +l[1] };
++      }
++    }
++    const base = limits[i] ?? { min: 0, max: 180 };
++    return { min: base.min, max: base.max };
++  }
++
++  function applyLimits(i, lim) {
++    const input = sliderOf(i);
++    if (!input) return;
++    if (+input.min !== lim.min) input.min = lim.min;
++    if (+input.max !== lim.max) input.max = lim.max;
++    if (+input.value < lim.min || +input.value > lim.max) input.value = clamp(+input.value, lim.min, lim.max);
++  }
++
++  function refreshRow(i) {
++    const value = state.readback[i];
++    const lim = state.limits[i];
++    const out = value != null && (value < lim.min || value > lim.max);
++    const read = readOf(i);
++    if (read) {
++      const text = value == null ? "—" : `${Math.round(value)}°`;
++      if (read.textContent !== text) read.textContent = text;
++      read.className = out ? "jread bad" : "jread";
++    }
++    const input = sliderOf(i);
++    if (!input) {
++      const bar = barOf(i);
++      if (bar) {
++        const ratio = value == null ? 0 : (value - lim.min) / Math.max(1, lim.max - lim.min);
++        bar.style.width = `${clamp(ratio, 0, 1) * 100}%`;
++        bar.classList.toggle("bad", out);
++      }
++      return;
++    }
++    const target = +input.value;
++    const dirty = state.dirty.has(i) && (value == null || Math.round(value) !== target);
++    if (dirty) state.dirty.add(i); else state.dirty.delete(i);
++    input.classList.toggle("dirty", dirty);
++    const targetEl = targetOf(i);
++    if (targetEl) {
++      const text = `${target}°`;
++      if (targetEl.textContent !== text) targetEl.textContent = text;
++      targetEl.className = dirty ? "jtarget mid" : "jtarget dim";
++    }
++    const dirtyEl = dirtyOf(i);
++    if (dirtyEl) dirtyEl.hidden = !dirty;
++  }
++
++  if (editable) {
++    host.addEventListener("input", (ev) => {
++      const input = ev.target.closest("input[type=range]");
++      if (!input) return;
++      const i = +input.closest(".joint").dataset.joint;
++      state.dirty.add(i);
++      refreshRow(i);
++    });
++  }
++
++  return {
++    /** @param {Array<number|null>|null} values status.arm.joints_deg */
++    update(values, liveLimits = null) {
++      for (let i = 0; i < limits.length; i += 1) {
++        const value = Array.isArray(values) && Number.isFinite(values[i]) ? values[i] : null;
++        state.readback[i] = value;
++        const lim = limitsOf(i, liveLimits);
++        state.limits[i] = lim;
++        applyLimits(i, lim);
++        const input = sliderOf(i);
++        if (editable && input && !state.dirty.has(i) && value != null) {
++          input.value = String(Math.round(clamp(value, +input.min, +input.max)));
++        }
++        refreshRow(i);
++      }
++    },
++    /** 以回读为准重置所有滑块，清掉“已修改” */
++    syncAll() {
++      state.dirty.clear();
++      for (let i = 0; i < limits.length; i += 1) {
++        const input = sliderOf(i);
++        if (input && state.readback[i] != null) {
++          input.value = String(Math.round(clamp(state.readback[i], +input.min, +input.max)));
++        }
++        refreshRow(i);
++      }
++    },
++    /** 滑块当前目标值 */
++    values() {
++      return limits.map((_, i) => (sliderOf(i) ? +sliderOf(i).value : (state.readback[i] ?? 0)));
++    },
++    /** 有改动的轴下标（滑块值与回读四舍五入后不同） */
++    changed() {
++      const out = [];
++      for (let i = 0; i < limits.length; i += 1) {
++        const input = sliderOf(i);
++        if (!input || !state.dirty.has(i)) continue;
++        if (state.readback[i] == null || Math.round(state.readback[i]) !== +input.value) out.push(i);
++      }
++      return out;
++    },
++    readback() { return state.readback.slice(); },
++    editable,
++  };
++}
+diff --git a/src/web/task.py b/src/web/task.py
+new file mode 100644
+index 0000000..45e75dc
+--- /dev/null
++++ b/src/web/task.py
+@@ -0,0 +1,183 @@
++#!/usr/bin/env python3
++"""任务轮次：一次 start = 一个任务 = 一轮（用户 2026-10-23 确认的口径）。
++
++YOLO/流水线事件只作为“本轮明细”：任务开始后出现的 `pipeline_start` 数当前轮、
++`pipeline_end` 数已完成轮。回放/历史日志（任务开始之前的 pipeline 事件）不计入。
++
++任务本身是网关概念：仿真后端用 `/api/sim/sort` 子进程实现，实机后端暂不支持
++（`Capabilities.task=False`），所以状态里如实给 `supported`，页面据此禁用按钮。
++"""
++from __future__ import annotations
++
++import threading
++import time
++from pathlib import Path
++
++from backends.base import BackendError
++
++# 任务开始时刻与日志事件 t 都是同一台机器的墙钟；留一点余量避免边界抖动
++START_SLACK = 0.5
++
++
++def _contract():
++    try:
++        import log_contract as L  # serve.py 已把 src/tools 放进 sys.path
++        return L
++    except ImportError:                      # 单独导入 task.py 时（测试）
++        import sys
++        root = Path(__file__).resolve().parents[2]
++        sys.path.insert(0, str(root / "src" / "tools"))
++        import log_contract as L
++        return L
++
++
++class TaskTracker:
++    MAX_OUTPUT = 12
++
++    def __init__(self, backend, log_path: Path, append_event):
++        self.backend = backend
++        self.log_path = Path(log_path)
++        self.append_event = append_event
++        self.lock = threading.Lock()
++        self.task: dict | None = None
++        self._polled_at = 0.0
++
++    # ---- 状态 ---------------------------------------------------------
++    @property
++    def supported(self) -> bool:
++        return bool(self.backend is not None and self.backend.capabilities.task)
++
++    def status(self) -> dict:
++        with self.lock:
++            if not self.supported:
++                return self._empty(state="idle", supported=False,
++                                   error=None if self.backend else "未接执行侧")
++            if self.task is None:
++                return self._empty(state="idle")
++            return dict(self.task)
++
++    @staticmethod
++    def _empty(state: str = "idle", supported: bool = True, error: str | None = None) -> dict:
++        return dict(supported=supported, id=None, state=state, running=False, source=None,
++                    rounds_requested=0, rounds_done=0, current_round=0,
++                    started_at=None, finished_at=None, exit_code=None,
++                    error=error, output=[])
++
++    # ---- 控制 ---------------------------------------------------------
++    def start(self, source: str = "web", rounds: int = 1, blocks: int = 4,
++              seed: int | None = None) -> dict:
++        rounds = max(1, int(rounds))
++        with self.lock:
++            if self.backend is None:
++                raise BackendError("未接控制台执行侧（--console），无法启动分拣任务", status=501,
++                                   code="task_unsupported")
++            if not self.supported:
++                raise BackendError("该执行侧暂不支持任务启停（实机任务启动待 H1-3 验收）",
++                                   status=501, code="task_unsupported")
++            if self.task and self.task.get("running"):
++                raise BackendError("任务已在运行", status=409, code="task_running")
++            backend = self.backend
++        # 任务要自己拿操作权；先释放网页持有的使能
++        try:
++            if backend.status().get("armed"):
++                backend.stop()
++        except BackendError:
++            pass
++        reply = backend.task_start(rounds=rounds, blocks=blocks, seed=seed)
++        now = time.time()
++        task = dict(id=f"task{int(now * 1000)}", state="running", running=True,
++                    source=source, rounds_requested=rounds, rounds_done=0,
++                    current_round=0, started_at=now, finished_at=None,
++                    exit_code=None, error=None, output=[],
++                    log_lines=(reply or {}).get("log_lines"))
++        with self.lock:
++            self.task = task
++            self._polled_at = now
++        try:
++            self.append_event(dict(t=now, event="interaction", source=source, command="start"))
++        except Exception:                       # 日志写失败不能连累任务本身
++            pass
++        return dict(self.task)
++
++    def stop(self, reason: str = "网页停止任务") -> dict:
++        with self.lock:
++            task = self.task
++            was_running = bool(task and task.get("running"))
++        backend = self.backend
++        if backend is not None and self.supported:
++            try:
++                backend.task_stop()
++            except BackendError as exc:
++                if not was_running:
++                    raise
++                with self.lock:
++                    self.task["error"] = exc.message
++        now = time.time()
++        with self.lock:
++            if self.task is None:
++                self.task = self._empty(state="stopped")
++            self.task.update(running=False, state="stopped", finished_at=now)
++        if was_running:
++            try:
++                self.append_event(dict(t=now, event="stopped", reason=reason))
++            except Exception:
++                pass
++        return dict(self.task)
++
++    # ---- 进度 ---------------------------------------------------------
++    def poll(self, force: bool = False) -> dict:
++        with self.lock:
++            task = self.task
++            if task is None or not task.get("running"):
++                return dict(task) if task else self._empty()
++            if not force and time.time() - self._polled_at < 0.4:
++                return dict(task)
++            self._polled_at = time.time()
++        backend = self.backend
++        state: dict = {}
++        error = None
++        try:
++            state = backend.task_state() if backend and self.supported else {}
++        except BackendError as exc:
++            error = exc.message
++        window = self._window(task["started_at"])
++        with self.lock:
++            task = self.task
++            if task is None:
++                return self._empty()
++            task["current_round"] = max(0, window["starts"])
++            task["rounds_done"] = window["ends"]
++            if state:
++                task["log_lines"] = state.get("log_lines", task.get("log_lines"))
++                task["output"] = list(state.get("output") or [])[-self.MAX_OUTPUT:]
++            if error:
++                task["error"] = error
++            running = bool(state.get("running")) if state else task["running"]
++            if state and not running:
++                exit_code = state.get("exit_code")
++                task.update(running=False, finished_at=time.time(), exit_code=exit_code)
++                task["state"] = "finished" if exit_code == 0 else "failed"
++                if exit_code not in (0, None) and not task.get("error"):
++                    task["error"] = f"分拣流水线退出码 {exit_code}"
++            return dict(task)
++
++    def _window(self, started_at: float) -> dict:
++        """任务开始之后的 pipeline_start / pipeline_end 数（只算本轮任务）。"""
++        L = _contract()
++        try:
++            events, _ = L.read(self.log_path)
++        except OSError:
++            return dict(starts=0, ends=0)
++        low = started_at - START_SLACK
++        starts = ends = 0
++        for event in events:
++            t = event.get("t")
++            if not isinstance(t, (int, float)) or t < low:
++                continue
++            if event.get("replay"):
++                continue                        # 回放样例不是当前任务
++            if event.get("event") == "pipeline_start":
++                starts += 1
++            elif event.get("event") == "pipeline_end":
++                ends += 1
++        return dict(starts=starts, ends=ends)
+diff --git a/tests/test_backends.py b/tests/test_backends.py
+new file mode 100644
+index 0000000..b582914
+--- /dev/null
++++ b/tests/test_backends.py
+@@ -0,0 +1,170 @@
++"""执行侧后端：token/状态规范化/错误透传/能力标志/自动识别。标准库 unittest。
++
++用假控制台（ThreadingHTTPServer）而不是真仿真，这样可以在任何机器上跑，也不需要
++opencv/numpy。接口形状按 docs/atlas-200i-dk-a2/15-接口文档.md §4。
++"""
++import json
++import sys
++import threading
++import unittest
++from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
++from pathlib import Path
++
++ROOT = Path(__file__).resolve().parents[1]
++sys.path.insert(0, str(ROOT / 'src' / 'web'))
++from backends import Capabilities, create_backend  # noqa: E402
++from backends.base import BackendError  # noqa: E402
++from backends.console import ConsoleBackend, probe_kind  # noqa: E402
++from backends.real import RealBackend  # noqa: E402
++from backends.sim import SimBackend  # noqa: E402
++
++POSE = [90, 105, 5, 5, 95, 30]
++
++
++class FakeConsole(BaseHTTPRequestHandler):
++    token = 'tok'
++    last = {}
++
++    def log_message(self, *args):
++        pass
++
++    def _send(self, payload, status=200):
++        body = json.dumps(payload, ensure_ascii=False).encode()
++        self.send_response(status)
++        self.send_header('Content-Type', 'application/json')
++        self.send_header('Content-Length', str(len(body)))
++        self.end_headers()
++        self.wfile.write(body)
++
++    def do_GET(self):
++        if self.path == '/api/bootstrap':
++            return self._send(dict(token=self.token, scene=dict(marker='scene'),
++                                   status=dict(mode='simulation', pose=POSE, sim=dict(blocks=3))))
++        if self.path == '/api/status':
++            return self._send(dict(mode='simulation', pose=list(POSE), command=None, armed=False,
++                                   busy=False, revision=7, observed_at=1.0, age_s=0.1,
++                                   grip=dict(action=None, readback=None, holding=None, result=None),
++                                   fk=dict(tip=[0.0, 0.14, 0.04], tip_pitch_deg=[90.0],
++                                           shoulder=[0.0, 0.09, 0.0], elbow=[0.0, 0.09, 0.12]),
++                                   clearance_cm=1.8, limits={'1': [0, 180]}, sim=dict(blocks=3)))
++        if self.path == '/api/frame':
++            body = b'\xff\xd8fake'
++            self.send_response(200)
++            self.send_header('Content-Type', 'image/jpeg')
++            self.send_header('Content-Length', str(len(body)))
++            self.end_headers()
++            return self.wfile.write(body)
++        if self.path == '/api/sim/sort':
++            return self._send(dict(running=False, exit_code=0, output=[], log_lines=4))
++        return self._send({'error': 'no route'}, status=404)
++
++    def do_POST(self):
++        n = int(self.headers.get('Content-Length') or 0)
++        body = json.loads(self.rfile.read(n) or b'{}')
++        FakeConsole.last = dict(path=self.path, body=body, token=self.headers.get('X-Console-Token'))
++        if self.headers.get('X-Console-Token') != self.token:
++            return self._send({'error': '页面凭证过期，请刷新'}, status=409)
++        if self.path == '/api/jog':
++            POSE[1] += body.get('delta', 0)
++            return self._send(dict(ok=True))
++        if self.path == '/api/pose/plan':
++            return self._send(dict(id='plan1', revision=7, segments=2, target=body.get('target')))
++        if self.path == '/api/pose/execute':
++            return self._send(dict(ok=True))
++        if self.path == '/api/sim/sort':
++            return self._send(dict(running=True, exit_code=None, output=[], log_lines=0))
++        if self.path == '/api/boom':
++            return self._send({'error': '动作尚未结束'}, status=409)
++        return self._send(dict(ok=True))
++
++
++class BackendTest(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        cls.httpd = ThreadingHTTPServer(('127.0.0.1', 0), FakeConsole)
++        cls.port = cls.httpd.server_address[1]
++        threading.Thread(target=cls.httpd.serve_forever, daemon=True).start()
++        cls.base = f'http://127.0.0.1:{cls.port}'
++
++    @classmethod
++    def tearDownClass(cls):
++        cls.httpd.shutdown()
++        cls.httpd.server_close()
++
++    def test_probe_kind_uses_sim_key_not_mode(self):
++        # 实机控制台离线模拟的 mode 也是 simulation，只有 sim 键能区分
++        self.assertEqual(probe_kind(self.base), 'sim')
++
++    def test_console_backend_normalizes_pose_and_chain(self):
++        backend = ConsoleBackend(self.base)
++        status = backend.status()
++        self.assertEqual(status['pose'], POSE)
++        self.assertEqual(status['chain_cm']['base'], [0.0, 0.0, 0.0])
++        self.assertAlmostEqual(status['tip_cm'][1], 14.0)
++        self.assertEqual(status['tip_pitch_deg'], 90.0)
++        self.assertEqual(backend.token, 'tok')
++
++    def test_motion_sends_token_owner_and_fresh_revision(self):
++        backend = ConsoleBackend(self.base, owner='web')
++        before = backend.status()['pose'][1]
++        backend.jog(2, 5)
++        self.assertEqual(FakeConsole.last['path'], '/api/jog')
++        self.assertEqual(FakeConsole.last['body']['owner'], 'web')
++        self.assertEqual(FakeConsole.last['body']['revision'], 7)
++        self.assertEqual(FakeConsole.last['token'], 'tok')
++        self.assertEqual(backend.status()['pose'][1], before + 5)
++
++    def test_console_error_message_and_status_pass_through(self):
++        backend = ConsoleBackend(self.base)
++        with self.assertRaises(BackendError) as ctx:
++            backend._request('/api/boom', dict(owner='web'))
++        self.assertEqual(ctx.exception.status, 409)
++        self.assertEqual(ctx.exception.message, '动作尚未结束')
++
++    def test_stale_console_token_is_refetched_once(self):
++        backend = ConsoleBackend(self.base)
++        backend.token = 'stale'
++        backend.jog(2, 1)                  # 409「凭证过期」→ 重取 token → 成功
++        self.assertEqual(backend.token, 'tok')
++        self.assertEqual(FakeConsole.last['token'], 'tok')
++
++    def test_scene_and_frame(self):
++        backend = ConsoleBackend(self.base)
++        self.assertEqual(backend.scene()['marker'], 'scene')
++        self.assertTrue(backend.frame().startswith(b'\xff\xd8'))
++
++    def test_sim_backend_declares_task_and_world(self):
++        backend = SimBackend(self.base)
++        caps = backend.capabilities
++        self.assertTrue(caps.task and caps.sim_world and caps.detect)
++        self.assertFalse(caps.onsite)
++        task = backend.task_start(rounds=1)
++        self.assertTrue(task['running'])
++        self.assertEqual(backend.task_state()['supported'], True)
++
++    def test_real_backend_refuses_task_start_but_keeps_motion(self):
++        backend = RealBackend(self.base)
++        self.assertFalse(backend.capabilities.task)
++        self.assertTrue(backend.capabilities.onsite)
++        with self.assertRaises(BackendError) as ctx:
++            backend.task_start(rounds=1)
++        self.assertEqual(ctx.exception.status, 501)
++        plan = backend.pose_plan([90, 100, 10, 10, 95])
++        self.assertEqual(plan['id'], 'plan1')
++
++    def test_create_backend_auto_detects_sim(self):
++        backend = create_backend(self.base, owner='web')
++        self.assertIsInstance(backend, SimBackend)
++        self.assertIsInstance(create_backend(self.base, kind='real'), RealBackend)
++        self.assertIsNone(create_backend(None))
++
++
++class CapabilitiesTest(unittest.TestCase):
++    def test_defaults_are_explicitly_false(self):
++        caps = Capabilities().as_dict()
++        self.assertTrue(caps)
++        self.assertFalse(any(caps.values()))
++
++
++if __name__ == '__main__':
++    unittest.main()
+diff --git a/tests/test_task.py b/tests/test_task.py
+new file mode 100644
+index 0000000..ca24224
+--- /dev/null
++++ b/tests/test_task.py
+@@ -0,0 +1,122 @@
++"""任务轮次：一次 start = 一个任务 = 一轮，YOLO/回放事件只做明细。标准库 unittest。"""
++import json
++import sys
++import tempfile
++import time
++import unittest
++from pathlib import Path
++
++ROOT = Path(__file__).resolve().parents[1]
++sys.path.insert(0, str(ROOT / 'src' / 'web'))
++sys.path.insert(0, str(ROOT / 'src' / 'tools'))
++from backends.base import BackendError, Capabilities  # noqa: E402
++from task import TaskTracker  # noqa: E402
++
++
++class FakeBackend:
++    kind = 'sim'
++    address = 'fake://'
++
++    def __init__(self):
++        self.capabilities = Capabilities(task=True, pose=True)
++        self.armed = True
++        self.running = False
++        self.stopped = 0
++        self.calls = []
++
++    def status(self):
++        return dict(pose=[90, 105, 5, 5, 95, 30], armed=self.armed)
++
++    def stop(self):
++        self.armed = False
++        self.calls.append(('stop',))
++
++    def task_start(self, rounds=1, blocks=4, seed=None):
++        self.running = True
++        self.calls.append(('start', rounds))
++        return dict(running=True, exit_code=None, output=[], log_lines=0)
++
++    def task_stop(self):
++        self.running = False
++        self.stopped += 1
++        return dict(running=False)
++
++    def task_state(self):
++        return dict(running=self.running, exit_code=0 if not self.running else None,
++                    output=[], log_lines=0)
++
++
++class TaskTest(unittest.TestCase):
++    def setUp(self):
++        self.tmp = tempfile.TemporaryDirectory()
++        self.addCleanup(self.tmp.cleanup)
++        self.log = Path(self.tmp.name) / 'log.jsonl'
++        self.log.write_text('', encoding='utf-8')
++        self.events = []
++        self.backend = FakeBackend()
++        self.task = TaskTracker(self.backend, self.log, self.events.append)
++
++    def event(self, name, t=None, **data):
++        with self.log.open('a', encoding='utf-8') as f:
++            f.write(json.dumps(dict(event=name, t=time.time() if t is None else t, **data)) + '\n')
++
++    def test_one_start_is_one_round_and_counts_only_its_own_events(self):
++        # 任务开始之前的历史/回放事件不计入
++        self.event('pipeline_start', t=time.time() - 100)
++        self.event('pipeline_end', t=time.time() - 90)
++        task = self.task.start(source='web', rounds=1)
++        self.assertTrue(task['running'])
++        self.assertTrue(self.backend.calls[0][0] == 'stop')       # 先释放操作权
++        self.event('pipeline_start')
++        self.event('pipeline_sorted', cube=[1, 2], category='other', bin='44', seconds=1)
++        self.event('pipeline_end', sorted=1, skipped=0, missed=0, cleared=0, seconds=2)
++        task = self.task.poll(force=True)
++        self.assertEqual(task['current_round'], 1)
++        self.assertEqual(task['rounds_done'], 1)
++        self.backend.running = False
++        task = self.task.poll(force=True)
++        self.assertEqual(task['state'], 'finished')
++        self.assertEqual(task['exit_code'], 0)
++        self.assertEqual(task['rounds_done'], 1)
++
++    def test_replay_events_are_not_task_progress(self):
++        self.task.start(source='web')
++        self.event('pipeline_start', replay=True)
++        self.event('pipeline_end', replay=True, sorted=4, skipped=0, missed=0, cleared=0, seconds=9)
++        self.assertEqual(self.task.poll(force=True)['current_round'], 0)
++        self.assertEqual(self.task.status()['rounds_done'], 0)
++
++    def test_a_running_task_cannot_be_started_twice(self):
++        self.task.start(source='web')
++        with self.assertRaises(BackendError) as ctx:
++            self.task.start(source='web')
++        self.assertEqual(ctx.exception.status, 409)
++
++    def test_stop_marks_stopped_and_writes_an_event(self):
++        self.task.start(source='web')
++        stopped = self.task.stop()
++        self.assertFalse(stopped['running'])
++        self.assertEqual(stopped['state'], 'stopped')
++        self.assertEqual(self.backend.stopped, 1)
++        self.assertEqual(self.events[-1]['event'], 'stopped')
++
++    def test_failed_exit_code_is_reported_as_failed(self):
++        self.task.start(source='web')
++        self.backend.running = False
++        self.backend.task_state = lambda: dict(running=False, exit_code=2, output=['boom'], log_lines=1)
++        task = self.task.poll(force=True)
++        self.assertEqual(task['state'], 'failed')
++        self.assertEqual(task['exit_code'], 2)
++        self.assertIn('退出码', task['error'])
++
++    def test_no_backend_says_so_instead_of_pretending(self):
++        task = TaskTracker(None, self.log, self.events.append)
++        self.assertFalse(task.supported)
++        with self.assertRaises(BackendError) as ctx:
++            task.start(source='timer')
++        self.assertEqual(ctx.exception.status, 501)
++        self.assertIn('控制台', ctx.exception.message)
++
++
++if __name__ == '__main__':
++    unittest.main()
+diff --git a/tests/test_web_api.py b/tests/test_web_api.py
+new file mode 100644
+index 0000000..078dc3d
+--- /dev/null
++++ b/tests/test_web_api.py
+@@ -0,0 +1,278 @@
++"""网关新接口的 HTTP 层测试：后端/任务/控制台 §4 代理/archive 解码/跨源防护。
++
++用进程内假后端，不连仿真控制台，也不需要 cv2/onnxruntime。
++"""
++import json
++import sys
++import tempfile
++import threading
++import time
++import unittest
++import urllib.error
++import urllib.request
++from http.server import ThreadingHTTPServer
++from pathlib import Path
++
++ROOT = Path(__file__).resolve().parents[1]
++sys.path.insert(0, str(ROOT / 'src' / 'web'))
++sys.path.insert(0, str(ROOT / 'src' / 'tools'))
++import serve as S  # noqa: E402
++from backends.base import BackendError, Capabilities  # noqa: E402
++from backends.sim import SimBackend  # noqa: E402
++from task import TaskTracker  # noqa: E402
++
++
++class FakeBackend:
++    kind = 'sim'
++    address = 'http://fake'
++    name = '假仿真'
++
++    def __init__(self):
++        self.capabilities = Capabilities(camera=True, task=True, pose=True, home=True,
++                                         profile=True, gripper=True, sim_world=True)
++        self.pose = [90, 105, 5, 5, 95, 30]
++        self.armed = False
++        self.task_running = False
++        self.jogged = []
++        self.task_started = 0
++
++    def describe(self, connected=True, error=None):
++        return dict(kind=self.kind, name=self.name, address=self.address, connected=connected,
++                    error=error, capabilities=self.capabilities.as_dict())
++
++    def status(self):
++        return dict(mode='simulation', pose=list(self.pose), command=None, armed=self.armed,
++                    busy=False, revision=5, observed_at=time.time(), age_s=0.1,
++                    grip=dict(action=None, readback=None, holding=None, result=None),
++                    fk=dict(tip=[0.0, 0.14, 0.04], tip_pitch_deg=[90.0]),
++                    clearance_cm=1.8, limits={'1': [0, 180]}, sim=dict(blocks=2))
++
++    def scene(self):
++        return {'marker': 'fake'}
++
++    def enable(self, onsite=False):
++        self.armed = True
++        return self.status()
++
++    def heartbeat(self):
++        return self.status()
++
++    def stop(self):
++        self.armed = False
++        return self.status()
++
++    def jog(self, joint, delta, revision=None):
++        self.jogged.append((joint, delta))
++        self.pose[joint - 1] += delta
++        return self.status()
++
++    def pose_plan(self, target):
++        return dict(id='p1', revision=5, segments=1, target=list(target))
++
++    def pose_execute(self, plan_id, revision):
++        return self.status()
++
++    def frame(self):
++        return b'\xff\xd8fake'
++
++    def task_start(self, rounds=1, blocks=4, seed=None):
++        self.task_running = True
++        self.task_started += 1
++        return dict(running=True, exit_code=None, output=[], log_lines=0)
++
++    def task_stop(self):
++        self.task_running = False
++        return dict(running=False)
++
++    def task_state(self):
++        return dict(running=self.task_running, exit_code=None if self.task_running else 0,
++                    output=[], log_lines=0)
++
++    def close(self):
++        pass
++
++
++class ApiTest(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        cls.tmp = tempfile.TemporaryDirectory()
++        cls.root = Path(cls.tmp.name)
++        cls.log = cls.root / 'log.jsonl'
++        cls.log.write_text('', encoding='utf-8')
++        cls.archive = cls.root / 'archive'
++        cls.archive.mkdir()
++        (cls.archive / '未知 图.png').write_bytes(b'\x89PNG\r\n')
++        cls.backend = FakeBackend()
++        cls.state = S.State(cls.log, backend=cls.backend, archive=cls.archive, owner='web')
++        cls.state.refresh_backend()
++        cls.httpd = ThreadingHTTPServer(('127.0.0.1', 0), S.Handler)
++        cls.httpd.state = cls.state
++        cls.port = cls.httpd.server_address[1]
++        cls.base = f'http://127.0.0.1:{cls.port}'
++        threading.Thread(target=cls.httpd.serve_forever, daemon=True).start()
++
++    @classmethod
++    def tearDownClass(cls):
++        cls.httpd.shutdown()
++        cls.httpd.server_close()
++        cls.tmp.cleanup()
++
++    def get(self, path, headers=None):
++        req = urllib.request.Request(self.base + path, headers=headers or {})
++        try:
++            with urllib.request.urlopen(req, timeout=5) as res:
++                return res.status, res.read(), res.headers
++        except urllib.error.HTTPError as exc:
++            return exc.code, exc.read(), exc.headers
++
++    def get_json(self, path):
++        status, body, _ = self.get(path)
++        return status, json.loads(body)
++
++    def post(self, path, body, headers=None):
++        req = urllib.request.Request(self.base + path, data=json.dumps(body).encode(), method='POST',
++                                     headers=dict({'Content-Type': 'application/json'}, **(headers or {})))
++        try:
++            with urllib.request.urlopen(req, timeout=10) as res:
++                return res.status, json.loads(res.read() or b'{}')
++        except urllib.error.HTTPError as exc:
++            return exc.code, json.loads(exc.read() or b'{}')
++
++    def event(self, name, t=None, **fields):
++        with self.log.open('a', encoding='utf-8') as f:
++            f.write(json.dumps(dict(event=name, t=time.time() if t is None else t, **fields)) + '\n')
++
++    # ---- 状态/后端 ----------------------------------------------------
++    def test_status_pose_comes_from_backend_not_log(self):
++        self.event('scan_view', pose=[1, 2, 3, 4, 5, 6])
++        self.state.refresh_backend()
++        _, status = self.get_json('/api/status')
++        self.assertEqual(status['joints_deg'], self.backend.pose)
++        self.assertEqual(status['arm']['joints_deg'], self.backend.pose)
++        self.assertEqual(status['backend']['kind'], 'sim')
++        self.assertTrue(status['backend']['capabilities']['task'])
++
++    def test_backend_scene_and_arm_get(self):
++        status, body, _ = self.get('/api/arm/scene')
++        self.assertEqual(status, 200)
++        self.assertEqual(json.loads(body)['scene']['marker'], 'fake')
++        status, body, _ = self.get('/api/arm/frame')
++        self.assertEqual(status, 200)
++        self.assertTrue(body.startswith(b'\xff\xd8'))
++
++    # ---- 控制台 §4 代理 -------------------------------------------------
++    def test_jog_proxied_and_motion_serialized(self):
++        status, body = self.post('/api/arm/jog', {'joint': 2, 'delta': 5})
++        self.assertEqual(status, 200)
++        self.assertTrue(body['ok'])
++        self.assertEqual(self.backend.jogged[-1], (2, 5))
++
++    def test_unknown_arm_path_is_404(self):
++        status, body = self.post('/api/arm/sim/reset', {'count': 1})
++        self.assertEqual(status, 404)
++        status, body = self.post('/api/arm/../../etc', {})
++        self.assertEqual(status, 404)
++
++    def test_pose_plan_and_execute(self):
++        status, body = self.post('/api/arm/pose/plan', {'target': [90, 100, 10, 10, 95]})
++        self.assertEqual(status, 200)
++        plan = body['plan']
++        status, body = self.post('/api/arm/pose/execute',
++                                 {'plan_id': plan['id'], 'revision': plan['revision']})
++        self.assertEqual(status, 200)
++
++    # ---- 任务 ----------------------------------------------------------
++    def test_task_start_is_one_round_and_counts_own_events(self):
++        self.event('pipeline_start', t=time.time() - 100)       # 历史，不计入
++        status, body = self.post('/api/task', {'action': 'start', 'rounds': 1})
++        self.assertEqual(status, 200)
++        started = body['task']['started_at']
++        self.event('pipeline_start')
++        self.event('pipeline_end', sorted=1, skipped=0, missed=0, cleared=0, seconds=2)
++        self.state.task.poll(force=True)
++        _, body = self.get_json('/api/task')
++        task = body['task']
++        self.assertEqual(task['current_round'], 1)
++        self.assertEqual(task['rounds_done'], 1)
++        _, body = self.get_json(f'/api/log/records?since={started}')
++        self.assertEqual(len(body['records']), 0)               # 只有 sorted 事件，不算 record
++        self.backend.task_running = False
++        self.state.task.poll(force=True)
++        _, body = self.get_json('/api/task')
++        self.assertEqual(body['task']['state'], 'finished')
++
++    def test_replay_events_do_not_dirty_task_records(self):
++        started = time.time()
++        self.event('pipeline_start', t=started + 1, replay=True)
++        self.event('pipeline_sorted', t=started + 1, replay=True, cube=[1, 2], category='other',
++                   bin='44', seconds=1)
++        _, body = self.get_json(f'/api/log/records?since={started}')
++        self.assertEqual(body['records'], [])
++        _, body = self.get_json('/api/log/records')
++        self.assertTrue(any(r['seq'] for r in body['records']))  # 全量历史仍可看
++
++    # ---- archive / 安全 -------------------------------------------------
++    def test_archive_utf8_name_is_url_decoded(self):
++        encoded = '%E6%9C%AA%E7%9F%A5%20%E5%9B%BE.png'
++        status, body, headers = self.get('/api/archive/' + encoded)
++        self.assertEqual(status, 200)
++        self.assertTrue(body.startswith(b'\x89PNG'))
++
++    def test_archive_traversal_is_refused(self):
++        status, _, _ = self.get('/api/archive/..%2Fserve.py')
++        self.assertEqual(status, 404)
++
++    def test_cross_origin_post_is_refused(self):
++        status, body = self.post('/api/arm/jog', {'joint': 2, 'delta': 1},
++                                 headers={'Origin': 'https://evil.example'})
++        self.assertEqual(status, 403)
++        self.assertEqual(body['code'], 'cross_origin')
++
++    def test_post_requires_json_content_type(self):
++        req = urllib.request.Request(self.base + '/api/arm/jog', data=b'joint=2',
++                                     method='POST', headers={'Content-Type': 'text/plain'})
++        with self.assertRaises(urllib.error.HTTPError) as ctx:
++            urllib.request.urlopen(req, timeout=5)
++        self.assertEqual(ctx.exception.code, 415)
++
++
++class TokenTest(unittest.TestCase):
++    def setUp(self):
++        self.tmp = tempfile.TemporaryDirectory()
++        self.addCleanup(self.tmp.cleanup)
++        self.log = Path(self.tmp.name) / 'log.jsonl'
++        self.log.write_text('', encoding='utf-8')
++        self.state = S.State(self.log, token='secret')
++        self.httpd = ThreadingHTTPServer(('127.0.0.1', 0), S.Handler)
++        self.httpd.state = self.state
++        self.port = self.httpd.server_address[1]
++        self.base = f'http://127.0.0.1:{self.port}'
++        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
++
++    def tearDown(self):
++        self.httpd.shutdown()
++        self.httpd.server_close()
++
++    def test_token_via_query_sets_cookie_for_static_files(self):
++        status, body, headers = self._get('/?token=secret')
++        self.assertEqual(status, 200)
++        cookie = headers.get('Set-Cookie') or ''
++        self.assertIn('arm_web_token=secret', cookie)
++        status, body, _ = self._get('/js/app.js', headers={'Cookie': 'arm_web_token=secret'})
++        self.assertEqual(status, 200)
++
++    def test_without_token_is_401(self):
++        status, body, _ = self._get('/js/app.js')
++        self.assertEqual(status, 401)
++
++    def _get(self, path, headers=None):
++        req = urllib.request.Request(self.base + path, headers=headers or {})
++        try:
++            with urllib.request.urlopen(req, timeout=5) as res:
++                return res.status, res.read(), res.headers
++        except urllib.error.HTTPError as exc:
++            return exc.code, exc.read(), exc.headers
++
++
++if __name__ == '__main__':
++    unittest.main()

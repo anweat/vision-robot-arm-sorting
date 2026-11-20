@@ -1,4 +1,4 @@
-"""Face templates of the four blocks, cut from the operator's phone photos in `docs/images/blocks/` (2026-09-24).
+"""Face templates of the four blocks, cut from the operator's phone photos in `materials/photos/blocks/` (2026-09-24).
 
 Each photo shows the four blocks in a 2 x 2 group, one face up each, always in the same places:
 top left the yellow block (other), top right blue (recyclable), bottom left green (kitchen), bottom

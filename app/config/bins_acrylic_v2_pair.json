@@ -1,5 +1,5 @@
 {
-  "_status": "design values from src/tools/make_bins.py for docs/bins/bins_acrylic_v2_pair_*; slot-and-tab acrylic box, not cut, not measured; placements and release solutions are plans from the upstream link model only",
+  "_status": "design values from src/tools/make_bins.py for materials/bins/bins_acrylic_v2_pair_*; slot-and-tab acrylic box, not cut, not measured; placements and release solutions are plans from the upstream link model only",
   "drawing": {
     "number": "BIN-ACR-01",
     "revision": "B",

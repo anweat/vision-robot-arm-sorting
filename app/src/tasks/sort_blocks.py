@@ -1,7 +1,7 @@
 """Sort the blocks onto their garbage-category bins (config/sorting.json) through the running console.
 
 The category of each block comes from the official 3-class model when it is confident and agrees with the
-block colour; otherwise from the colour (a fact of this block set, docs/atlas-200i-dk-a2/07), and every
+block colour; otherwise from the colour (a fact of this block set, docs/current/07), and every
 decision records which source it used, so the summary shows how much the official model contributed.
 
 For each colour: skip it if it already sits on its bin, report it if it is missing or beyond the grasp

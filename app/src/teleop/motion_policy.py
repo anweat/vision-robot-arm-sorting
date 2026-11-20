@@ -1,6 +1,6 @@
 """The console's one set of limits, the speed setting and the paths built from them.
 
-There are no profiles any more (docs/atlas-200i-dk-a2/32-操作逻辑简化与分步任务.md §1.1): the console runs
+There are no profiles any more (docs/current/32-操作逻辑简化与分步任务.md §1.1): the console runs
 with what the old `explore` profile did, because that is what the operator sessions and the automatic tasks
 ran under since 2026-09-25. Two switches in `arm_limits.json` `runtime` decide whether the platform and the
 table keep-out refuse a command or are only reported; by default (2026-11-18) both are only reported, and

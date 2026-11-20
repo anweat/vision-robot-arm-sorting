@@ -1,6 +1,6 @@
 """One-step teleoperation. No queues, recovery moves, or automatic retreat.
 
-There is no enable step and there are no limit profiles (docs/atlas-200i-dk-a2/32-操作逻辑简化与分步任务.md
+There is no enable step and there are no limit profiles (docs/current/32-操作逻辑简化与分步任务.md
 §1): the first motion command of a client takes control if nobody else holds it, the client keeps it with
 heartbeats (a dead-man lease of LEASE_S), and `stop` from anyone ends it. Speed is one number in deg/s.
 Stick driving (`drive`) is a loop of short verified segments that ends when the stick updates stop.

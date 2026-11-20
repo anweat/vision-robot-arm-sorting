@@ -16,7 +16,7 @@ What it answers:
   envelope_points(angle)  sampled hull points, link frame
 
 Nothing here is wired into the controller yet: the existing keep-out was fitted to contact data
-and must not be replaced blind (see docs/atlas-200i-dk-a2/27-夹爪与整臂建模.md).  The module is
+and must not be replaced blind (see docs/current/27-夹爪与整臂建模.md).  The module is
 import-safe: stdlib only, no numpy, no bpy.
 
     python3 src/spatial/gripper_model.py table          # angle -> gap

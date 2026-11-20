@@ -90,7 +90,7 @@
    "link3",
    "link4"
   ],
-  "_note": "2026-11-15. platform_hull: also apply the 2D keep-out hull of workspace.platform_clearance (the console's standard check). Off: the platform is checked on the meshes only (gripper + platform_links against config/platform_model.json, clearances.platform_mesh_m), which separated the 5 recorded platform contacts from 1080 contact-free hardware poses to ~3 mm (docs/atlas-200i-dk-a2/28 section 6); the hull refuses the near views [49,105,5,0] / [124,105,5,0] / [51,99,5,5] that ran without contact. Plans still report the hull margin (summary.console_hull_min_cm): below 0 the console's standard profile refuses the move."
+  "_note": "2026-11-15. platform_hull: also apply the 2D keep-out hull of workspace.platform_clearance (the console's standard check). Off: the platform is checked on the meshes only (gripper + platform_links against config/platform_model.json, clearances.platform_mesh_m), which separated the 5 recorded platform contacts from 1080 contact-free hardware poses to ~3 mm (docs/current/28 section 6); the hull refuses the near views [49,105,5,0] / [124,105,5,0] / [51,99,5,5] that ran without contact. Plans still report the hull margin (summary.console_hull_min_cm): below 0 the console's standard profile refuses the move."
  },
  "execute": {
   "settle_deg": 1.5,
