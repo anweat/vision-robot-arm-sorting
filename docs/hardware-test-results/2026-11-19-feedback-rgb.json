@@ -1,0 +1,24 @@
+{
+  "test": "W5 声光反馈：RGB 三态与灭灯",
+  "date": "2026-11-19",
+  "time": "09:20:38-09:21:07 (CST)",
+  "device": {
+    "board": "Atlas 200I DK A2 (davinci-mini, aarch64)",
+    "expansion": "YAHBOOM YB-EV01 rev2",
+    "arm": "Dofbot 六舵机",
+    "python": "/root/arm-app/venv-vision/bin/python (Arm_Lib 0.0.5)"
+  },
+  "method": "src/adapters/feedback.py 直接调用 Arm_RGB_set：绿(0,255,0) 4 s → 黄(255,200,0) 4 s → 红(255,0,0) 4 s → 灭(0,0,0) 4 s，两轮；操作员在设备旁目视",
+  "result": {
+    "rgb_colour": "PASS — 操作员确认灯随指令在绿/黄/红/灭之间变化（2026-11-19 09:20 起两轮）",
+    "i2c_errors": "none（Arm_RGB_set 全部返回，无 I2C 报错）",
+    "buzzer": "未单独确认（同一次调用里 Arm_Buzzer_On/Off 返回成功，未要求操作员分辨声音）"
+  },
+  "not_done": [
+    "验收口径的 10 次/状态全部正确还没统计（目前是 2 轮 × 4 态）",
+    "状态到灯光的延迟 ≤ 0.5 s 未计时",
+    "蜂鸣器是否真的发声未用耳朵确认"
+  ],
+  "code": "src/adapters/feedback.py（2026-11-19 新增）；流水线钩子：pipeline_sorted→绿、pipeline_missed→红+鸣",
+  "note": "灯色可确认，但“哪个状态配哪个色”目前由 feedback.py 的常量决定，没有配置项；改颜色要改代码。"
+}

@@ -9,7 +9,7 @@ What this writes (``data/reference/isaac_dofbot/``, not in git):
 
   geometry.json          joints (bodies, local poses, axis, limits, drives), link world poses,
                          mesh world AABBs, and the derived gripper numbers used by
-                         ``config/gripper_model.json``
+                         ``app/config/gripper_model.json``
   meshes/<link>.obj      gripper meshes (wrist + 3 finger links per side) in that link's own
                          frame, so they can be attached to a URDF/Blender joint at the origin
 

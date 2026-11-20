@@ -1,0 +1,94 @@
+# 手势确认后分拣（PR #7 的“手势门”拆成步骤，2026-11-19 实机 run 20261119_181226 验证过同一套动作）：
+# 扫描 → 抬到平视位（腕部相机正对前方）→ 蓝灯 + 短鸣 → 等操作员比 OK → 回观察位 → 逐块抓放。
+# 灯的约定：绿=放好，黄=夹空重试，红=失败放弃，蓝=等人，灭=结束。
+# 抓放用分步编排器（新规划器）：离线回放实机扫描可抓 152/163，但还没有上实机跑过整轮（文档 34 §8）。
+# 识别端要在跑（网页「手动操作 → 语音与手势」的监听开关，或 bridge.py listen），且最好保持未武装：
+# 武装时 OK 还会执行 interaction.json 映射的“开始”。
+name: gesture_sort
+title: 手势确认后分拣
+description: 扫描 → 平视等 OK 手势（蓝灯）→ 逐块抓放（绿/黄/红灯）→ 再扫核对
+speed: 20
+stop_after_alarms: 3
+steps:
+  - step: led
+    with: {color: white}
+  - step: scan             # 幻影门槛只用在这一次：带近看补拍，真块 5–8 个视角（实机）；近端带 y < 11 cm 仍可能被去掉
+    with: {bins: bins_acrylic_v2_pair, refine: true, min_views: 3}
+    on_result:
+      empty: [{step: led, with: {color: off}}, {stop: 桌上没有找到物块}]
+  - step: pose
+    with: {named: gesture_view}
+  - step: led
+    with: {color: blue}
+  - step: buzzer
+    with: {ms: 200}
+  - step: notify
+    with: {text: 扫描完成：请对腕部相机比 OK 手势开始抓取}
+  - step: wait_gesture
+    with: {label: ok, timeout_s: 180}
+    on_result:
+      timeout: [{step: notify, with: {text: 三分钟没等到 OK 手势，直接开始抓取}}]
+  - step: home
+  - for_each: blocks
+    order: reach
+    do:
+      - step: plan
+        with: {to: by_class}
+        on_result:
+          rejected: [{record: skipped}, {next_block: true}]
+          no_destination: [{record: skipped}, {next_block: true}]
+      - step: grasp
+        on_result:
+          failed: [{step: led, with: {color: red}}, {step: buzzer, with: {ms: 400}}, {alarm: grasp_failed, then: stop}]
+      - step: check
+        on_result:
+          holding: []
+          jammed: [{step: back_off}, {step: led, with: {color: red}}, {alarm: jammed, then: skip_block}]
+          default:
+            - step: led
+              with: {color: yellow}
+            - step: buzzer
+              with: {ms: 120}
+            - retry:
+                times: 1
+                until: holding
+                do:
+                  - step: back_off
+                  - step: scan             # 不设幻影门槛：只近看这一块，别的块视角少，会被误当噪声
+                    with: {bins: bins_acrylic_v2_pair, refine: block}
+                  - step: relocate
+                    on_result:
+                      gone: [{record: missed}, {next_block: true}]
+                  - step: plan
+                    with: {to: by_class}
+                    on_result:
+                      rejected: [{record: skipped}, {next_block: true}]
+                  - step: grasp
+                  - step: check
+                else:
+                  - step: back_off
+                  - step: led
+                    with: {color: red}
+                  - step: buzzer
+                    with: {ms: 400}
+                  - record: missed
+                    reason: 重试 1 次仍空爪或滑脱
+                  - alarm: grip_failed
+                    summary: 重试 1 次仍空爪或滑脱，已张爪退回观察位
+                    then: skip_block
+      - step: place
+        on_result:
+          failed: [{step: led, with: {color: red}}, {step: buzzer, with: {ms: 400}}, {alarm: place_failed, then: stop}]
+      - step: led
+        with: {color: green}
+      - step: buzzer
+        with: {ms: 120}
+      - record: sorted
+  - step: scan             # 收尾核对：不设幻影门槛（不近看时视角少，仿真里 3 块真块被当成噪声，核对误报）
+    with: {bins: bins_acrylic_v2_pair}
+    on_result:
+      empty: []
+  - step: verify
+    with: {scope: round}
+  - step: led
+    with: {color: off}

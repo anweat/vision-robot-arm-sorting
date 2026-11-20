@@ -1,7 +1,8 @@
 # scripts 脚本索引
 
-更新：2026-10-23。本目录存放**资料盘点与受控硬件诊断脚本**（[工作区总览](../docs/atlas-200i-dk-a2/README.md)）。
-本文只是索引：**不移动、不改动任何脚本**；脚本的行为以源码为准，与语音/手势相关的结论与数字见
+更新：2026-11-19。本目录存放**资料盘点、Blender 建模与受控硬件诊断脚本**（[工作区总览](../docs/atlas-200i-dk-a2/README.md)）。
+上板与部署脚本已移到 [`app/scripts/`](../app/scripts/)（`deploy.sh`、`board_up.sh`、`board_beacon.py`），旧的 `start_console.sh`、`connect_board.ps1` 归档到 [`archive/scripts/`](../archive/scripts/)（[34](../docs/atlas-200i-dk-a2/34-仓库结构与应用版本.md) §2）。
+脚本的行为以源码为准，与语音/手势相关的结论与数字见
 [语音手势接入基线](../docs/atlas-200i-dk-a2/21-语音手势接入基线.md)。
 
 ## 运行位置与前置
@@ -51,9 +52,9 @@
 | 脚本名 | 用途 | 怎么跑 | 依赖 | 是否需要板卡 | 输出 |
 |---|---|---|---|---|---|
 | [`convert_om.sh`](convert_om.sh) | ONNX → `Ascend310B1` `.om`（Mac 容器内，不需要板卡） | `sh scripts/convert_om.sh [data/models/blocks4/v3]` | Docker 镜像 `cann-atc:6.2rc1-py39`、`~/Ascend/cann-6.2.RC1-aarch64/ascend-toolkit` | **否** | `<模型目录>/blocks4_yolov8n.om`（7.1 MB 量级） |
-| [`deploy_to_board.sh`](deploy_to_board.sh) | `src/` + `config/` 同步到板上，并重启板载相机服务 | `sh scripts/deploy_to_board.sh` | `ssh`、`scp`/`tar`、`curl`；板卡可达 | **目标板卡** | 板上 `/root/arm-app/`；屏显相机健康检查 URL |
-| [`start_console.sh`](start_console.sh) | 板卡重启后恢复：相机服务、手机反向隧道、控制台（`--hardware --execute`）、Mac→板卡端口转发 | `scripts/start_console.sh [phone-ip:port]` | `ssh`（需先开 ControlMaster）、板卡上的 `venv-vision` | **是** | 板上服务/隧道；屏显 `http://127.0.0.1:8765/` |
-| [`connect_board.ps1`](connect_board.ps1) | Windows PowerShell 下一键探测 SSH 端口并连接 | `powershell -File scripts/connect_board.ps1 [-HostName 192.168.137.100] [-UserName root] [-Port 22]` | Windows PowerShell、`ssh`、`Test-NetConnection` | **是** | 交互式 SSH 会话 |
+| [`app/scripts/deploy.sh`](../app/scripts/deploy.sh) | `app/` 的 `src config scripts contracts samples` 同步到板上 `/root/arm-app`；`--restart` 再调 `board_up.sh` | `app/scripts/deploy.sh`；经跳板：`BOARD_HOST=root@<手机 IP> BOARD_PORT=2222 app/scripts/deploy.sh` | `ssh`、`tar`；板卡可达 | **目标板卡** | 板上 `/root/arm-app/` |
+| [`app/scripts/board_up.sh`](../app/scripts/board_up.sh) | 板上起停相机 :8080、控制台 :8765、网关 :8090，可重复执行 | 板上 `sh scripts/board_up.sh [stop]` | 板上 `venv-vision`、CANN 环境 | **是** | 三项服务与 pid 文件 |
+| [`archive/scripts/start_console.sh`](../archive/scripts/start_console.sh)、[`connect_board.ps1`](../archive/scripts/connect_board.ps1) | 已归档：网线 + SSH ControlMaster 时代的恢复脚本、Windows 一键连接 | — | — | — | — |
 
 ## 四、资料与文档维护（本机）
 
@@ -62,7 +63,7 @@
 | [`inventory_resources.py`](inventory_resources.py) | 只读盘点工作区：文件清单、大小、SHA-256、Python/Notebook 结构；不执行模型或机械臂代码 | `python3 scripts/inventory_resources.py` | Python 标准库 | **否** | `docs/inventory/全部资源.csv`、`代码结构.json`、`盘点统计.json` |
 | [`organize_course_guides.py`](organize_course_guides.py) | 把浏览器导出的课程 JSON 整理成离线图文归档 | `python3 -I scripts/organize_course_guides.py <export.json> <输出目录> [旧导出.json]` | Python 标准库 | **否** | 输出目录里的 `README.md`、`index.html`、图文/代码片段 |
 | [`organize_stage2.py`](organize_stage2.py) | 整理第二阶段课程导出：图片本地化、代码片段拆分、生成 HTML/TXT | `python3 scripts/organize_stage2.py`（先有 `资料/课程说明/第二阶段-机械臂基础控制/课程原始内容.json`） | `beautifulsoup4`、Python 标准库、可访问 `10.126.59.136` | **否** | `资料/课程说明/第二阶段-机械臂基础控制/` 下的 HTML/TXT/MD/图片 |
-| [`build_print_docs.js`](build_print_docs.js) | 把 `docs/atlas-200i-dk-a2/` 里指定的几份 Markdown 生成为可打印 `.docx`/`.pdf` | `NODE_PATH=<node_modules> node scripts/build_print_docs.js` | Node.js；`docx`、`marked@12`、`image-size`；PDF 需要本机 Google Chrome | **否** | `docs/print/*.docx`，有 Chrome 时另有 `*.pdf` |
+| [`build_print_docs.js`](build_print_docs.js) | 把 `docs/atlas-200i-dk-a2/` 里指定的几份 Markdown 生成为可打印 `.docx`/`.pdf` | `NODE_PATH=<node_modules> node scripts/build_print_docs.js` | Node.js；`docx`、`marked@12`、`image-size`；PDF 需要本机 Google Chrome | **否** | `docs/archive/print/*.docx`，有 Chrome 时另有 `*.pdf` |
 
 ## 常见用法
 
@@ -89,8 +90,7 @@ NODE_PATH="$HOME/node_modules" node scripts/build_print_docs.js
 
 ## 约束
 
-- 本索引对应 2026-10-23 的 `scripts/` 现状（16 个文件：11 个 `.py`、3 个 `.sh`、1 个 `.js`、1 个 `.ps1`）；
-  新增脚本时请同步更新本表，不要为“整理”移动或改名现有脚本。
+- 新增脚本时请同步更新本表。Blender 系列（`blender_*.py`、`build_dofbot_urdf.py`、`extract_isaac_dofbot.py`、`plot_gripper_model.py`）的说明见 [28a](../docs/atlas-200i-dk-a2/28a-三维模型与Blender仿真.md)；它们读写 `app/config/`。
 - `gesture_capture.py` 的 `--dir`/`--out` 与 `npu_*` 的 `--dir` 默认值是**板上调试目录**
   （`/root/model-smoke/`），不是仓库内的 `data/models/`；`model_smoke_test.py` 的 `--dir` 是必填参数。
 - 所有脚本的结论分级（文件存在 / 板卡实测 / 尚未测）以文档里的原始记录为准，不要只看脚本能否运行。

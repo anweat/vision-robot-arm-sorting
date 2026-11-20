@@ -1,4 +1,4 @@
-"""The simulation module (src/sim): scene, grasp rule, rendered camera, detector check and its HTTP service.
+"""The simulation module (dev/sim): scene, grasp rule, rendered camera, detector check and its HTTP service.
 Needs numpy and OpenCV (and the block faces under data/); skipped where they are missing."""
 import json
 import sys
@@ -12,7 +12,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 for sub in ('teleop', 'spatial', 'vision', 'sim'):
-    sys.path.insert(0, str(ROOT / 'src' / sub))
+    sys.path.insert(0, str(ROOT / 'dev' / sub))
+    sys.path.insert(0, str(ROOT / 'app' / 'src' / sub))
 try:
     import cv2
     import numpy as np
@@ -72,6 +73,96 @@ class WorldTest(unittest.TestCase):
         b = self.world.snapshot()['blocks'][0]
         self.assertAlmostEqual(b['base_cm'][2], self.world.table_z * 100 + 1.5, places=2)   # fell flat onto the table
 
+    def test_the_four_bar_pads_square_and_centre_the_block_they_take(self):
+        bid = self.world.place('other', [0, 10], 12)          # 12 deg off the jaw, 8 mm along it
+        c = self.world.blocks[bid]['pose'][:3, 3].copy()
+        down = reach((c[0] + 0.008, c[1], self.world.table_z + 0.012))
+        self.arm.write6(down, 500)
+        self.arm.write6(down[:5] + [133], 500)
+        self.assertEqual(self.world.held, bid)
+        jaw = W.BODY.link5(self.world.actual[:5])[:3, 0]
+        pose = self.world.blocks[bid]['pose']
+        self.assertGreater(max(abs(pose[:3, i] @ jaw) for i in range(3)), 0.999)   # a face square to the jaw
+        pad = np.array(W.GR.pad_centre(self.world.actual[:5], W.GR.contact(W.BLOCK)))
+        jaw_h = jaw[:2] / np.linalg.norm(jaw[:2])
+        self.assertAlmostEqual(float((pose[:2, 3] - pad[:2]) @ jaw_h), 0.0, places=4)   # pushed to the middle
+
+    def test_pads_above_the_block_or_beside_it_take_nothing_but_a_turned_block_is_squared(self):
+        bid = self.world.place('other', [0, 10], 38)             # the real arm held blocks 36-39 deg off (doc 34 §3.2)
+        c = self.world.blocks[bid]['pose'][:3, 3].copy()
+        down = reach((c[0], c[1], self.world.table_z + 0.012))
+        self.arm.write6(down, 500)
+        self.arm.write6(down[:5] + [133], 500)
+        self.assertEqual(self.world.held, bid)
+        self.arm.write6(down[:5] + [30], 500)
+        self.world.remove(bid)
+        bid = self.world.place('other', [0, 10])
+        aside = reach((c[0], c[1] + 0.015, self.world.table_z + 0.012))   # 1.5 cm across the jaw
+        self.arm.write6(aside, 500)
+        self.arm.write6(aside[:5] + [133], 500)
+        self.assertIsNone(self.world.held)
+        self.arm.write6(aside[:5] + [30], 500)
+        high = reach((c[0], c[1], self.world.table_z + 0.03))    # pads would close above the top face
+        self.arm.write6(high, 500)
+        self.arm.write6(high[:5] + [133], 500)
+        self.assertIsNone(self.world.held)
+
+    def test_fingers_coming_down_on_another_block_are_recorded_apart_from_bin_contacts(self):
+        bid = self.world.place('other', [0, 10])
+        c = self.world.blocks[bid]['pose'][:3, 3]
+        self.arm.write6(reach((c[0], c[1], self.world.table_z + 0.08), 170), 500)   # close high above it,
+        self.arm.write6(reach((c[0], c[1], self.world.table_z + 0.02), 170), 500)   # then come down onto its top
+        snap = self.world.snapshot()
+        self.assertGreater(snap['block_contacts']['count'], 0)
+        self.assertEqual(snap['block_contacts']['recent'][-1]['block'], bid)
+        self.assertEqual(snap['contacts']['count'], 0)
+
+    def test_the_body_model_is_the_planners_and_follows_the_gripper_opening(self):
+        wide = self.world.body()
+        self.assertEqual(set(wide['parts']), {'link1', 'link2', 'link3', 'link4',
+                                              'gripper_fingers', 'gripper_links', 'gripper_static'})
+        self.assertAlmostEqual(min(p[2] for p in wide['parts']['link1']), 0.064, delta=0.002)   # on the turntable
+        self.arm.write6(OBSERVE[:5] + [133], 500)
+        closed = self.world.body()
+        self.assertLess(closed['gap_mm'], wide['gap_mm'])
+        self.assertAlmostEqual(closed['gap_mm'], W.GG.gap_for_delta(W.GR.delta_for_j6(133)) * 1000, delta=0.1)
+
+    def test_the_mesh_frames_move_the_fingers_as_the_planners_four_bar(self):
+        q, delta = [107, 60, 26, 30, 92], W.GR.delta_for_j6(60)
+        frames = W.World.mesh_frames(q, delta)
+        samples = W.GG.load()['points_m']
+        for name in ('finger_right', 'finger_left'):
+            local = np.array(samples[name], float)
+            T = frames['gripper_' + name]
+            mine = local @ T[:3, :3].T + T[:3, 3]
+            ref = np.array(W.GR.points(q, delta, parts=('fingers',)))
+            self.assertLess(np.min(np.linalg.norm(ref[:, None] - mine[None], axis=2), axis=0).max(), 1e-9)
+        self.assertTrue(np.allclose(frames['link5'], W.BODY.link5(q)))
+        self.assertEqual(len([k for k in frames if k.startswith('gripper_')]), 6)
+
+    def test_course_meshes_are_welded_and_thinned_without_degenerate_faces(self):
+        import web_meshes as M
+        cube = np.array([[[0, 0, 0], [1, 0, 0], [1, 1, 0]], [[0, 0, 0], [1, 1, 0], [0, 1, 0]],
+                         [[0, 0, 1], [1, 1, 1], [1, 0, 1]], [[0, 0, 1], [0, 1, 1], [1, 1, 1]]], float) * 0.01
+        v, f = M.weld(cube)
+        self.assertEqual((len(v), len(f)), (8, 4))
+        self.assertEqual(len(set(M.shells(f, len(v)))), 2)          # the two squares are separate shells
+        tv, tf = M.thin(v, f, 0.02)                                   # a cell bigger than the part: nothing left
+        self.assertEqual(len(tf), 0)
+        tv, tf = M.thin(v, f, 0.001)
+        self.assertEqual(len(tf), 4)
+
+    def test_the_platform_lid_is_touched_where_the_real_arm_touched_it_and_only_there(self):
+        # doc 30 §10.2/§11.1 and doc 28a §6: two recorded platform contacts, three near views that ran clear
+        touched = ([103, 72, 19, 3, 92, 170], [90, 102, -5, -1, 92, 170])
+        clear = ([49, 105, 5, 0, 92, 30], [124, 105, 5, 0, 92, 30], [51, 99, 5, 5, 92, 30], [107, 60, 26, 30, 92, 30])
+        for pose, expected in [(p, True) for p in touched] + [(p, False) for p in clear]:
+            self.arm.write6(OBSERVE, 0)
+            before = self.world.platform_contact_count
+            self.arm.write6(pose, 0)
+            self.assertEqual(self.world.platform_contact_count > before, expected, pose)
+        self.assertEqual(self.world.snapshot()['platform_contacts']['count'], 2)
+
     def test_closing_on_nothing_reads_back_as_empty(self):
         self.world.place('other', [0, 10])
         self.arm.write6(reach((0.08, 0.2, 0.0)), 500)
@@ -97,7 +188,7 @@ class WorldTest(unittest.TestCase):
 
     def test_the_designed_bins_stand_where_the_design_file_plans_them(self):
         made = self.world.load_bins('bins_acrylic_v1')
-        design = json.loads((ROOT / 'config/bins_acrylic_v1.json').read_text())
+        design = json.loads((ROOT / 'app/config/bins_acrylic_v1.json').read_text())
         self.assertEqual(len(made), len(design['bins']))
         for pid, entry in zip(made, design['bins'].values()):
             p = self.world.props[pid]
@@ -280,7 +371,7 @@ class ServiceTest(unittest.TestCase):
 
     def test_the_log_is_served_by_line_number_as_records_and_as_a_stream(self):
         log = Path(self.tmp.name) / 'log.jsonl'
-        log.write_text((ROOT / 'docs/samples/log_sim_8rounds.jsonl').read_text())
+        log.write_text((ROOT / 'app/samples/log_sim_8rounds.jsonl').read_text())
         self.app.log_path = log
         total = len(log.read_text().splitlines())
         page = json.loads(self.get('/api/log?after=0&limit=10').read())

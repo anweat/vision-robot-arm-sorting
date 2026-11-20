@@ -1,6 +1,6 @@
 """Capture hand-gesture frames from the board camera server and classify them with hrnet.om.
 
-The camera server (src/adapters/board_camera_server.py) owns /dev/video0, so this polls its
+The camera server (app/src/adapters/board_camera_server.py) owns /dev/video0, so this polls its
 `/snapshot.jpg` endpoint instead of opening the device -- two processes cannot hold a V4L2 device.
 
 Runs on the board (needs ais_bench + numpy + cv2 + requests/urllib):

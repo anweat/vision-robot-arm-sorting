@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>机械臂仿真工作台</title>
+<link rel="stylesheet" href="/sim/style.css">
+<script>
+  // 嵌入模式：手动操作页以 <iframe src="/sim/?embed=scene"> 引它时，只给 3D 视图那一块。
+  // 其余面板（腕部相机、关节控制、桌面场景、分拣日志、接口）手动操作页自己都有，
+  // 整页嵌进来会变成两套控件。在 head 里尽早打标，免得先画出整页再收起的闪烁。
+  if (new URLSearchParams(location.search).get('embed') === 'scene') {
+    document.documentElement.classList.add('embed');
+  }
+</script>
+</head>
+<body>
+<header>
+  <h1>机械臂仿真工作台</h1>
+  <div class="chips">
+    <span class="chip warn">仿真 · 不连接实机</span>
+    <span class="chip" id="armed">未使能</span>
+    <span class="chip" id="busy">静止</span>
+    <span class="chip" id="holding">夹爪空</span>
+    <span class="chip" id="rev">revision —</span>
+  </div>
+  <a href="/" target="_blank" rel="noopener">旧控制台页面（参考）</a>
+</header>
+<p class="error" id="error" hidden></p>
+
+<main>
+  <section class="panel" id="scenePanel">
+    <h2>机械臂状态 <small>拖动旋转，滚轮缩放</small></h2>
+    <canvas id="scene"></canvas>
+    <div class="readout" id="readout"></div>
+  </section>
+
+  <section class="panel" id="cameraPanel">
+    <h2>腕部相机（合成）</h2>
+    <div class="tabs" id="viewTabs">
+      <button data-view="raw" class="on">原始画面</button>
+      <button data-view="detect">检测对照</button>
+      <button data-view="locate">地图定位</button>
+    </div>
+    <img id="frame" alt="仿真腕部相机画面" width="640" height="480">
+    <p class="hint" id="viewHint"></p>
+    <table id="detectTable" hidden><thead><tr><th>物块</th><th>真值类别</th><th>检测</th><th>置信度</th><th>IoU</th><th>结果</th></tr></thead><tbody></tbody></table>
+  </section>
+
+  <section class="panel">
+    <h2>控制</h2>
+    <div class="row">
+      速度 <input type="range" id="speed" min="3" max="40" step="1" value="20" aria-label="速度"> <b id="speedVal">20°/s</b>
+      <button id="stop">停止</button>
+      <button id="home">回观察位</button>
+      <span class="sep"></span>
+      夹爪 <button data-grip="wide">全开</button><button data-grip="open">张开</button><button data-grip="grip">夹取</button>
+    </div>
+    <div id="joints"></div>
+    <div class="row">
+      夹爪尖
+      <button data-cart="x" data-amount="-1">X −1</button><button data-cart="x" data-amount="1">X +1</button>
+      <button data-cart="y" data-amount="-1">Y −1</button><button data-cart="y" data-amount="1">Y +1</button>
+      <button data-cart="z" data-amount="-1">Z −1</button><button data-cart="z" data-amount="1">Z +1</button> cm
+      <span class="sep"></span>
+      俯角 <button data-cart="pitch" data-amount="-5">−5°</button><button data-cart="pitch" data-amount="5">+5°</button>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>桌面场景 <small>真值，仅仿真有</small></h2>
+    <div class="row">
+      <button id="reset">随机重置</button>
+      <label>数量 <input id="resetCount" type="number" min="0" max="12" value="4"></label>
+      <button id="clear">清空</button>
+    </div>
+    <div class="row">
+      <select id="newCategory"></select>
+      <label>X <input id="newX" type="number" step="0.5" value="0"></label>
+      <label>Y <input id="newY" type="number" step="0.5" value="10"></label>
+      <label>朝向 <input id="newYaw" type="number" step="5" value="0"></label>
+      <select id="newUp"></select>
+      <button id="addBlock">放一块</button>
+    </div>
+    <div class="row">
+      <label>地图 <select id="mapSelect"></select></label>
+      <span class="sep"></span>
+      <select id="binsSelect"></select><button id="loadBins">按设计摆桶</button>
+    </div>
+    <div class="row">
+      <select id="binCategory"></select>
+      <label>X <input id="binX" type="number" step="0.5" value="-12"></label>
+      <label>Y <input id="binY" type="number" step="0.5" value="16"></label>
+      <label>朝向 <input id="binYaw" type="number" step="5" value="0"></label>
+      <label>内宽 <input id="binSize" type="number" step="0.5" value="8"></label>
+      <label>壁高 <input id="binHeight" type="number" step="0.5" value="4"></label>
+      <button id="addBin">放一个桶</button>
+    </div>
+    <table id="props"><thead><tr><th>id</th><th>物体</th><th>类别</th><th>地图 cm</th><th>朝向</th><th>桶内</th><th></th></tr></thead><tbody></tbody></table>
+    <table id="blocks"><thead><tr><th>id</th><th>类别</th><th>朝上的面</th><th>地图 cm</th><th>高 cm</th><th>朝向</th><th></th></tr></thead><tbody></tbody></table>
+  </section>
+
+  <section class="panel wide">
+    <h2>分拣日志 <small>真实分拣流水线跑在仿真上，事件按日志契约经 /api/log/stream 推送</small></h2>
+    <div class="row">
+      <button id="sortStart" class="primary">开始分拣</button>
+      <button id="sortStop">停止任务</button>
+      <label>轮数 <input id="sortRounds" type="number" min="1" max="50" value="2"></label>
+      <label>夹空比例 <input id="gripMiss" type="number" min="0" max="1" step="0.05" value="0"></label>
+      <span class="chip" id="sortState">未运行</span>
+      <span class="chip" id="logCount">0 行</span>
+      <span class="chip" id="logSummary">—</span>
+    </div>
+    <div class="api">
+      <div><h3>最近事件</h3><ol id="eventFeed" reversed></ol></div>
+      <div>
+        <table id="records"><thead><tr><th>#</th><th>时间</th><th>轮</th><th>类别</th><th>来源 cm</th><th>目标位</th><th>耗时 s</th><th>结果</th><th>原因</th></tr></thead><tbody></tbody></table>
+      </div>
+      <div><h3>扫描重建</h3><img id="sceneImage" alt="最近一次扫描的重建图" style="width:100%;border-radius:4px;background:#000"></div>
+    </div>
+  </section>
+
+  <section class="panel wide">
+    <h2>接口 <small>选一条，改请求体，发送；owner、token 自动带上</small></h2>
+    <div class="api">
+      <div id="apiList"></div>
+      <div>
+        <div class="row"><code id="apiLine"></code><button id="apiSend" class="primary">发送</button></div>
+        <textarea id="apiBody" spellcheck="false" rows="5"></textarea>
+        <p class="hint" id="apiNote"></p>
+        <pre id="apiResult">—</pre>
+      </div>
+      <div><h3>调用记录</h3><ol id="apiLog"></ol></div>
+    </div>
+  </section>
+</main>
+<footer>画面按标定内参与手眼结果逐像素合成；未画机械臂自身，抓取是规则判定而非物理。检测对照只说明模型与几何、贴面一致，不代表实机精度。</footer>
+<script type="module" src="/sim/app.js"></script>
+</body>
+</html>

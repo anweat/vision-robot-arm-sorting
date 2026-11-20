@@ -7,7 +7,8 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 for sub in ('pipeline', 'tasks', 'tools', 'spatial', 'vision'):
-    sys.path.insert(0, str(ROOT / 'src' / sub))
+    sys.path.insert(0, str(ROOT / 'dev' / sub))
+    sys.path.insert(0, str(ROOT / 'app' / 'src' / sub))
 import synth_blocks as SY  # noqa: E402
 import eval_scene as E  # noqa: E402
 import run as R  # noqa: E402

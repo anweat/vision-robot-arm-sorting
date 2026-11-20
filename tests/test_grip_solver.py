@@ -1,4 +1,4 @@
-"""Tests for the offline wrist-roll solver (src/tasks/grip_solver.py).
+"""Tests for the offline wrist-roll solver (dev/tasks/grip_solver.py).
 
 The one measured anchor is the 2026-09-26 grasp recorded in data/runs/console_grasp/log.jsonl: red block
 at base (6.71, 19.67) cm, pitch 150, J1 71, block yaw -10.9 deg, J5 100, operator confirmed the fingers
@@ -12,7 +12,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 for sub in ("tasks", "spatial"):
-    sys.path.insert(0, str(ROOT / "src" / sub))
+    sys.path.insert(0, str(ROOT / "dev" / sub))
+    sys.path.insert(0, str(ROOT / "app" / "src" / sub))
 
 import grip_solver as S  # noqa: E402
 

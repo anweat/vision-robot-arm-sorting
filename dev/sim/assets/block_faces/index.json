@@ -1,0 +1,142 @@
+[
+ {
+  "file": "other__colour_yellow.png",
+  "category": "other",
+  "item": "colour_yellow",
+  "photo": "微信图片_20260924202511_26_63.jpg",
+  "colour_face": true
+ },
+ {
+  "file": "recyclable__colour_blue.png",
+  "category": "recyclable",
+  "item": "colour_blue",
+  "photo": "微信图片_20260924202511_26_63.jpg",
+  "colour_face": true
+ },
+ {
+  "file": "kitchen__colour_green.png",
+  "category": "kitchen",
+  "item": "colour_green",
+  "photo": "微信图片_20260924202511_26_63.jpg",
+  "colour_face": true
+ },
+ {
+  "file": "hazardous__colour_red.png",
+  "category": "hazardous",
+  "item": "colour_red",
+  "photo": "微信图片_20260924202511_26_63.jpg",
+  "colour_face": true
+ },
+ {
+  "file": "other__disposable_chopsticks.png",
+  "category": "other",
+  "item": "disposable_chopsticks",
+  "photo": "微信图片_20260924202513_28_63.jpg",
+  "colour_face": false
+ },
+ {
+  "file": "recyclable__zip_top_can.png",
+  "category": "recyclable",
+  "item": "zip_top_can",
+  "photo": "微信图片_20260924202513_28_63.jpg",
+  "colour_face": false
+ },
+ {
+  "file": "kitchen__fish_bone.png",
+  "category": "kitchen",
+  "item": "fish_bone",
+  "photo": "微信图片_20260924202513_28_63.jpg",
+  "colour_face": false
+ },
+ {
+  "file": "hazardous__used_batteries.png",
+  "category": "hazardous",
+  "item": "used_batteries",
+  "photo": "微信图片_20260924202513_28_63.jpg",
+  "colour_face": false
+ },
+ {
+  "file": "other__cigarette_butts.png",
+  "category": "other",
+  "item": "cigarette_butts",
+  "photo": "微信图片_20260924202514_29_63.jpg",
+  "colour_face": false
+ },
+ {
+  "file": "recyclable__book.png",
+  "category": "recyclable",
+  "item": "book",
+  "photo": "微信图片_20260924202514_29_63.jpg",
+  "colour_face": false
+ },
+ {
+  "file": "kitchen__egg_shell.png",
+  "category": "kitchen",
+  "item": "egg_shell",
+  "photo": "微信图片_20260924202514_29_63.jpg",
+  "colour_face": false
+ },
+ {
+  "file": "hazardous__syringe.png",
+  "category": "hazardous",
+  "item": "syringe",
+  "photo": "微信图片_20260924202514_29_63.jpg",
+  "colour_face": false
+ },
+ {
+  "file": "other__toilet_paper.png",
+  "category": "other",
+  "item": "toilet_paper",
+  "photo": "微信图片_20260924202515_30_63.jpg",
+  "colour_face": false
+ },
+ {
+  "file": "recyclable__newspaper.png",
+  "category": "recyclable",
+  "item": "newspaper",
+  "photo": "微信图片_20260924202515_30_63.jpg",
+  "colour_face": false
+ },
+ {
+  "file": "kitchen__watermelon_rind.png",
+  "category": "kitchen",
+  "item": "watermelon_rind",
+  "photo": "微信图片_20260924202515_30_63.jpg",
+  "colour_face": false
+ },
+ {
+  "file": "hazardous__expired_tablets.png",
+  "category": "hazardous",
+  "item": "expired_tablets",
+  "photo": "微信图片_20260924202515_30_63.jpg",
+  "colour_face": false
+ },
+ {
+  "file": "other__peach_pit.png",
+  "category": "other",
+  "item": "peach_pit",
+  "photo": "微信图片_20260924202515_31_63.jpg",
+  "colour_face": false
+ },
+ {
+  "file": "recyclable__old_school_bag.png",
+  "category": "recyclable",
+  "item": "old_school_bag",
+  "photo": "微信图片_20260924202515_31_63.jpg",
+  "colour_face": false
+ },
+ {
+  "file": "kitchen__apple_core.png",
+  "category": "kitchen",
+  "item": "apple_core",
+  "photo": "微信图片_20260924202515_31_63.jpg",
+  "colour_face": false
+ },
+ {
+  "file": "hazardous__expired_cosmetics.png",
+  "category": "hazardous",
+  "item": "expired_cosmetics",
+  "photo": "微信图片_20260924202515_31_63.jpg",
+  "colour_face": false
+ }
+]

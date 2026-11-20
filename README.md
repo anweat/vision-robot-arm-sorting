@@ -10,12 +10,25 @@
 |---|---|---|
 | 视觉识别 | 已跑通，板上 NPU | 自训四类模型 mAP@0.5 **0.952**，**12.9 ms/帧** |
 | 任意位置分拣 | 已跑通 | 最好一轮 **4/4**、99 秒，每块中位 **22 秒** |
-| 管理看板 | **正式前端尚未开始**；接口文档、仿真后端和壳子页面已就绪 | 仿真后端 2026-10-11 在 Mac 上跑通，未接实机 |
+| 管理看板与手机端 | 板载网关 + 网页（作业/控制/任务/历史/定时、报警）+ 安卓 App（跳板、双摇杆、任务页） | 网关与跳板 2026-11-18 上板；分步流程与网页任务页只在仿真里整轮跑通，**未上实机** |
 | 兜底机制 | 代码已实现 7 条失败路径 | 待按课程口径量化 |
 | 实体容器 | 桶的图纸与地图 v3 已出，**未切割、未到货** | 设计值，未测量 |
-| 工程基础 | — | **237 项测试**：开发机全部通过；全新克隆取回资产后 231 通过、6 跳过（2026-10-11）。约 1.2 万行 Python 应用代码 |
+| 工程基础 | — | **448 项测试**（应用 344 + 仿真/离线 104），开发机全部通过、1 项需板上 `ais_bench` 而跳过（2026-11-19） |
 
 离线评分（15 轮手摆 60 块）：**100% 找到、100% 类别正确**，中心误差中位 0.0 cm、p90 1.04 cm。
+
+## 仓库结构
+
+| 目录 | 是什么 |
+|---|---|
+| [`app/`](app/README.md) | **板卡应用完整版本**：控制台、板载网关、相机服务、分步流程、规划与几何、网页前端、手机 App、上板脚本、配置、日志契约。布局与板上 `/root/arm-app` 相同，单独拷走即可部署 |
+| `dev/` | 仿真后端（`dev/sim/`）、离线分析与制图工具、标定与数据集脚本、未接入的实验；引用 `app/src/` |
+| `tests/` | `dev/` 的测试；应用自己的测试在 `app/tests/` |
+| `scripts/` | 资料盘点、Blender 建模、NPU/模型冒烟、硬件诊断（[索引](scripts/README.md)） |
+| `archive/` | 被替代的旧实现 |
+| [`docs/`](docs/README.md) | 文档 |
+
+搬动与归档的明细见 [34 仓库结构与应用版本](docs/atlas-200i-dk-a2/34-仓库结构与应用版本.md)。
 
 > 本仓库区分三种状态：**文件存在**、**官方示例描述可运行**、**本机实测通过**。所有性能与硬件结论都附日期、设备、版本、条件和证据。
 
@@ -26,17 +39,17 @@
 | 想做什么 | 代码 | 文档 | 状态 |
 |---|---|---|---|
 | 看懂整个项目做什么、不做什么、怎么验收 | — | [需求规格](docs/atlas-200i-dk-a2/10-需求规格.md) | 2026-10-09 需求审查用 |
-| 更精确的物块中心/夹取角（不换模型） | `src/vision/roi_pose.py`（已接入定位）；`src/tasks/grip_solver.py`（离线，未接入） | [ROI 棱边解算与腕部角度审计](docs/atlas-200i-dk-a2/28-ROI棱边解算与腕部角度审计.md) | 合成/离线验证，实机未测 |
+| 更精确的物块中心/夹取角（不换模型） | `app/src/vision/roi_pose.py`（已接入定位）；`dev/tasks/grip_solver.py`（离线，未接入） | [ROI 棱边解算与腕部角度审计](docs/atlas-200i-dk-a2/28-ROI棱边解算与腕部角度审计.md) | 合成/离线验证，实机未测 |
 | 知道自己该做哪几项、多少工作量 | — | [分工与任务量](docs/atlas-200i-dk-a2/17-分工与任务量.md) | 人日为估算；姓名待填 |
-| 开发前端或手机端 | `src/sim/`（仿真后端与壳子页面）；`src/teleop/web/`（旧页面，参考） | [接口文档](docs/atlas-200i-dk-a2/15-接口文档.md)、[仿真模块](docs/atlas-200i-dk-a2/16-仿真模块.md) | 仅仿真验证 |
-| 做日志页、统计页、导出 | `src/tools/log_contract.py`；`docs/samples/`（实机与仿真日志样例） | [日志契约](docs/atlas-200i-dk-a2/18-日志契约.md) | 契约 v1；实机样例 0 处不符 |
-| 遥控机械臂、采样、标定 | `src/teleop/`、`src/adapters/safe_arm.py` | [遥控与场景标定工作台](docs/atlas-200i-dk-a2/08-遥控与场景标定工作台.md) | 实机实测 |
-| 自动分拣一轮 | `src/pipeline/run.py`、`src/pipeline/loop.py`、`src/tasks/` | [探索记录](docs/atlas-200i-dk-a2/11-探索记录.md) | 实机实测，累计 18/22 块 |
-| 识别四类物块 | `src/vision/blocks_detector.py`、`train_blocks.py`、`synth_blocks.py` | [物块与贴纸类别](docs/atlas-200i-dk-a2/07-物块与贴纸类别.md)、[资产清单](docs/atlas-200i-dk-a2/09-资产清单.md) | 实机实测，板上 NPU |
-| 正逆解、相机位姿、地图定位 | `src/spatial/` | [硬件实测](docs/05-板卡连接与硬件实测.md) 2026-09-25 触点标定与手眼 | 实机实测 |
-| 限位、禁入区、夹爪判定 | `config/arm_limits.json`、`src/spatial/workspace.py` | [硬件实测](docs/05-板卡连接与硬件实测.md) | 实机实测 |
-| 打印地图、做垃圾桶 | `src/tools/make_map.py`、`make_bins.py`；`docs/calibration/`、`docs/bins/` | [实体容器选型约束](docs/atlas-200i-dk-a2/12-实体容器选型约束.md) | 地图 v2 实机在用；v3、v4（窄桌）与桶为设计值；桶打版包见 `docs/bins/README.md`；窄桌双桶方案与联调清单见 [24](docs/atlas-200i-dk-a2/24-垃圾桶建模与仿真联调.md) |
-| 复盘一次运行 | `src/tools/analyze_session.py`、`run_stats.py` | — | 离线 |
+| 开发前端或手机端 | `app/src/web/`（网关与网页）、`app/mobile/android/`；`dev/sim/`（仿真后端，三维视图用课程 STL 网格） | [接口文档](docs/atlas-200i-dk-a2/15-接口文档.md)、[仿真模块](docs/atlas-200i-dk-a2/16-仿真模块.md)、[32](docs/atlas-200i-dk-a2/32-操作逻辑简化与分步任务.md)、[34](docs/atlas-200i-dk-a2/34-仓库结构与应用版本.md) | 仿真联调；网关与跳板已上板 |
+| 做日志页、统计页、导出 | `app/src/tools/log_contract.py`；`app/samples/`（实机与仿真日志样例） | [日志契约](docs/atlas-200i-dk-a2/18-日志契约.md) | 契约 v1；实机样例 0 处不符 |
+| 遥控机械臂、采样、标定 | `app/src/teleop/`、`app/src/adapters/safe_arm.py` | [遥控与场景标定工作台](docs/atlas-200i-dk-a2/08-遥控与场景标定工作台.md) | 实机实测 |
+| 自动分拣一轮 | `app/src/pipeline/run.py`、`app/src/pipeline/loop.py`、`app/src/tasks/` | [探索记录](docs/atlas-200i-dk-a2/11-探索记录.md) | 实机实测，累计 18/22 块 |
+| 识别四类物块 | `app/src/vision/blocks_detector.py`；训练与合成 `dev/vision/train_blocks.py`、`synth_blocks.py` | [物块与贴纸类别](docs/atlas-200i-dk-a2/07-物块与贴纸类别.md)、[资产清单](docs/atlas-200i-dk-a2/09-资产清单.md) | 实机实测，板上 NPU |
+| 正逆解、相机位姿、地图定位 | `app/src/spatial/` | [硬件实测](docs/05-板卡连接与硬件实测.md) 2026-09-25 触点标定与手眼 | 实机实测 |
+| 限位、禁入区、夹爪判定 | `app/config/arm_limits.json`、`app/src/spatial/workspace.py` | [硬件实测](docs/05-板卡连接与硬件实测.md) | 实机实测 |
+| 打印地图、做垃圾桶 | `dev/tools/make_map.py`、`make_bins.py`；`docs/calibration/`、`docs/bins/` | [实体容器选型约束](docs/atlas-200i-dk-a2/12-实体容器选型约束.md) | 地图 v2 实机在用；v3、v4（窄桌）与桶为设计值；桶打版包见 `docs/bins/README.md`；窄桌双桶方案与联调清单见 [24](docs/atlas-200i-dk-a2/24-垃圾桶建模与仿真联调.md) |
+| 复盘一次运行 | `dev/tools/analyze_session.py`、`run_stats.py` | — | 离线 |
 | 查官方资料与上游源码 | `资料/`（不入库） | [官方源码导入审计](docs/atlas-200i-dk-a2/06-官方源码导入审计.md)、[官方案例与调研](docs/atlas-200i-dk-a2/03-官方案例与调研.md) | 归档 |
 
 ### 不在仓库里的东西
@@ -49,8 +62,26 @@
 | 物块 20 张贴面 | `data/reference/block_faces/` | Release `assets-v4` 的 `block_faces.zip`（0.6 MB） | **仿真后端无法启动**，`tests/test_sim.py` 全部跳过 |
 | 语音识别模型（WeNet 编码器，Atlas 200I DK A2） | `data/models/wenet_asr/` | Release `assets-v4` 的 `asr_wenet_offline_encoder.zip`（65 MB） | E7 语音控制不能用；其余功能不受影响 |
 | 手势识别模型（HRNet 四分类，Atlas 200I DK A2） | `data/models/gesture_hrnet/` | Release `assets-v4` 的 `gesture_hrnet_4cls.zip`（103 MB） | E1 手势交互不能用；其余功能不受影响 |
-| 数据集、扫描画面、采集画面 | `data/datasets/`、`data/runs/`、`data/captures/` | 另行拷贝 | 不能重训。事件日志的样例已入库（`docs/samples/`） |
+| 数据集、扫描画面、采集画面 | `data/datasets/`、`data/runs/`、`data/captures/` | 另行拷贝 | 不能重训。事件日志的样例已入库（`app/samples/`） |
 | 官方三类模型、课程包、`Arm_Lib` 源码、上游 ROS 2 工程 | `data/models/official_arm/`、`资料/` | 约 2.7 GB | 第三方内容，按[资产清单](docs/atlas-200i-dk-a2/09-资产清单.md)里的链接自行下载 |
+
+**例外（2026-11-20 起入库，克隆即能跑仿真）**：下面三样另有一份放在仓库里，代码优先读本机 `data/` 里的，没有才读入库的：
+
+| 内容 | 入库位置 | 本机 `data/` 位置（优先） |
+|---|---|---|
+| 四类检测模型 v3 的 `best.onnx`、板上用的 `blocks4_yolov8n.om`（共 19 MB；训练用的 `best.pt` 不入库） | `app/assets/models/blocks4/v3/`（随 `app/` 一起部署到板上） | `data/models/blocks4/v3/` |
+| 物块 20 张贴面（0.6 MB） | `dev/sim/assets/block_faces/` | `data/reference/block_faces/` |
+| 仿真三维的机械臂网格（课程 STL 抽稀，0.3 MB） | `dev/sim/assets/web_meshes.json` | `data/sim/web_meshes.json`（有 `资料/` 时用 `dev/sim/web_meshes.py` 重新生成） |
+
+所以上表前两行现在只在重训、或想用本机另一版模型时才需要从 Release 取。换模型时发新的 Release，**同时**更新入库的副本。
+
+**Windows 一键跑仿真**：克隆后双击 `dev\sim\start_windows.cmd`（要有带 uv 的 Python；没有就 `python -m pip install uv`）。它会修好下面说的 `app\data`、找到装了 uv 的 Python、开两个窗口（仿真控制台 8771、网关 8093），等仿真起来后打开 <http://127.0.0.1:8093/>；关掉两个窗口即停止。首次运行 uv 要下载 opencv / numpy / onnxruntime（约 70 MB）。2026-11-20 在 Windows（Anaconda Python 3.14 + uv 0.13）上从干净克隆跑通，网页上的「夹爪自检」脚本整轮完成。
+
+手动处理时注意：`app/data` 在仓库里是指向 `../data` 的符号链接，Windows 默认把它检出成一个写着 `../data` 的小文本文件，网关的日志、流程会话会写不进去。在仓库根目录执行：
+
+```bat
+del app\data && mklink /J app\data data && git update-index --skip-worktree app/data
+```
 
 ### 取回模型与贴面
 
@@ -89,10 +120,14 @@ unzip -o /tmp/arm-assets/asr_wenet_offline_encoder.zip -d . && unzip -o /tmp/arm
 ## 快速开始
 
 ```sh
-uv run --with 'opencv-python<5' --with numpy --with onnxruntime python -m unittest discover -s tests   # 237 项测试，不需要硬件
+uv run --with 'opencv-python<5' --with numpy --with onnxruntime --with pyyaml python -m unittest discover -s app/tests   # 应用 344 项
 ```
 
-测试结果取决于机器上有什么（2026-10-11 逐种核对过）：
+```sh
+uv run --with 'opencv-python<5' --with numpy --with onnxruntime --with pyyaml python -m unittest discover -s tests       # 仿真与离线 104 项
+```
+
+都不需要硬件。下表是 2026-10-11 整理前（当时共 237 项）逐种核对的结果，跳过的类别不变：
 
 | 环境 | 结果 |
 |---|---|
@@ -102,34 +137,31 @@ uv run --with 'opencv-python<5' --with numpy --with onnxruntime python -m unitte
 | 没有 numpy / OpenCV（直接 `python3 -m unittest`） | 6 个测试文件导入失败，属预期；请用上面的 `uv run` 命令 |
 
 ```sh
-python3 src/pipeline/run.py --dry-run --scan <扫描目录>   # 用已有扫描重建场景，不动机械臂
+python3 app/src/pipeline/run.py --dry-run --scan <扫描目录>   # 用已有扫描重建场景，不动机械臂
 ```
 
 实机运行需要连接开发板与机械臂，**任何动作前先阅读[硬件安全边界](docs/05-板卡连接与硬件实测.md)并人工确认设备周围安全**。
 
 ## 遥控与几何预演
 
-新增本地工作台：`python3 src/teleop/server.py`，打开 <http://127.0.0.1:8765/>。默认离线模拟，支持关节点动、腕部相机视锥、场景物块、冻结帧平面标定与采样。
+新增本地工作台：`python3 app/src/teleop/server.py`，打开 <http://127.0.0.1:8765/>。默认离线模拟，支持关节点动、腕部相机视锥、场景物块、冻结帧平面标定与采样。
 
 [使用说明、当前记录索引和实机边界](docs/atlas-200i-dk-a2/08-遥控与场景标定工作台.md)。本次只完成离线验证，未执行实机动作。
 
 ## 仿真后端（给前端联调）
 
 ```sh
-uv run --with 'opencv-python<5' --with numpy --with onnxruntime src/sim/sim_server.py --map map_a4_v3 --bins bins_acrylic_v1
+uv run --with 'opencv-python<5' --with numpy --with onnxruntime dev/sim/sim_server.py --map map_a4_v3 --bins bins_acrylic_v1
 ```
 
-打开 <http://127.0.0.1:8770/sim/>。独立模块 `src/sim/`：与实机控制台同一套 `/api/*`（同一个 `Controller`），外加合成的腕部相机画面、可抓放的物块、可更换的地图和垃圾桶、检测模型与真值的对照，以及列出全部接口的壳子页面。允许跨域，`--lan` 可供手机和局域网访问。不导入 `Arm_Lib`，不可能驱动实机。
+打开 <http://127.0.0.1:8770/sim/>（三维视图要先 `uv run --with numpy python dev/sim/web_meshes.py` 从 `资料/` 的课程 STL 生成网格，否则画规划采样点）。独立模块 `dev/sim/`：与实机控制台同一套 `/api/*`（同一个 `Controller`），外加合成的腕部相机画面、可抓放的物块、可更换的地图和垃圾桶、检测模型与真值的对照，以及列出全部接口的壳子页面。允许跨域，`--lan` 可供手机和局域网访问。不导入 `Arm_Lib`，不可能驱动实机。
 
 [接口、参数来源、未建模的部分和 2026-10-11 的评估结果](docs/atlas-200i-dk-a2/16-仿真模块.md)。仿真结果不是实机精度。
 
 ## 开发入口
 
-- [开发资料总览](docs/README.md)
-- [软硬件资源](docs/01-软硬件资源.md)
-- [现有代码与接口](docs/02-代码与接口.md)
-- [空间定位与组合任务方案](docs/03-空间定位与任务组合.md)
-- [摄像头识别、机械臂模块与 ROS 入口审计](docs/04-摄像头识别与机械臂模块审计.md)
+- [文档索引](docs/README.md)
+- 早期资料盘点（2026-09，已归档）：[软硬件资源](docs/archive/early/01-软硬件资源.md)、[现有代码与接口](docs/archive/early/02-代码与接口.md)、[空间定位与组合任务方案](docs/archive/early/03-空间定位与任务组合.md)、[摄像头与机械臂模块审计](docs/archive/early/04-摄像头识别与机械臂模块审计.md)
 - [板卡连接与硬件实测](docs/05-板卡连接与硬件实测.md)
 - [官方指南与机械臂依赖归档](资料/官方资料/Atlas-200I-DK-A2-机械臂/README.md)
 - [官方 ROS 2 工程固定源码与导入审计](docs/atlas-200i-dk-a2/06-官方源码导入审计.md)

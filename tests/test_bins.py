@@ -1,4 +1,4 @@
-"""The acrylic bins in the pipeline (src/pipeline/bins.py), their simulated model (src/sim) and the drop over a bin
+"""The acrylic bins in the pipeline (app/src/pipeline/bins.py), their simulated model (dev/sim) and the drop over a bin
 (console_grasp.plan_put with drop_tip_z). Needs numpy and OpenCV (and the block faces under data/); skipped
 where they are missing."""
 import json
@@ -9,7 +9,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 for sub in ('teleop', 'spatial', 'vision', 'sim', 'pipeline', 'tasks', 'tools'):
-    sys.path.insert(0, str(ROOT / 'src' / sub))
+    sys.path.insert(0, str(ROOT / 'dev' / sub))
+    sys.path.insert(0, str(ROOT / 'app' / 'src' / sub))
 try:
     import cv2
     import numpy as np
@@ -25,7 +26,7 @@ if READY:
     from map_registration import load_intrinsics
     import run as PIPE
 
-VIEWS = json.loads((ROOT / 'config' / 'bin_views_bins_acrylic_v1.json').read_text())['views']
+VIEWS = json.loads((ROOT / 'app' / 'config' / 'bin_views_bins_acrylic_v1.json').read_text())['views']
 
 
 def see(world, renderer, bias=(0, 0, 0, 0, 0)):
@@ -79,7 +80,7 @@ class DesignTest(unittest.TestCase):
         self.assertEqual(B.table_check(B.BinSet(), 1.0), [])
 
     def test_the_view_poses_are_the_ones_the_finder_would_pick(self):
-        cfg = json.loads((ROOT / 'config' / 'bin_views_bins_acrylic_v1.json').read_text())
+        cfg = json.loads((ROOT / 'app' / 'config' / 'bin_views_bins_acrylic_v1.json').read_text())
         self.assertEqual(sorted(cfg['views']), ['1', '2', '3', '4'])
         self.assertEqual(cfg['design'], B.DEFAULT_DESIGN)
 
@@ -185,11 +186,19 @@ class SimBinTest(unittest.TestCase):
         self.assertEqual(sorted(p['number'] for p in self.world.props.values()), [3, 4])
 
     def test_the_arm_coming_down_on_a_bin_is_recorded_as_a_contact_and_not_stopped(self):
-        pose = G.kin.inverse_within(*self.bin.xy, self.world.table_z + 0.02, {j: (0, 180) for j in (1, 2, 3, 4)})
+        # closed fingers (the pads stand out to the tip) down onto the far wall, below its rim
+        wall = self.world.props['p2']['pose'] @ [0.041, 0, 0.022, 1]
+        pose = G.kin.inverse_within(wall[0], wall[1], self.world.table_z + 0.02, {j: (0, 180) for j in (1, 2, 3, 4)})
         self.assertEqual(self.world.contact_count, 0)
-        self.arm.write6([round(v) for v in pose['servos']] + [95, 30], 0)
+        self.arm.write6([round(v) for v in pose['servos']] + [95, 170], 0)
         self.assertGreater(self.world.contact_count, 0)
         self.assertEqual(self.world.contacts[-1]['prop'], 'p2')
+
+    def test_open_fingers_draw_back_above_the_walls_of_the_four_bar(self):
+        # the old straight-finger model counted this as hitting the wall; the four-bar pads open 26 mm higher
+        pose = G.kin.inverse_within(*self.bin.xy, self.world.table_z + 0.02, {j: (0, 180) for j in (1, 2, 3, 4)})
+        self.arm.write6([round(v) for v in pose['servos']] + [95, 30], 0)
+        self.assertEqual(self.world.contact_count, 0)
 
     def test_a_drop_over_the_opening_at_drop_height_touches_nothing(self):
         pose = G.kin.inverse_within(*self.bin.xy, G.bin_drop_tip_z(0.042), {j: (0, 180) for j in (1, 2, 3, 4)})

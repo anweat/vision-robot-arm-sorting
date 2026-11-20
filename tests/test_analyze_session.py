@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src' / 'tools'))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'dev' / 'tools'))
 import analyze_session as A  # noqa: E402
 
 

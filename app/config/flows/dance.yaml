@@ -1,0 +1,40 @@
+# 预设动作「跳舞」（PR #7 的 config/presets.json，2026-11-19 中期演示用的保守版本）。
+# J1–J4 动，J5、J6 保持当前回读（null）：J5 一次动 >20° 会滞后，控制台把滞后判成遇阻停下（实测 expected 140 read 134）。
+# 每个姿态都在软限位内，最后回到观察位，中途停止也停在合理的地方。网关 run_preset dance 与语音“跳舞”都跑这份。
+name: dance
+title: 跳舞（预设动作）
+description: J1–J4 七个姿态来回摆，J5/J6 不动，最后回观察位
+speed: 20
+steps:
+  - step: led
+    with: {color: blue}
+  - step: joints
+    with: {pose: [90, 105, 5, 5, null, null]}
+  - step: wait
+    with: {seconds: 0.8}
+  - step: joints
+    with: {pose: [70, 112, 8, 8, null, null]}
+  - step: wait
+    with: {seconds: 1.4}
+  - step: joints
+    with: {pose: [110, 112, 8, 8, null, null]}
+  - step: wait
+    with: {seconds: 1.4}
+  - step: joints
+    with: {pose: [90, 100, 12, 10, null, null]}
+  - step: wait
+    with: {seconds: 1.2}
+  - step: joints
+    with: {pose: [80, 118, 6, 6, null, null]}
+  - step: wait
+    with: {seconds: 1.2}
+  - step: joints
+    with: {pose: [105, 110, 8, 8, null, null]}
+  - step: wait
+    with: {seconds: 1.2}
+  - step: joints
+    with: {pose: [90, 105, 5, 5, null, null]}
+  - step: wait
+    with: {seconds: 0.8}
+  - step: led
+    with: {color: off}

@@ -2,7 +2,7 @@
 
 状态：**设计值，尚未加工、未实测**。日期 2026-10-23，版本 A（首版打版）。
 结构：**插板式**——底板开 8 个 14×2 通槽，侧板两端做 14×2 插舌，插到底后与底板下表面平齐，再涂亚克力溶剂胶。取消浅雕工艺，DXF 只有 `CUT` 层。
-几何依据：[实体容器选型约束](../atlas-200i-dk-a2/12-实体容器选型约束.md)。运行配置：`config/bins_acrylic_v1.json`。
+几何依据：[实体容器选型约束](../atlas-200i-dk-a2/12-实体容器选型约束.md)。运行配置：`app/config/bins_acrylic_v1.json`。
 
 > **2026-10-30**：桌面只有 A4 长边宽，四桶布局放不下，先做两类的双桶方案，见 [24](../atlas-200i-dk-a2/24-垃圾桶建模与仿真联调.md)；双桶贴纸页 `bins_acrylic_v2_pair_stickers_A4.pdf`（厨余、有害，内容与本包的 2、3 号相同）。已切好的板不用重切。
 
@@ -111,28 +111,28 @@
 脚本会同时写配置、6 页 PDF、两个 DXF、贴纸 PDF：
 
 ```bash
-uv run src/tools/make_bins.py --thickness-mm <实测板厚>
+uv run dev/tools/make_bins.py --thickness-mm <实测板厚>
 ```
 
 例如实测 1.9 mm：
 
 ```bash
-uv run src/tools/make_bins.py --thickness-mm 1.9 --drawing-date 2026-10-23 --revision B
+uv run dev/tools/make_bins.py --thickness-mm 1.9 --drawing-date 2026-10-23 --revision B
 ```
 
 只调插槽松紧（板厚仍 2.0）：
 
 ```bash
-uv run src/tools/make_bins.py --slot-mm 1.9 --revision B
+uv run dev/tools/make_bins.py --slot-mm 1.9 --revision B
 ```
 
 实测板厚与设计值不同时，建议把 `--revision` 递增（A → B），并改日期，避免加工商拿错版本。换板厚时**侧板长、侧板总高、槽宽、插舌、底板槽位、排版、DXF、贴纸位置全部一起变**，不要手工改单个文件。
 
 代码结构：
 
-- `src/tools/bins_core.py`：几何模型（含 `base_slots()` / `wall_outline()`）、画布/标注原语。
-- `src/tools/bins_fab.py`：A3 图纸、轴测图、DXF、贴纸页。
-- `src/tools/make_bins.py`：命令行、配置 JSON、可达性核对。
+- `dev/tools/bins_core.py`：几何模型（含 `base_slots()` / `wall_outline()`）、画布/标注原语。
+- `dev/tools/bins_fab.py`：A3 图纸、轴测图、DXF、贴纸页。
+- `dev/tools/make_bins.py`：命令行、配置 JSON、可达性核对。
 
 ## 10. 已知风险 / 未验证
 

@@ -1,0 +1,41 @@
+{
+ "_status": "2026-11-14 (rev 2, from the operator's photo of the real platform). Geometry of the white chassis + black moulded lid the arm stands in, in the forward-kinematics base frame. Single source for the Blender scene (scripts/blender_arm_sim.py), scripts/blender_platform_check.py and, since 2026-11-14, the control keep-out (src/spatial/workspace.py takes the worse of this lid and the r 8 cm cylinder when arm_limits.json keep_out.platform_shape = rounded_square); tests/test_platform_model.py keeps the shared numbers equal. See docs/atlas-200i-dk-a2/28-三维模型与Blender仿真.md section 6.",
+ "_frame": "origin base_link (URDF), z up, +y = arm forward at J1 = 90, x to the arm's right; metres",
+ "shape": "rounded_square",
+ "shape_note": "photo 2026-11-14: a square lid with large rounded vertical corners whose top edge rolls down onto the white chassis walls; the turntable sits in a round flange held by 4 screws near the front of the lid",
+ "top_z_m": 0.076,
+ "top_z_source": "arm_limits.json keep_out.platform_min_z_m (9 cm chassis over the table at -1.42 cm)",
+ "table_z_m": -0.0142,
+ "table_z_source": "arm_limits.json keep_out.table_surface_z_m (touch calibration 20260925_005756_78eb)",
+ "outline": {
+  "front_y_m": 0.08,
+  "half_width_m": 0.11,
+  "back_y_m": -0.22,
+  "corner_radius_m": 0.06,
+  "front_source": "arm_limits.json keep_out.platform_radius_m (operator: 8 cm from the turntable centre to the platform edge; the map laid against it registers at y 7.5-7.7 cm)",
+  "width_back_source": "photo estimate (2026-11-14), J1 axis assumed on the lid's centre line; not measured",
+  "corner_source": "fitted (see evidence); the photo shows a large corner radius"
+ },
+ "lid": {
+  "thickness_m": 0.022,
+  "edge_radius_m": 0.02,
+  "source": "fitted (see evidence); the photo shows the black lid's top edge rolling down to the white wall"
+ },
+ "evidence": "2026-11-14 mesh check (scripts/blender_platform_check.py): link3-link5 STL meshes placed by FK at 1080 contact-free hardware readbacks and the 5 recorded platform contacts. With front 8 cm and half-width 11 cm the data need corner_radius >= 5.5 cm and edge_radius 1.5-2 cm: the binding pose is the near view [49,105,5,0] (32 runs, no contact), whose wrist passes (8.0, 6.6, 7.2) cm, i.e. over the front-right corner below the lid top. With these values the deepest safe pose is +0.13 cm and the shallowest contact +0.14 cm. A sharp-edged square (no corner/edge rounding) is refuted by 0.8 cm. Half-widths 10-13 cm all fit with corner radii 4-8 cm, so the width itself is not pinned down by the data.",
+ "hole": {
+  "radius_m": 0.056,
+  "flange_inner_radius_m": 0.041,
+  "flange_outer_radius_m": 0.053,
+  "flange_thickness_m": 0.003,
+  "screw_radius_m": 0.047,
+  "screw_angles_deg": [20, 110, 200, 290],
+  "source": "photo proportions against the r 4.0 cm servo-1 housing (base_link.STL); flange inner radius must clear that housing (r 4.0 cm flange at z 7.0 cm)"
+ },
+ "to_measure": [
+  "lid width and depth, and whether the J1 axis is on the lid's centre line",
+  "corner radius of the lid seen from above, and how far the rolled top edge drops (edge radius)",
+  "distance J1 axis -> front edge along the arm's centre line (keep-out uses 8.0 cm; map registration suggests 7.5-7.7 cm)",
+  "raised electronics box at the back of the lid (position, height): not modelled yet",
+  "hole / flange diameters"
+ ]
+}

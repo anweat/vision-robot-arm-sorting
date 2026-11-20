@@ -1,0 +1,20 @@
+# 夹爪自检：观察位上张开 → 合拢 → 张开，确认夹爪舵机响应、夹爪里没有东西。不碰桌面。
+name: gripper_check
+title: 夹爪自检
+description: 回观察位，张开、合拢、再张开；合拢时夹住了东西就停下提示先取出
+steps:
+  - step: pose
+    with: {named: observe_v1}
+  - step: gripper
+    with: {action: open}
+  - step: wait
+    with: {seconds: 1}
+  - step: gripper
+    with: {action: grip}
+    on_result:
+      holding: [{stop: 夹爪里有东西，先取出再分拣}]
+      empty: []
+  - step: gripper
+    with: {action: open}
+  - step: notify
+    with: {text: 夹爪自检完成：响应正常、夹爪里没有东西}
