@@ -29,6 +29,8 @@ App「连接」页：网关地址 `http://127.0.0.1:8090`；跳板的板卡地�
 
 ## 接板卡
 
+连不上时先在 Mac 上跑 `python3 dev/tools/check_links.py`，它逐跳告诉你断在哪（[36](../../../docs/atlas-200i-dk-a2/36-启动与链路检测指南.md)）；adb 单步见 `dev/tools/phone.sh`。
+
 步骤见 [31 §2.1c](../../../docs/atlas-200i-dk-a2/31-板载端分离与中继通信.md)：板上跑 `app/scripts/board_beacon.py`（部署后在板上是 `/root/arm-app/scripts/board_beacon.py`），App 的板卡地址留空即可自动找到；手机插板卡前先 `adb tcpip 5555`，之后经 `adb connect <手机 Tailscale IP>:5555` 调试手机。
 
 ## 边界
