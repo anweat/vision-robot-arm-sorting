@@ -24,6 +24,8 @@ class RelayService : Service() {
         val boardSource: String,
         val boardMs: Long,
         val beaconAt: Long,
+        val gatewayPort: Int,
+        val gatewaySource: String,
         val vpn: List<String>,
         val local: List<String>,
         val ports: List<String>,
@@ -69,22 +71,33 @@ class RelayService : Service() {
 
     @Volatile private var beaconHost: String? = null
     @Volatile private var beaconAt = 0L
+    @Volatile private var beaconGateway: Int? = null
     @Volatile private var boardMs = -2L
     @Volatile private var lastUp: Boolean? = null
 
     fun board(): String? = config.boardHost.ifBlank { null } ?: beaconHost
 
-    fun snapshot() = Snapshot(
-        board = board(),
-        boardSource = if (config.boardHost.isNotBlank()) "手填" else if (beaconHost != null) "广播" else "—",
-        boardMs = boardMs,
-        beaconAt = beaconAt,
-        vpn = Net.vpnIpv4(),
-        local = Net.localInterfaces(),
-        ports = forwarders.map { "${it.map.name} :${it.map.local} → :${it.map.remote}（累计 ${it.total.get()}）" },
-        active = forwarders.sumOf { it.active.get() },
-        errors = forwarders.mapNotNull { f -> f.lastError.takeIf { it.isNotBlank() }?.let { "${f.map.name}：$it" } },
-    )
+    /** 转发那一刻的网关端口与来源（手填 / 广播 / 默认），规则见 [GatewayPort.choose]。 */
+    fun gateway(): Pair<Int, String> = GatewayPort.choose(config.gatewayRemote, beaconGateway, beaconHost, board())
+
+    private fun gatewayPort(): Int = gateway().first
+
+    fun snapshot(): Snapshot {
+        val (gwPort, gwSource) = gateway()
+        return Snapshot(
+            board = board(),
+            boardSource = if (config.boardHost.isNotBlank()) "手填" else if (beaconHost != null) "广播" else "—",
+            boardMs = boardMs,
+            beaconAt = beaconAt,
+            gatewayPort = gwPort,
+            gatewaySource = gwSource,
+            vpn = Net.vpnIpv4(),
+            local = Net.localInterfaces(),
+            ports = forwarders.map { "${it.map.name} :${it.map.local} → :${it.map.remote}（累计 ${it.total.get()}）" },
+            active = forwarders.sumOf { it.active.get() },
+            errors = forwarders.mapNotNull { f -> f.lastError.takeIf { it.isNotBlank() }?.let { "${f.map.name}：$it" } },
+        )
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -102,7 +115,7 @@ class RelayService : Service() {
         config = RelayConfig.load(this)
         val executor = Executors.newCachedThreadPool()
         pool = executor
-        for (map in config.maps()) {
+        for (map in config.maps(::gatewayPort)) {
             val f = Forwarder(map, ::board, ::allow, executor)
             try {
                 f.start()
@@ -119,7 +132,14 @@ class RelayService : Service() {
                 return@BeaconListener
             }
             if (host != beaconHost) RelayLog.i("收到板卡广播：$host（${body.optString("host")}）")
+            // 旧版 beacon 的 gateway 是固定参数；新版是实际在监听的网关端口（gateway_from = proc）
+            val port = RelayConfig.validPort(body.optInt("gateway", 0))
+            if (port != null && port != beaconGateway) {
+                val from = if (body.optString("gateway_from") == "proc") "板上检测" else "beacon 参数"
+                RelayLog.i("板卡网关端口 :$port（$from）" + if (config.gatewayRemote != null) "；已手填 :${config.gatewayRemote}，不跟随" else "")
+            }
             beaconHost = host
+            beaconGateway = port ?: beaconGateway
             beaconAt = System.currentTimeMillis()
         }.also { it.start(executor) }
         val pm = getSystemService(POWER_SERVICE) as PowerManager
@@ -138,15 +158,16 @@ class RelayService : Service() {
     private fun check() {
         try {
             val host = board()
-            boardMs = if (host == null) -2 else Net.probe(host, config.gatewayRemote)
+            val port = gatewayPort()
+            boardMs = if (host == null) -2 else Net.probe(host, port)
             val up = boardMs >= 0
-            if (up != lastUp) RelayLog.add(if (up) "·" else "!", if (up) "板卡网关可达（$host）" else "板卡网关不可达（${host ?: "未找到"}）")
+            if (up != lastUp) RelayLog.add(if (up) "·" else "!", if (up) "板卡网关可达（$host:$port）" else "板卡网关不可达（${host ?: "未找到"}:$port）")
             lastUp = up
             val vpn = Net.vpnIpv4().firstOrNull()
             val text = when {
                 vpn == null -> "没有 Tailscale/ZeroTier 地址 — 先打开 VPN"
                 host == null -> "$vpn · 等板卡广播（或在跳板页手填地址）"
-                !up -> "$vpn · 板卡 $host 网关不可达"
+                !up -> "$vpn · 板卡 $host:$port 网关不可达"
                 else -> "网关 $vpn:${config.gatewayLocal} · ssh -p ${config.sshLocal} root@$vpn · 活动 ${forwarders.sumOf { it.active.get() }}"
             }
             showNotification(text)

@@ -20,24 +20,32 @@ import org.json.JSONObject
  * 跳板（文档 31 §2.1）：手机经 USB 网络共享连着板卡，把板卡上的网关与 SSH 转发给 Tailscale/ZeroTier 上的其他设备。
  * 只做 TCP 字节转发，不解析内容；安全检查全部在板卡上的控制台与网关。
  */
-data class PortMap(val name: String, val local: Int, val remote: Int)
+/** [remote] 是建连那一刻的板卡端口：网关端口可能跟着板卡广播变（[RelayConfig.gatewayRemote] 留空时）。 */
+class PortMap(val name: String, val local: Int, private val remotePort: () -> Int) {
+    constructor(name: String, local: Int, remote: Int) : this(name, local, { remote })
+
+    val remote: Int get() = remotePort()
+}
 
 data class RelayConfig(
     /** 空 = 等板卡广播（[BEACON_PORT]）自动填；开发时可填 127.0.0.1 配合 adb reverse。 */
     val boardHost: String = "",
     val gatewayLocal: Int = 8090,
-    val gatewayRemote: Int = 8090,
+    /** null = 自动：用板卡广播里的 `gateway`（实际在跑的网关端口，scripts/board_beacon.py），没收到时用 [DEFAULT_GATEWAY]。 */
+    val gatewayRemote: Int? = null,
     val sshLocal: Int = 2222,
     val sshRemote: Int = 22,
     /** 默认只放行本机与 Tailscale/ZeroTier 来的连接；打开后热点/同一 Wi-Fi 里的设备也能连。 */
     val allowLan: Boolean = false,
 ) {
-    fun maps() = listOf(PortMap("网关", gatewayLocal, gatewayRemote), PortMap("SSH", sshLocal, sshRemote))
+    /** [gatewayPort] 是转发那一刻的网关端口（手填、广播或默认），由 [RelayService] 给。 */
+    fun maps(gatewayPort: () -> Int) =
+        listOf(PortMap("网关", gatewayLocal, gatewayPort), PortMap("SSH", sshLocal, sshRemote))
 
     fun save(context: Context) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putString("board_host", boardHost.trim())
-            .putInt("gateway_local", gatewayLocal).putInt("gateway_remote", gatewayRemote)
+            .putInt("gateway_local", gatewayLocal).putInt(KEY_GATEWAY_MANUAL, gatewayRemote ?: 0)
             .putInt("ssh_local", sshLocal).putInt("ssh_remote", sshRemote)
             .putBoolean("allow_lan", allowLan)
             .apply()
@@ -46,6 +54,15 @@ data class RelayConfig(
     companion object {
         private const val PREFS = "relay"
         const val BEACON_PORT = 37020
+        const val DEFAULT_GATEWAY = 8090
+
+        /**
+         * 手填的板卡网关端口，0 = 自动。旧版本的 "gateway_remote" 每次开跳板都会写成 8090，分不出是不是手填，
+         * 所以换了新键、不读旧键：升级后一律先走自动。
+         */
+        private const val KEY_GATEWAY_MANUAL = "gateway_remote_manual"
+
+        fun validPort(n: Int?): Int? = n?.takeIf { it in 1..65535 }
 
         fun load(context: Context): RelayConfig {
             val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -53,12 +70,24 @@ data class RelayConfig(
             return RelayConfig(
                 boardHost = p.getString("board_host", d.boardHost) ?: "",
                 gatewayLocal = p.getInt("gateway_local", d.gatewayLocal),
-                gatewayRemote = p.getInt("gateway_remote", d.gatewayRemote),
+                gatewayRemote = validPort(p.getInt(KEY_GATEWAY_MANUAL, 0)),
                 sshLocal = p.getInt("ssh_local", d.sshLocal),
                 sshRemote = p.getInt("ssh_remote", d.sshRemote),
                 allowLan = p.getBoolean("allow_lan", d.allowLan),
             )
         }
+    }
+}
+
+object GatewayPort {
+    /**
+     * 转发到板卡的网关端口和来源：手填优先；留空时用广播里的端口（只认当前转发目标发来的广播：
+     * 手填了别的板卡地址时，广播说的是另一台机器）；都没有用 [RelayConfig.DEFAULT_GATEWAY]。
+     */
+    fun choose(manual: Int?, beaconPort: Int?, beaconHost: String?, board: String?): Pair<Int, String> = when {
+        manual != null -> manual to "手填"
+        beaconPort != null && beaconHost != null && board == beaconHost -> beaconPort to "广播"
+        else -> RelayConfig.DEFAULT_GATEWAY to "默认"
     }
 }
 

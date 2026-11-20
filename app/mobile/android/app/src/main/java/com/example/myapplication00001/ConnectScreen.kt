@@ -51,7 +51,7 @@ fun ConnectScreen(onGatewayChanged: () -> Unit, modifier: Modifier = Modifier) {
 
     val initial = remember { RelayConfig.load(context) }
     var boardHost by remember { mutableStateOf(initial.boardHost) }
-    var gatewayRemote by remember { mutableStateOf(initial.gatewayRemote.toString()) }
+    var gatewayRemote by remember { mutableStateOf(initial.gatewayRemote?.toString() ?: "") }
     var allowLan by remember { mutableStateOf(initial.allowLan) }
     var running by remember { mutableStateOf(RelayService.instance != null) }
     var snap by remember { mutableStateOf(RelayService.instance?.snapshot()) }
@@ -70,7 +70,7 @@ fun ConnectScreen(onGatewayChanged: () -> Unit, modifier: Modifier = Modifier) {
 
     fun relayConfig() = RelayConfig(
         boardHost = boardHost.trim(),
-        gatewayRemote = gatewayRemote.toIntOrNull() ?: 8090,
+        gatewayRemote = RelayConfig.validPort(gatewayRemote.trim().toIntOrNull()),
         allowLan = allowLan,
     )
 
@@ -122,11 +122,20 @@ fun ConnectScreen(onGatewayChanged: () -> Unit, modifier: Modifier = Modifier) {
             })
         }
         Text(
-            "板卡地址留空：等板卡在 USB 共享链路上广播（scripts/board_beacon.py）。开发时可填 127.0.0.1，配合 Mac 上的 adb reverse。改设置后关掉再打开跳板生效。",
+            "板卡地址留空：等板卡在 USB 共享链路上广播（scripts/board_beacon.py）。开发时可填 127.0.0.1，配合 Mac 上的 adb reverse。" +
+                "网关端口留空：跟随广播里板卡实际在跑的网关端口，没收到广播时用 ${RelayConfig.DEFAULT_GATEWAY}；手填后固定用手填的。改设置后关掉再打开跳板生效。",
             style = MaterialTheme.typography.bodySmall,
         )
         OutlinedTextField(boardHost, { boardHost = it }, label = { Text("板卡地址（留空自动）") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(gatewayRemote, { gatewayRemote = it }, label = { Text("板卡网关端口") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        val portInvalid = gatewayRemote.isNotBlank() && RelayConfig.validPort(gatewayRemote.trim().toIntOrNull()) == null
+        OutlinedTextField(
+            gatewayRemote, { gatewayRemote = it },
+            label = { Text("板卡网关端口（留空自动）") },
+            singleLine = true,
+            isError = portInvalid,
+            supportingText = if (portInvalid) ({ Text("不是 1–65535 的端口，保存时按留空（自动）处理") }) else null,
+            modifier = Modifier.fillMaxWidth(),
+        )
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("放行热点/同一 Wi-Fi 的设备", modifier = Modifier.weight(1f))
             Switch(checked = allowLan, onCheckedChange = { allowLan = it })
@@ -144,6 +153,7 @@ fun ConnectScreen(onGatewayChanged: () -> Unit, modifier: Modifier = Modifier) {
                         s.boardMs == -1L -> " · 网关不可达"
                         else -> ""
                     })
+                    Text("网关端口：:${s.gatewayPort}（${s.gatewaySource}）")
                     s.ports.forEach { Text("· $it") }
                     Text("当前连接 ${s.active} 条")
                     s.errors.forEach { Text(it, color = MaterialTheme.colorScheme.error) }

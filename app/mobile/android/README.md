@@ -25,13 +25,13 @@ vivo 手机每次 adb 安装都要在手机上点「授权本次安装」。调�
 adb reverse tcp:18090 tcp:8090     # 手机 127.0.0.1:18090 → Mac 网关
 ```
 
-App「连接」页：网关地址 `http://127.0.0.1:8090`；跳板的板卡地址 `127.0.0.1`、板卡网关端口 `18090`；打开跳板。其他设备用 `http://<手机 Tailscale IP>:8090/` 访问。
+App「连接」页：网关地址 `http://127.0.0.1:8090`；跳板的板卡地址 `127.0.0.1`、板卡网关端口手填 `18090`（这里没有板卡广播，留空会用默认 8090）；打开跳板。其他设备用 `http://<手机 Tailscale IP>:8090/` 访问。
 
 ## 接板卡
 
 连不上时先在 Mac 上跑 `python3 dev/tools/check_links.py`，它逐跳告诉你断在哪（[36](../../../docs/atlas-200i-dk-a2/36-启动与链路检测指南.md)）；adb 单步见 `dev/tools/phone.sh`。
 
-步骤见 [31 §2.1c](../../../docs/atlas-200i-dk-a2/31-板载端分离与中继通信.md)：板上跑 `app/scripts/board_beacon.py`（部署后在板上是 `/root/arm-app/scripts/board_beacon.py`），App 的板卡地址留空即可自动找到；手机插板卡前先 `adb tcpip 5555`，之后经 `adb connect <手机 Tailscale IP>:5555` 调试手机。
+步骤见 [31 §2.1c](../../../docs/atlas-200i-dk-a2/31-板载端分离与中继通信.md)：板上跑 `app/scripts/board_beacon.py`（部署后在板上是 `/root/arm-app/scripts/board_beacon.py`），App 的板卡地址留空即可自动找到；「板卡网关端口」也留空：板卡广播里的 `gateway` 是板上实际在监听的网关端口（`board_beacon.py` 每轮扫 `/proc` 里的 `web/serve.py`，多个时优先接实机控制台 :8765 且带 `--lan` 的），跳板跟着它转发，连接页显示当前端口和来源（广播 / 手填 / 默认 8090）。手填端口优先且固定不变；只认当前转发目标发来的广播。端口在每条新连接建立时取，广播变了不用重开跳板，改手填设置才要重开。升级到这一版后旧的端口设置不再读取（旧版总存 8090），一律先走自动（[36](../../../docs/atlas-200i-dk-a2/36-启动与链路检测指南.md) §4）；手机插板卡前先 `adb tcpip 5555`，之后经 `adb connect <手机 Tailscale IP>:5555` 调试手机。
 
 ## 边界
 
