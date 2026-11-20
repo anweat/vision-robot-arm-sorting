@@ -65,7 +65,21 @@
 | 数据集、扫描画面、采集画面 | `data/datasets/`、`data/runs/`、`data/captures/` | 另行拷贝 | 不能重训。事件日志的样例已入库（`app/samples/`） |
 | 官方三类模型、课程包、`Arm_Lib` 源码、上游 ROS 2 工程 | `data/models/official_arm/`、`资料/` | 约 2.7 GB | 第三方内容，按[资产清单](docs/atlas-200i-dk-a2/09-资产清单.md)里的链接自行下载 |
 
-例外：仿真三维用的机械臂网格（课程 STL 抽稀，0.3 MB）已入库在 `dev/sim/assets/web_meshes.json`（2026-11-20），克隆即有；本机有 `资料/` 时用 `dev/sim/web_meshes.py` 重新生成的 `data/sim/web_meshes.json` 优先。
+**例外（2026-11-20 起入库，克隆即能跑仿真）**：下面三样另有一份放在仓库里，代码优先读本机 `data/` 里的，没有才读入库的：
+
+| 内容 | 入库位置 | 本机 `data/` 位置（优先） |
+|---|---|---|
+| 四类检测模型 v3 的 `best.onnx`、板上用的 `blocks4_yolov8n.om`（共 19 MB；训练用的 `best.pt` 不入库） | `app/assets/models/blocks4/v3/`（随 `app/` 一起部署到板上） | `data/models/blocks4/v3/` |
+| 物块 20 张贴面（0.6 MB） | `dev/sim/assets/block_faces/` | `data/reference/block_faces/` |
+| 仿真三维的机械臂网格（课程 STL 抽稀，0.3 MB） | `dev/sim/assets/web_meshes.json` | `data/sim/web_meshes.json`（有 `资料/` 时用 `dev/sim/web_meshes.py` 重新生成） |
+
+所以上表前两行现在只在重训、或想用本机另一版模型时才需要从 Release 取。换模型时发新的 Release，**同时**更新入库的副本。
+
+Windows 克隆注意：`app/data` 在仓库里是指向 `../data` 的符号链接，Windows 默认把它检出成一个写着 `../data` 的小文本文件，网关的日志、流程会话会写不进去。在仓库根目录执行：
+
+```bat
+del app\data && mklink /J app\data data && git update-index --skip-worktree app/data
+```
 
 ### 取回模型与贴面
 

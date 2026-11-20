@@ -55,7 +55,9 @@ import gripper_geometry as GG  # noqa: E402
 
 CATEGORIES = ("recyclable", "kitchen", "hazardous", "other")
 COLOURS = {"recyclable": "blue", "kitchen": "green", "hazardous": "red", "other": "yellow"}
-FACES_DIR = ROOT / "data" / "reference" / "block_faces"
+# the 20 photographed block faces: data/ (Release assets-v4) wins, else the copy in the repository (2026-11-20)
+FACES_DIR = next((d for d in (ROOT / "data" / "reference" / "block_faces", ROOT / "dev" / "sim" / "assets" / "block_faces")
+                  if (d / "index.json").exists()), ROOT / "data" / "reference" / "block_faces")
 BLOCK = 0.03
 START_POSE = [90, 105, 5, 5, 95, 30]
 MAP_X_CM, MAP_Y_CM = (-14.85, 14.85), (0.0, 21.0)

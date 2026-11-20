@@ -177,7 +177,7 @@ class SimApp(console.App):
                     from blocks_detector import BlocksDetector
                     self.detector = BlocksDetector(self.model, "onnx")
                 except Exception as exc:
-                    raise ValueError(f"检测模型不可用（需要 onnxruntime 和 data/models/blocks4 下的 best.onnx）：{exc}") from exc
+                    raise ValueError(f"检测模型不可用（需要 onnxruntime 和 best.onnx：data/models/blocks4/v3 或 app/assets/models/blocks4/v3）：{exc}") from exc
             return self.detector.detect(image, conf=conf)
 
     def scene(self):

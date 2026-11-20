@@ -8,7 +8,7 @@
 - 优先用项目 CodeGraph 查符号、调用关系和影响；纯文字、课程内容和非代码资料用文本搜索。若索引不可用，按工具提示处理，不自动重建。
 - `dev/sim/` 是独立的仿真后端（[说明](docs/atlas-200i-dk-a2/16-仿真模块.md)）：不导入 `Arm_Lib`，复用 `app/src/teleop` 的 `Controller`，夹爪、整臂与底座用规划的同一套模型（`planning.gripper`/`planning.body`/`platform_model.json`）。仿真结果只说明几何与接口自洽，不写成实机结论。
 - 前端依赖的日志事件以 [日志契约](docs/atlas-200i-dk-a2/18-日志契约.md)为准，唯一来源是 `app/src/tools/log_contract.py` 的事件表；增改事件或字段先改事件表，再运行 `python3 app/src/tools/log_contract.py schema > app/contracts/log_event.schema.json`。
-- `data/` 与 `资料/` 不入库；模型与物块贴面在 Release `assets-v3`，换模型发新的 Release，不覆盖旧包。
+- `data/` 与 `资料/` 不入库；模型与物块贴面在 Release（`assets-v3`/`assets-v4`），换模型发新的 Release，不覆盖旧包。例外（2026-11-20）：检测模型 v3 的 onnx/om 入库在 `app/assets/models/blocks4/v3/`，物块贴面与仿真网格在 `dev/sim/assets/`，克隆即能跑仿真；代码先读 `data/` 再读这些副本，换模型时一并更新。
 - 官方 `ros2_robot_arm` 固定源码已归档；[导入审计](docs/atlas-200i-dk-a2/06-官方源码导入审计.md)记录提交 SHA、NOTICE、逐文件校验、模型缺项和关键接口。上游快照保持原样，不把其配置改写成已在当前板验证的应用。
 - 桌面只有 A4 长边宽，实体桶先做厨余+有害两类（`app/config/bins_acrylic_v2_pair.json`，地图 `map_a4_v4`，用 `ARM_MAP=map_a4_v4` 读）；方案、仿真结果与实机联调清单见 [24](docs/atlas-200i-dk-a2/24-垃圾桶建模与仿真联调.md)，其中的数字都是仿真，桶位、槽位、投放高度未经实机验证；`run.py --bins` 带着空夹爪先用 `app/src/tasks/bin_checkout.py` 核对再抓块。
 - 流程脚本能做什么以 `app/src/flow/capabilities.py` 为唯一来源（[35](docs/atlas-200i-dk-a2/35-流程脚本与前端整理.md)）：加能力先改能力表，再在 `flow/steps.py` 或 `flow/actions.py` 实现同名步骤；板卡端还没有接口的能力标 `unavailable` 并写 `needs`，不假装可用。

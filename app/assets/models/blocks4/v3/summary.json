@@ -1,0 +1,20 @@
+{
+ "map50": 0.952,
+ "map50_95": 0.757,
+ "per_class_map50": {
+  "recyclable": 0.995,
+  "kitchen": 0.995,
+  "hazardous": 0.946,
+  "other": 0.87
+ },
+ "val_rounds": [
+  "round_004",
+  "round_017",
+  "round_021"
+ ],
+ "epochs": 60,
+ "model": "yolov8n.pt",
+ "synth": "/Users/anweat/codeproject/Softwrae_mechanical_arm/data/datasets/blocks4/synth_v1",
+ "finetune_epochs": 0,
+ "note": "stage A only (synthetic + real); the real-only fine-tune scored 0.877 and was dropped"
+}

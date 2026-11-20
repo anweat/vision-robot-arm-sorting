@@ -31,7 +31,9 @@ from block_detector import hue_label  # noqa: E402
 
 CATEGORIES = ("recyclable", "kitchen", "hazardous", "other")
 COLOUR_CATEGORY = {"blue": "recyclable", "green": "kitchen", "red": "hazardous", "yellow": "other"}
-TEMPLATES = ROOT / "data" / "reference" / "block_faces"
+# data/ (Release assets-v4) wins, else the copy in the repository (2026-11-20)
+TEMPLATES = next((d for d in (ROOT / "data" / "reference" / "block_faces", ROOT / "dev" / "sim" / "assets" / "block_faces")
+                  if (d / "index.json").exists()), ROOT / "data" / "reference" / "block_faces")
 SIZE = 128
 MIN_FACE_PX = 45          # a face smaller than this in the image is not read
 MIN_SQUARENESS = 0.45     # shortest / longest projected edge: flatter views are too foreshortened

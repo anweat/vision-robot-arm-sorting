@@ -21,7 +21,12 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[2]
 CLASSES = ("recyclable", "kitchen", "hazardous", "other")
-MODEL_DIR = ROOT / "data" / "models" / "blocks4" / "v3"     # v3: 2026-09-26, 60 epochs on 136 real + 800 synthetic frames
+# v3: 2026-09-26, 60 epochs on 136 real + 800 synthetic frames. data/ (not in the repository; Release assets-v4) wins;
+# otherwise the copy in the repository (app/assets, 2026-11-20: best.onnx + the board's .om), so a fresh clone and a
+# deployed app/ both have the detector.
+MODEL_DIR = next((d for d in (ROOT / "data" / "models" / "blocks4" / "v3", ROOT / "assets" / "models" / "blocks4" / "v3")
+                  if (d / "best.onnx").exists() or (d / "blocks4_yolov8n.om").exists()),
+                 ROOT / "data" / "models" / "blocks4" / "v3")
 SIZE = 640
 
 

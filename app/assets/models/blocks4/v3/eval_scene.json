@@ -1,0 +1,24 @@
+{
+ "blocks": 60,
+ "found": 60,
+ "right": 60,
+ "wrong": 0,
+ "no_category": 0,
+ "missed": 0,
+ "extra": 0,
+ "graspable": 50,
+ "rounds": 15,
+ "model": "/Users/anweat/codeproject/Softwrae_mechanical_arm/data/models/blocks4/v3",
+ "found_pct": 100.0,
+ "right_pct": 100.0,
+ "graspable_pct": 83.3,
+ "centre_err_cm": {
+  "median": 0.0,
+  "p90": 1.04,
+  "max": 1.55
+ },
+ "yaw_err_deg": {
+  "median": 0.0,
+  "max": 36.0
+ }
+}

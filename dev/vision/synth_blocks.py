@@ -38,7 +38,9 @@ for sub in ("pipeline", "spatial", "vision"):
 import scene as S  # noqa: E402
 
 CLASSES = ["recyclable", "kitchen", "hazardous", "other"]
-FACES_DIR = ROOT / "data" / "reference" / "block_faces"
+# the 20 photographed block faces: data/ (Release assets-v4) wins, else the copy in the repository (2026-11-20)
+FACES_DIR = next((d for d in (ROOT / "data" / "reference" / "block_faces", ROOT / "dev" / "sim" / "assets" / "block_faces")
+                  if (d / "index.json").exists()), ROOT / "data" / "reference" / "block_faces")
 BLOCK = 0.03
 IMAGE_W, IMAGE_H = 640, 480
 MIN_INSIDE = 0.1          # share of the box inside the frame for it to be labelled (as collect.py)
