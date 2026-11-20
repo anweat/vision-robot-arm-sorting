@@ -1,0 +1,82 @@
+{
+  "date": "2026-11-20",
+  "what": "YOLO 单帧检测（不经扫描流程）",
+  "model": "blocks4/v3/blocks4_yolov8n.om",
+  "backend": "om (ais_bench)",
+  "inference_ms": 13.9,
+  "detections": [
+    {
+      "bbox": [
+        166,
+        199,
+        336,
+        411
+      ],
+      "category": "hazardous",
+      "conf": 0.93,
+      "truth": "电池贴纸块",
+      "verdict": "correct"
+    },
+    {
+      "bbox": [
+        200,
+        4,
+        363,
+        174
+      ],
+      "category": "kitchen",
+      "conf": 0.922,
+      "truth": "胡萝卜贴纸块",
+      "verdict": "correct"
+    },
+    {
+      "bbox": [
+        572,
+        0,
+        639,
+        234
+      ],
+      "category": "other",
+      "conf": 0.858,
+      "truth": "黄色块",
+      "verdict": "correct"
+    },
+    {
+      "bbox": [
+        1,
+        0,
+        215,
+        54
+      ],
+      "category": "other",
+      "conf": 0.808,
+      "truth": "桌沿/纸角",
+      "verdict": "false_positive"
+    },
+    {
+      "bbox": [
+        592,
+        329,
+        639,
+        474
+      ],
+      "category": "hazardous",
+      "conf": 0.648,
+      "truth": "桶边白纸阴影",
+      "verdict": "false_positive"
+    },
+    {
+      "bbox": [
+        0,
+        24,
+        19,
+        200
+      ],
+      "category": "recyclable",
+      "conf": 0.484,
+      "truth": "蓝色块（被画面裁掉一半）",
+      "verdict": "correct_low_conf"
+    }
+  ],
+  "note": "完整入画的块类别全对；误检均为背景。流水线里的“识别不到类别”源于扫描视角下块太小/太斜、票数不足，不是模型能力问题。"
+}
