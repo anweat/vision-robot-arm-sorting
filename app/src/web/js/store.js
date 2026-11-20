@@ -3,7 +3,7 @@
 // pipeline_start/end 只是这一轮内的明细。没有任务的 pipeline_* 属于日志历史，只读不计入。
 
 import { fetchRecords, fetchSummary } from "./api.js";
-import { EVENTS } from "./contract.js";
+import { EVENTS, NOTICES } from "./contract.js";
 
 const EMPTY_COUNTS = () => ({ sorted: 0, missed: 0, skipped: 0, failed: 0, cleared: 0 });
 
@@ -19,7 +19,11 @@ export class Store {
     this.historyRounds = 0;      // 无任务的 pipeline_end 计数：日志历史，只读
     this.connection = "connecting";
     this.latency = null;
-    this.flow = { session: null, running: false, steps: {}, log: [] };   // 分步流程（文档 32 §2）
+    // 分步流程（文档 32 §2）。paths：脚本里每一行（step 事件的 path）最近一次的状态，脚本页据此点亮正在跑的那一行
+    this.flow = { session: null, running: false, steps: {}, log: [], paths: {}, current: null, title: null, state: null };
+    this.notices = [];           // 还没确认的告警提示（contract NOTICES 里的故障事件，alarm_ack kind=notices 清）
+    this.noticeSeq = 0;
+    this.scriptRev = 0;          // 见过的 script_changed 条数：脚本页据此重拉（别的端存了脚本）
     this.alarms = [];            // 还没确认的报警（alarm 减去之后的 alarm_ack）
     this.alarmSeq = 0;           // 见过的最新一条报警的 seq，页面据此判断"新来的"要不要响
     this._roundNo = 0;
@@ -70,11 +74,23 @@ export class Store {
     } else if (name === "step") {
       // 新会话（新一轮，或单步执行起了新会话）就换一张步骤条；同一会话里的单步接着记
       if (e.session !== this.flow.session || (e.step === "flow" && e.state === "started")) {
-        this.flow = { session: e.session, running: false, steps: {}, log: [] };
+        this.flow = { session: e.session, running: false, steps: {}, log: [], paths: {}, current: null,
+                      title: null, state: null };
       }
       const g = this.flow;
-      if (e.step === "flow") g.running = e.state === "started";
-      else g.steps = { ...g.steps, [e.step]: e };
+      if (e.step === "flow") {
+        g.running = e.state === "started";
+        g.state = e.state;
+        if (e.state === "started") g.title = e.summary ?? null;
+        else g.result = e.summary ?? null;
+        if (e.state !== "started") g.current = null;
+      } else {
+        g.steps = { ...g.steps, [e.step]: e };
+        if (e.path != null) {
+          g.paths = { ...g.paths, [e.path]: e };
+          if (e.state === "started") g.current = e;
+        }
+      }
       if (e.state !== "started" || e.step === "retry") g.log = [...g.log, e].slice(-60);
     } else if (name === "alarm") {
       if (e.needs_ack !== false) this.alarms = [...this.alarms, e];
@@ -82,8 +98,15 @@ export class Store {
       this.flow.log = [...this.flow.log, e].slice(-60);
     } else if (name === "alarm_ack") {
       this.alarms = this.alarms.filter((a) => e.kind !== "*" && a.kind !== e.kind);
+      if (e.kind === "*" || e.kind === "notices") this.notices = [];
+    } else if (name === "script_changed") {
+      this.scriptRev += 1;
     } else if (name === "mode_changed") {
       this.status = { ...this.status, mode: e.mode };
+    }
+    if (NOTICES[name] && NOTICES[name].level !== "info") {
+      this.notices = [...this.notices, e].slice(-50);
+      this.noticeSeq = Math.max(this.noticeSeq, e.seq ?? 0);
     }
     const result = EVENTS[name]?.record;
     if (result && this.current) this.current[result] += 1;

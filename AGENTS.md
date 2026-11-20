@@ -11,3 +11,4 @@
 - `data/` 与 `资料/` 不入库；模型与物块贴面在 Release `assets-v3`，换模型发新的 Release，不覆盖旧包。
 - 官方 `ros2_robot_arm` 固定源码已归档；[导入审计](docs/atlas-200i-dk-a2/06-官方源码导入审计.md)记录提交 SHA、NOTICE、逐文件校验、模型缺项和关键接口。上游快照保持原样，不把其配置改写成已在当前板验证的应用。
 - 桌面只有 A4 长边宽，实体桶先做厨余+有害两类（`app/config/bins_acrylic_v2_pair.json`，地图 `map_a4_v4`，用 `ARM_MAP=map_a4_v4` 读）；方案、仿真结果与实机联调清单见 [24](docs/atlas-200i-dk-a2/24-垃圾桶建模与仿真联调.md)，其中的数字都是仿真，桶位、槽位、投放高度未经实机验证；`run.py --bins` 带着空夹爪先用 `app/src/tasks/bin_checkout.py` 核对再抓块。
+- 流程脚本能做什么以 `app/src/flow/capabilities.py` 为唯一来源（[35](docs/atlas-200i-dk-a2/35-流程脚本与前端整理.md)）：加能力先改能力表，再在 `flow/steps.py` 或 `flow/actions.py` 实现同名步骤；板卡端还没有接口的能力标 `unavailable` 并写 `needs`，不假装可用。

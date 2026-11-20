@@ -1,0 +1,21 @@
+# 手势启动扫描：等操作员比 OK，再扫一遍桌面（不抓取），回观察位。文档 35 §3 的示例。
+# 注意：识别端武装时，OK 还会执行 interaction.json 里映射的指令（ok → start）；
+# 只想让脚本等手势，就让识别端保持未武装——手势照样被记录，脚本照样看得到。
+name: gesture_scan
+title: 手势启动扫描
+description: 等 OK 手势 → 扫描识别（定位物块与桶）→ 回观察位；不抓取
+speed: 20
+steps:
+  - step: notify
+    with: {text: 比 OK 手势开始扫描（两分钟内）}
+  - step: wait_gesture
+    with: {label: ok, timeout_s: 120}
+    on_result:
+      timeout: [{stop: 两分钟内没看到 OK 手势}]
+  - step: scan
+    with: {bins: bins_acrylic_v2_pair}
+    on_result:
+      empty: [{stop: 桌上没有找到物块}]
+  - step: notify
+    with: {text: 扫描完成，结果在「流程脚本 → 单步调试」里可选块}
+  - step: home

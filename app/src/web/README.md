@@ -102,17 +102,19 @@ python3 tests/test_w2_acceptance.py --out w2.txt
 
 量不出来的指标一律报"无法测量"，不拿通过凑数。
 
-打开 <http://127.0.0.1:8080/>。五个页签对应分工表里的任务：
+打开 <http://127.0.0.1:8080/>（2026-11-20 整理，详见[文档 35](../../../docs/atlas-200i-dk-a2/35-流程脚本与前端整理.md)）：
 
-| 页签 | 任务 | 验收指标 |
-|---|---|---|
-| 概览 | F1-2 | 事件发生到展示 ≤ 1 s（页头有延迟估计）；本轮逐块记录六项齐全 |
-| 手动操作 | F1-3 + F1-4 | 六轴角度 ≥ 2 Hz 回读；滑块与坐标下发；模式切换写 `mode_changed` |
-| 告警 | F1-2 | 识别/抓取/投放/路径四类失败可查；支持按事件筛选 |
-| 告警（异常物体） | F1-6 | 列出 `unknown_object` 事件与存档图片；视觉侧接入前如实显示"还没有" |
-| 任务计划 | F1-5 | 任务可排、可看、可取消；到点前 5 s 全站横幅倒计时，启动偏差 ≤ 5 s |
+| 页（`#hash`） | 内容 |
+|---|---|
+| 作业台 `#home`（首页） | 仿真三维（实机为回读骨架）+ 腕部相机；提示栏（报警 / 告警 / 状态）、操作面板、设备状态；流程进度与脚本逐行点亮 |
+| 流程脚本 `#scripts` | 脚本库、结构视图可视化编辑、YAML、能力表、单步调试 |
+| 手动操作 `#manual` | 速度、夹爪、模式、关节、坐标、小相机；扩展里的预设动作与语音/手势调试 |
+| 告警 `#alarms` | 待确认报警与告警（抓空、夹爪、放置、堵转、桶满、未知物体…）、异常明细、未知物体存档图 |
+| 记录与日志 `#logs` | 统计、逐块记录、事件流 |
+| 任务计划 `#timers` | 定时启动 |
+| 设置 `#settings` | 连接、页面偏好、语音手势规则、板卡端待接入 |
 
-预设动作等附加能力默认收在"扩展与调试"里：顶栏 ⚙ 或 `?debug=1` 开启，状态存浏览器。
+页头常驻一键停止；报警红条、定时待发横幅任何页都显示。预设动作等附加能力收在“扩展与调试”里：顶栏 ⚙、`?debug=1` 或设置页开启。
 
 ## 接口
 
@@ -131,7 +133,9 @@ python3 tests/test_w2_acceptance.py --out w2.txt
 | `GET /api/blocks` | 桌上物块的基座坐标、类别、颜色，外加禁入区尺寸（厘米）；执行侧没有这一层时 `blocks` 为空数组 |
 | `GET /api/archive` | E6 未知物体告警列表（从日志里筛 `unknown_object`） |
 | `GET /api/archive/<name>` | 存档图片。名字来自事件的 `image` 字段，按目录边界校验后才读 |
-| `POST /api/cmd` | 需求规格 ④：`start` `stop` `set_mode` `run_preset` `set_joints` `move_to` `unlock_bin`，另加 `enable` `gripper` |
+| `POST /api/cmd` | 需求规格 ④：`start` `stop` `set_mode` `run_preset` `set_joints` `move_to` `unlock_bin`，另加 `enable` `gripper` `goto` `speed` `flow_step` `run_script` `alarm_ack` |
+| `GET /api/scripts` `/api/scripts/capabilities` `/api/scripts/<name>` | 流程脚本库、能力表、单份脚本（含校验结果），见文档 35 §4 |
+| `POST /api/scripts/check` `/save` `/delete` | 校验 / 保存（带 `rev` 乐观并发，冲突 409）/ 删除；保存删除写 `script_changed` |
 | `GET /api/health` | 健康检查，含 `console` / `console_ready` / `console_error` |
 
 `/api/cmd` 校验字段并写日志：`set_mode` 直接生效并写 `mode_changed`，`stop` 写 `stopped`；
@@ -155,15 +159,20 @@ python3 tests/test_w2_acceptance.py --out w2.txt
 ## 文件
 
 ```
-serve.py          对外 HTTP 服务（F1-1）
-index.html        页面骨架
+serve.py          对外 HTTP 服务（F1-1）+ 流程脚本接口
+index.html        页面骨架（页头、横幅、页面容器）
 style.css         深色主题，与 dev/sim/web 一致
-js/contract.js    契约常量的前端镜像（事件表改了这里要跟着改）
-js/api.js         数据层：SSE + 轮询退化 + /api/cmd
-js/store.js       事件流 → 轮次/计数/模式 的派生状态
-js/live.js        实时状态页（F1-2）
-js/faults.js      异常日志页（F1-2）
-js/control.js     控制面板 + 模式切换（F1-3/F1-4）；三维视图直接内嵌仿真工作台
+js/app.js         路由、事件流、横幅、一键停止、心跳
+js/contract.js    契约常量的前端镜像（事件表改了这里要跟着改）+ 告警提示分类 NOTICES
+js/api.js         数据层：SSE + 轮询退化 + /api/cmd + /api/scripts*
+js/store.js       事件流 → 轮次/计数/模式/报警/告警/流程逐行状态
+js/home.js        作业台（首页）
+js/media.js       腕部相机、仿真三维 / 实机骨架
+js/notices.js     提示栏（报警 / 告警 / 状态）与确认
+js/scripts.js     流程脚本页；js/scripttree.js 结构树；js/yaml.js 结构 → YAML
+js/control.js     手动操作
+js/alarms.js      告警页（复用 faults.js、unknown.js）
+js/logs.js        记录与日志；js/timers.js 任务计划；js/settings.js 设置
 js/format.js      显示格式与轻提示
 ```
 

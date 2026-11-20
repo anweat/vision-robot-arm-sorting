@@ -878,6 +878,9 @@
      },
      "block": {
       "type": "string"
+     },
+     "path": {
+      "type": "string"
      }
     },
     "required": [
@@ -972,6 +975,47 @@
     "required": [
      "speed",
      "source"
+    ]
+   }
+  },
+  {
+   "if": {
+    "properties": {
+     "event": {
+      "const": "script_changed"
+     }
+    },
+    "required": [
+     "event"
+    ]
+   },
+   "then": {
+    "description": "[stable] 流程脚本在某一端被保存或删除；其他端据此重新拉取",
+    "properties": {
+     "name": {
+      "type": "string"
+     },
+     "action": {
+      "type": "string"
+     },
+     "by": {
+      "type": "string"
+     },
+     "rev": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "required": [
+     "name",
+     "action",
+     "by"
     ]
    }
   },

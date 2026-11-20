@@ -49,7 +49,10 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src" / "tools"))
+sys.path.insert(0, str(ROOT / "src"))
 import log_contract as L  # noqa: E402
+from flow import script as FS  # noqa: E402   纯标准库：校验与存储，不导入 numpy
+from flow.capabilities import catalog as capability_catalog  # noqa: E402
 
 WEB = Path(__file__).resolve().parent
 
@@ -57,7 +60,8 @@ MODES = ("manual", "preset", "auto")
 PRESETS = ("dance", "stack", "carry")
 SOURCES = ("web", "mobile", "voice", "gesture", "timer", "button")
 CMDS = ("start", "stop", "set_mode", "run_preset", "set_joints", "move_to", "unlock_bin",
-        "enable", "gripper", "heartbeat", "takeover", "speed", "drive", "goto", "flow_step", "alarm_ack", "release")
+        "enable", "gripper", "heartbeat", "takeover", "speed", "drive", "goto", "flow_step", "alarm_ack", "release",
+        "run_script")
 FLOW_STEPS = ("scan", "relocate", "plan", "grasp", "check", "retry", "back_off", "place", "verify", "home")
 FLOW_SCRIPT = "config/flows/sort.yaml"
 MOTION_CMDS = ("start", "run_preset", "set_joints", "move_to", "unlock_bin", "gripper", "drive", "goto")
@@ -443,6 +447,9 @@ class State:
         self.task = "pipeline"                   # 「开始」跑什么：pipeline 已验证的旧流水线（默认）/ flow 分步编排器
         self.pipeline_args: list[str] = []       # 传给 src/pipeline/task.py → run.py 的参数（如 --bins DESIGN）
         self.flow_out = None
+        self.flow_script: str | None = None      # 正在/最近跑的流程脚本名（run_script；「开始」跑 flow 时为 sort）
+        # 流程脚本：config/flows 随应用发布（只读），data/flows 是各端保存的（文档 35）
+        self.scripts = FS.Store(ROOT / "config" / "flows", ROOT / "data" / "flows")
         self.lock = threading.Lock()
 
     def console_sim(self) -> bool:
@@ -586,6 +593,7 @@ class State:
         self.flow_out = ROOT / "data" / "flow" / "gateway_last.out"
         self.flow_out.parent.mkdir(parents=True, exist_ok=True)
         self.flow = subprocess.Popen(cmd, cwd=ROOT, stdout=self.flow_out.open("w"), stderr=subprocess.STDOUT)
+        self.flow_script = {"flow": "sort", "pipeline": None, "step": None}.get(script, script)
         try:
             self.append(dict(t=time.time(), event="interaction", source=source, command=command))
         except ValueError:
@@ -603,13 +611,28 @@ class State:
             return self._spawn_flow(list(self.pipeline_args), source, "start", script="pipeline")
         return self._spawn_flow(["--script", FLOW_SCRIPT], source, "start")
 
+    def run_script(self, name: str, source: str = "web") -> dict:
+        """按名字跑一份流程脚本（内置或各端保存的）。先在这里查一遍：有错误、用到板上还没有的能力，
+        直接拒绝并给原因，不起子进程（编排器自己在动臂前也会再查一次）。"""
+        if source not in ("web", "mobile", "button") and self.alarms():
+            return dict(ok=False, error="有未确认的报警，先在页面上点“知道了”")
+        got = self.scripts.get(name) if isinstance(name, str) else None
+        if got is None:
+            return dict(ok=False, error=f"没有脚本 {name!r}")
+        c = got["check"]
+        if not c["ok"]:
+            return dict(ok=False, error="脚本有错误：" + c["errors"][0]["message"])
+        if c["unavailable"]:
+            return dict(ok=False, error="脚本用到了还不可用的能力：" + "、".join(c["unavailable"]) + "（见能力表）")
+        return self._spawn_flow(["--script", got["path"]], source, f"script:{name}", script=name)
+
     def run_step(self, step: str, block: str | None, session: str | None, source: str = "web") -> dict:
         """单独执行一步（文档 32 §2）：不给 session 时用最近一次流程的会话目录。"""
         if step not in FLOW_STEPS:
             return dict(ok=False, error=f"step 应为 {'/'.join(FLOW_STEPS)}")
         session = session or self.flow_session or None
         args = ["--step", step] + (["--session", session] if session else []) + (["--block", block] if block else [])
-        out = self._spawn_flow(args, source, f"step:{step}")
+        out = self._spawn_flow(args, source, f"step:{step}", script="step")
         return out
 
     def flow_state(self) -> dict:
@@ -623,7 +646,7 @@ class State:
             except OSError:
                 pass
         return dict(running=bool(p and p.poll() is None), exit_code=None if p is None else p.poll(),
-                    pid=None if p is None else p.pid, output=tail, task=self.task)
+                    pid=None if p is None else p.pid, output=tail, task=self.task, script=self.flow_script)
 
     def alarms(self) -> list[dict]:
         """还没确认的报警：日志里的 alarm 减去之后的 alarm_ack（同 kind，或 kind="*" 全部）。"""
@@ -913,6 +936,19 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(dict(process=self.state.flow_state(), alarms=self.state.alarms(),
                                    steps=list(FLOW_STEPS), script=FLOW_SCRIPT, **scene))
 
+        if path == "/api/scripts":
+            st = self.state
+            return self._send(dict(scripts=st.scripts.list(), running=st.flow_script if st.flow_state()["running"] else None,
+                                   start_runs="sort" if st.task == "flow" else None, task=st.task))
+        if path == "/api/scripts/capabilities":
+            return self._send(capability_catalog())
+        if path.startswith("/api/scripts/"):
+            got = self.state.scripts.get(unquote(path[len("/api/scripts/"):]))
+            if got is None:
+                return self._fail("没有这个脚本", status=404)
+            got.pop("path", None)
+            return self._send(got)
+
         if path == "/api/log/records":
             events, _ = L.read(self.state.log_path)
             return self._send(dict(contract_version=L.VERSION, records=L.records(events)))
@@ -1008,7 +1044,7 @@ class Handler(BaseHTTPRequestHandler):
         url = urlsplit(self.path)
         if not self._authorized():
             return self._fail("token 无效", status=401)
-        if url.path != "/api/cmd" and url.path != "/api/timers" and not url.path.startswith("/api/interact/"):
+        if url.path not in ("/api/cmd", "/api/timers") and not url.path.startswith(("/api/interact/", "/api/scripts/")):
             return self._fail("没有这个接口", status=404)
         if not self._write_allowed():
             return
@@ -1021,7 +1057,41 @@ class Handler(BaseHTTPRequestHandler):
             return self._timers(body)
         if url.path.startswith("/api/interact/"):
             return self._interact(url.path, body)
+        if url.path.startswith("/api/scripts/"):
+            return self._scripts(url.path, body)
         return self._cmd(body)
+
+    def _scripts(self, path: str, body: dict):
+        """流程脚本的校验 / 保存 / 删除（文档 35）。保存、删除写一条 script_changed，别的端从事件流看到就重拉；
+        带 rev 时做乐观并发：文件在这之间被另一端改过就 409，并把现在的内容一并给回去。"""
+        store = self.state.scripts
+        source = body.get("source", "web")
+        if source not in SOURCES:
+            return self._fail(f"source 应为 {'/'.join(SOURCES)}")
+        if path == "/api/scripts/check":
+            text = body.get("text")
+            if not isinstance(text, str):
+                return self._fail("text 应为脚本文本")
+            return self._send(FS.check_text(text))
+        if path not in ("/api/scripts/save", "/api/scripts/delete"):
+            return self._fail("没有这个接口", status=404)
+        name = body.get("name")
+        try:
+            if path == "/api/scripts/save":
+                got = store.save(name, body.get("text"), base_rev=body.get("rev"))
+                got.pop("path", None)
+                action, out = "saved", got
+            else:
+                if not store.delete(name, base_rev=body.get("rev")):
+                    return self._fail("没有这个脚本", status=404)
+                action, out = "deleted", dict(ok=True, name=name)
+        except FS.ConflictError as exc:
+            return self._fail("脚本已被另一端改过：先看看对方的改动再存", status=409, current=exc.current)
+        except ValueError as exc:
+            return self._fail(str(exc))
+        self.state.append(dict(t=time.time(), event="script_changed", name=name, action=action, by=source,
+                               rev=out.get("rev")))
+        return self._send(out)
 
     def _cmd(self, body: dict):
         cmd = body.get("cmd")
@@ -1069,6 +1139,10 @@ class Handler(BaseHTTPRequestHandler):
             result = self.state.start_task(source=source)
             return self._send(result) if result.get("ok") else self._fail(
                 result.get("error"), status=501)
+
+        if cmd == "run_script":
+            result = self.state.run_script(body.get("name"), source=source)
+            return self._send(result) if result.get("ok") else self._fail(result.get("error"), status=409)
 
         if cmd == "flow_step":
             result = self.state.run_step(body.get("step"), body.get("block"), body.get("session"), source=source)

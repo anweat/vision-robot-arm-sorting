@@ -72,11 +72,14 @@ EVENTS: dict[str, dict] = {
     # ---- step-by-step flow and its alarms (docs/atlas-200i-dk-a2/32 §2.4; writer: src/flow/orchestrator.py)
     "step": dict(status="stable", meaning="分步流程的一步开始或结束（scan/plan/grasp/check/back_off/place/verify…，flow 为整轮）",
                  required=dict(session="str", step="str", state="str"),
-                 optional=dict(result="str", summary="str", block="str")),
+                 optional=dict(result="str", summary="str", block="str", path="str")),
     "alarm": dict(status="stable", meaning="需要人知道的异常：空爪重试用尽、夹爪卡住、堵转等；needs_ack 为真时要有人确认",
                   required=dict(kind="str", summary="str", needs_ack="bool"), optional=dict(block="str")),
     "alarm_ack": dict(status="stable", meaning="报警已被确认", required=dict(kind="str", by="str")),
     "speed": dict(status="stable", meaning="控制台速度改动（°/s）", required=dict(speed="num", source="str")),
+    # ---- flow scripts shared by every end (docs/atlas-200i-dk-a2/35; writer: src/web/serve.py)
+    "script_changed": dict(status="stable", meaning="流程脚本在某一端被保存或删除；其他端据此重新拉取",
+                           required=dict(name="str", action="str", by="str"), optional=dict(rev="str?")),
     # ---- planned: no writer yet
     "mode_changed": dict(status="stable", meaning="作业模式切换（W1）",
                          required=dict(mode="str", source="str"), optional=dict(previous="str")),

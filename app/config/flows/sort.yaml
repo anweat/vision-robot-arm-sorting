@@ -2,6 +2,8 @@
 # 编排器 src/flow/orchestrator.py 只解释这份脚本，抓取逻辑全在各步（src/flow/steps.py）里。
 # 改顺序、重试次数、核对频率、桶的对应关系都只改这里。仿真结果不代表实机。
 name: sort
+title: 完整分拣（分步编排，试验）
+description: 扫描 → 每块解算、抓取、检查、空爪重试、投桶 → 再扫核对。新规划器仍在优化，网页「开始」默认跑已验证的旧流水线
 speed: 20                  # °/s，本流程期间的控制台速度（不超过 arm_limits.json 的上限）
 stop_after_alarms: 3       # 连续这么多块报警就整轮停
 

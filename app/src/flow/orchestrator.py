@@ -14,9 +14,15 @@ anything runs.
     - for_each: blocks        order: reach|scene     do: [actions]
     - retry: {times: N, until: <result>, do: [actions], else: [actions]}
         (inside do, a step result with no branch ends that attempt instead of raising an alarm)
+    - repeat: {times: N, do: [actions]}
     - alarm: <kind>           then: skip_block|stop|continue
     - record: sorted|missed|skipped
     - next_block: true        - stop: <reason>
+
+Step names and their `with:` / results: src/flow/capabilities.py (also served by the gateway at
+/api/scripts/capabilities). Checking with paths: src/flow/script.py. A script that uses a capability the
+board does not have yet (status unavailable) is refused before anything moves. Step events carry `path`,
+the action's place in the script (`steps[1].do[2]`), so a page can light up the line that is running.
 """
 from __future__ import annotations
 
@@ -30,23 +36,15 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "src" / "tools"))
 
+from flow import actions as A                   # noqa: E402
 from flow import miniyaml                       # noqa: E402
+from flow import script as FS                   # noqa: E402
 from flow import steps as SP                    # noqa: E402
+from flow.capabilities import CAPABILITIES      # noqa: E402
 from flow.session import FlowSession, load_json  # noqa: E402
 
-TOP_KEYS = {"name", "speed", "stop_after_alarms", "steps", "description"}
-ACTION_KEYS = {
-    "step": {"step", "with", "on_result"},
-    "for_each": {"for_each", "order", "do"},
-    "retry": {"retry"},
-    "alarm": {"alarm", "then", "summary"},
-    "record": {"record", "reason"},
-    "next_block": {"next_block"},
-    "stop": {"stop"},
-}
-RETRY_KEYS = {"times", "until", "do", "else"}
-RECORDS = ("sorted", "missed", "skipped")
-THEN = ("skip_block", "stop", "continue")
+STEPS = {**SP.STEPS, **A.STEPS}
+SUCCESS = {name: tuple(cap["success"]) for name, cap in CAPABILITIES.items()}
 
 
 class SkipBlock(Exception):
@@ -71,60 +69,8 @@ def load_script(path: str | Path) -> dict:
 
 
 def validate(script) -> None:
-    if not isinstance(script, dict):
-        raise ValueError("流程脚本顶层必须是映射")
-    extra = set(script) - TOP_KEYS
-    if extra:
-        raise ValueError(f"流程脚本有未知的顶层键：{sorted(extra)}")
-    if not isinstance(script.get("steps"), list) or not script["steps"]:
-        raise ValueError("流程脚本缺少 steps 列表")
-    _check_actions(script["steps"], "steps", in_block=False)
-
-
-def _check_actions(actions, where: str, in_block: bool) -> None:
-    if not isinstance(actions, list):
-        raise ValueError(f"{where} 必须是列表")
-    for i, a in enumerate(actions):
-        at = f"{where}[{i}]"
-        if not isinstance(a, dict):
-            raise ValueError(f"{at} 必须是映射")
-        kind = next((k for k in ACTION_KEYS if k in a), None)
-        if kind is None:
-            raise ValueError(f"{at} 不认识：{a}")
-        extra = set(a) - ACTION_KEYS[kind]
-        if extra:
-            raise ValueError(f"{at}（{kind}）有未知的键：{sorted(extra)}")
-        if kind == "step":
-            if a["step"] not in SP.STEPS:
-                raise ValueError(f"{at}：没有步骤 {a['step']!r}（可用：{', '.join(SP.STEPS)}）")
-            if a.get("with") is not None and not isinstance(a["with"], dict):
-                raise ValueError(f"{at}：with 必须是映射")
-            for result, sub in (a.get("on_result") or {}).items():
-                _check_actions(sub, f"{at}.on_result.{result}", in_block)
-        elif kind == "for_each":
-            if a["for_each"] != "blocks":
-                raise ValueError(f"{at}：for_each 只支持 blocks")
-            if in_block:
-                raise ValueError(f"{at}：for_each 不能嵌套")
-            _check_actions(a.get("do"), f"{at}.do", True)
-        elif kind == "retry":
-            r = a["retry"]
-            if not isinstance(r, dict) or set(r) - RETRY_KEYS or not isinstance(r.get("times"), int) or r["times"] < 1:
-                raise ValueError(f"{at}：retry 需要 times（≥1）、until、do，可选 else")
-            _check_actions(r.get("do"), f"{at}.retry.do", in_block)
-            _check_actions(r.get("else") or [], f"{at}.retry.else", in_block)
-        elif kind == "alarm":
-            if a.get("then", "continue") not in THEN:
-                raise ValueError(f"{at}：then 只允许 {THEN}")
-            if a.get("then") == "skip_block" and not in_block:
-                raise ValueError(f"{at}：skip_block 只能在 for_each 里用")
-        elif kind == "record":
-            if a["record"] not in RECORDS:
-                raise ValueError(f"{at}：record 只允许 {RECORDS}")
-            if not in_block:
-                raise ValueError(f"{at}：record 只能在 for_each 里用")
-        elif kind == "next_block" and not in_block:
-            raise ValueError(f"{at}：next_block 只能在 for_each 里用")
+    """Raise ValueError with the first problem (src/flow/script.py has the full check with paths)."""
+    FS.validate(script)
 
 
 # ------------------------------------------------------------------------------------------ running
@@ -146,11 +92,13 @@ class Runner:
 
     def run(self) -> dict:
         began = time.time()
-        self.emit("step", session=self.ctx.sess.path.name, step="flow", state="started",
-                  summary=self.script.get("name", "flow"))
+        sid = self.ctx.sess.path.name
+        self.emit("step", session=sid, step="flow", state="started",
+                  summary=self.script.get("title") or self.script.get("name", "flow"), path="")
         state, reason = "done", ""
         try:
-            self.actions(self.script["steps"], in_block=False)
+            self.preflight()
+            self.actions(self.script["steps"], in_block=False, path="steps")
         except StopFlow as exc:
             state, reason = "stopped", str(exc)
             self.emit("stopped", reason=reason)
@@ -159,22 +107,32 @@ class Runner:
             self.emit("stopped", reason=reason)
         out = dict(state=state, reason=reason, seconds=round(time.time() - began, 1), session=str(self.ctx.sess.path),
                    **self.counts)
-        self.emit("step", session=self.ctx.sess.path.name, step="flow", state=state,
+        self.emit("step", session=sid, step="flow", state=state, path="",
                   summary=reason or f"放好 {self.counts['sorted']}，夹空 {self.counts['missed']}，跳过 {self.counts['skipped']}")
         self.ctx.sess.save("flow_result.json", out)
         return out
 
-    def actions(self, actions, in_block: bool) -> None:
-        for a in actions:
-            self.action(a, in_block)
+    def preflight(self) -> None:
+        """Before anything moves: a script that needs a capability the board does not have yet is refused whole,
+        rather than stopping halfway with the arm somewhere in the middle of the table."""
+        c = FS.check(self.script)
+        if c["unavailable"]:
+            raise StopFlow("脚本用到了还不可用的能力：" + "；".join(
+                f"{u}（{CAPABILITIES[u]['needs']}）" for u in c["unavailable"]))
 
-    def action(self, a: dict, in_block: bool) -> None:
+    def actions(self, actions, in_block: bool, path: str = "steps") -> None:
+        for i, a in enumerate(actions):
+            self.action(a, in_block, f"{path}[{i}]")
+
+    def action(self, a: dict, in_block: bool, path: str = "") -> None:
         if "step" in a:
-            self.step(a, in_block)
+            self.step(a, in_block, path)
         elif "for_each" in a:
-            self.for_each(a)
+            self.for_each(a, path)
         elif "retry" in a:
-            self.retry(a["retry"], in_block)
+            self.retry(a["retry"], in_block, path)
+        elif "repeat" in a:
+            self.repeat(a["repeat"], in_block, path)
         elif "alarm" in a:
             self.alarm(a["alarm"], a.get("then", "continue"), a.get("summary"))
         elif "record" in a:
@@ -184,33 +142,35 @@ class Runner:
         elif "stop" in a:
             raise StopFlow(str(a["stop"]))
 
-    def step(self, a: dict, in_block: bool) -> SP.Outcome:
+    def step(self, a: dict, in_block: bool, path: str = "") -> SP.Outcome:
         name, params = a["step"], dict(a.get("with") or {})
+        sid = self.ctx.sess.path.name
         block = self.ctx.block["name"] if self.ctx.block else None
-        self.emit("step", session=self.ctx.sess.path.name, step=name, state="started", block=block)
+        self.emit("step", session=sid, step=name, state="started", block=block, path=path)
         try:
-            out = SP.STEPS[name](self.ctx, **params)
+            out = STEPS[name](self.ctx, **params)
         except Exception as exc:
             out = SP.Outcome("failed", f"{type(exc).__name__}: {exc}")
         self.last = out
         branches = a.get("on_result") or {}
+        ok = SUCCESS.get(name, ())
         # a result the script answers with an empty branch is an expected one (the closing scan finding the table
         # empty); a result with actions behind it (plan rejected -> skip) still shows as failed
-        expected = out.result == SP.SUCCESS.get(name) or branches.get(out.result) == []
-        self.emit("step", session=self.ctx.sess.path.name, step=name, state="done" if expected else "failed",
-                  result=out.result, summary=out.summary, block=block)
+        expected = out.result in ok or branches.get(out.result) == []
+        self.emit("step", session=sid, step=name, state="done" if expected else "failed",
+                  result=out.result, summary=out.summary, block=block, path=path)
         if out.result in branches:
-            self.actions(branches[out.result], in_block)
-        elif out.result != SP.SUCCESS.get(name) and not (name == "verify" and out.result == "mismatch"):
+            self.actions(branches[out.result], in_block, f"{path}.on_result.{out.result}")
+        elif out.result not in ok and not (name == "verify" and out.result == "mismatch"):
             if "default" in branches:
-                self.actions(branches["default"], in_block)
+                self.actions(branches["default"], in_block, f"{path}.on_result.default")
             elif self.retrying:                     # inside retry.do: end this attempt, let retry judge
                 raise AttemptFailed(out.result)
             else:                                   # nobody said what to do with this result
                 self.alarm(f"{name}_{out.result}", "skip_block" if in_block else "stop", out.summary)
         return out
 
-    def for_each(self, a: dict) -> None:
+    def for_each(self, a: dict, path: str = "") -> None:
         if self.ctx.scene is None:
             raise StopFlow("for_each blocks 之前没有扫描结果")
         for block in SP.order_blocks(self.ctx.scene, a.get("order", "reach")):
@@ -218,7 +178,7 @@ class Runner:
             self.block_alarmed = False
             self.block_started = time.time()
             try:
-                self.actions(a["do"], in_block=True)
+                self.actions(a["do"], in_block=True, path=f"{path}.do")
             except SkipBlock:
                 pass
             self.alarm_streak = self.alarm_streak + 1 if self.block_alarmed else 0
@@ -227,21 +187,28 @@ class Runner:
                 raise StopFlow(f"连续 {limit} 块报警，整轮停止")
         self.ctx.block = None
 
-    def retry(self, r: dict, in_block: bool) -> None:
+    def retry(self, r: dict, in_block: bool, path: str = "") -> None:
         for attempt in range(1, r["times"] + 1):
             self.emit("step", session=self.ctx.sess.path.name, step="retry", state="started",
-                      summary=f"第 {attempt}/{r['times']} 次重试",
+                      summary=f"第 {attempt}/{r['times']} 次重试", path=path,
                       block=self.ctx.block["name"] if self.ctx.block else None)
             self.retrying += 1
             try:
-                self.actions(r["do"], in_block)
+                self.actions(r["do"], in_block, f"{path}.retry.do")
             except AttemptFailed:
                 pass
             finally:
                 self.retrying -= 1
             if self.last is not None and self.last.result == r.get("until"):
                 return
-        self.actions(r.get("else") or [], in_block)
+        self.actions(r.get("else") or [], in_block, f"{path}.retry.else")
+
+    def repeat(self, r: dict, in_block: bool, path: str = "") -> None:
+        for n in range(1, r["times"] + 1):
+            self.emit("step", session=self.ctx.sess.path.name, step="repeat", state="started",
+                      summary=f"第 {n}/{r['times']} 遍", path=path,
+                      block=self.ctx.block["name"] if self.ctx.block else None)
+            self.actions(r["do"], in_block, f"{path}.repeat.do")
 
     def alarm(self, kind: str, then: str, summary: str | None = None) -> None:
         block = self.ctx.block["name"] if self.ctx.block else None
@@ -311,7 +278,7 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     what = ap.add_mutually_exclusive_group(required=True)
     what.add_argument("--script", help="flow script, e.g. config/flows/sort.yaml")
-    what.add_argument("--step", choices=sorted(SP.STEPS) + ["retry"], help="run one step on its own")
+    what.add_argument("--step", choices=sorted(STEPS) + ["retry"], help="run one step on its own")
     ap.add_argument("--session", help="session directory (default: a new data/flow/<stamp>)")
     ap.add_argument("--block", help="--step: the block (name in the session's latest scan)")
     ap.add_argument("--with", dest="params", default="{}", help="--step: JSON parameters")
@@ -356,10 +323,10 @@ def main(argv=None) -> int:
     ctx.emit("step", session=sess.path.name, step=args.step, state="started",
              block=ctx.block["name"] if ctx.block else None)
     try:
-        out = SP.STEPS[args.step](ctx, **params)
+        out = STEPS[args.step](ctx, **params)
     except Exception as exc:
         out = SP.Outcome("failed", f"{type(exc).__name__}: {exc}")
-    ok = out.result == SP.SUCCESS.get(args.step)
+    ok = out.result in SUCCESS.get(args.step, ())
     ctx.emit("step", session=sess.path.name, step=args.step, state="done" if ok else "failed", result=out.result,
              summary=out.summary, block=ctx.block["name"] if ctx.block else None)
     print(json.dumps(dict(result=out.result, summary=out.summary, data=out.data, session=str(sess.path)),
@@ -399,6 +366,8 @@ def _with_source(actions, source: str) -> None:
         if "retry" in a:
             _with_source(a["retry"].get("do") or [], source)
             _with_source(a["retry"].get("else") or [], source)
+        if "repeat" in a:
+            _with_source(a["repeat"].get("do") or [], source)
 
 
 if __name__ == "__main__":

@@ -108,7 +108,81 @@ async function refreshWorld() {
   draw();
 }
 
-// ---------------------------------------------------------------- 3D view (painter's algorithm on a 2D canvas)
+// ---------------------------------------------------------------- 3D view (software z-buffer on a 2D canvas)
+//
+// The view used to sort whole polygons by their centroid depth (painter's algorithm). That cannot get big faces
+// right -- the platform lid is one polygon, a block next to it is six small ones -- so blocks showed through the
+// platform and the arm. Now every primitive is rasterised into a depth buffer: opaque faces write depth,
+// outlines are tested against it (drawn after, a hair toward the viewer), translucent faces and the camera
+// frustum are blended far-to-near without writing depth, and only the pad-centre marker sits on top.
+// The projection is orthographic, so depth is linear in screen space and interpolates exactly.
+
+const COLOURS_RGBA = new Map();
+function rgba(css) {
+  let c = COLOURS_RGBA.get(css);
+  if (c) return c;
+  let m;
+  if (css[0] === '#') {
+    const h = css.slice(1), two = h.length >= 6;
+    const at = i => two ? parseInt(h.slice(2 * i, 2 * i + 2), 16) : parseInt(h[i] + h[i], 16);
+    c = [at(0), at(1), at(2), (two ? h.length === 8 : h.length === 4) ? at(3) / 255 : 1];
+  } else if ((m = css.match(/rgba?\(([^)]+)\)/))) {
+    const v = m[1].split(',').map(Number);
+    c = [v[0], v[1], v[2], v[3] ?? 1];
+  } else {
+    c = [255, 0, 255, 1];
+  }
+  COLOURS_RGBA.set(css, c);
+  return c;
+}
+
+class ZBuffer {
+  constructor(W, H, bg) {
+    this.W = W; this.H = H;
+    this.z = new Float32Array(W * H).fill(-Infinity);
+    this.img = new ImageData(W, H);
+    const px = this.img.data, [r, g, b] = rgba(bg);
+    for (let i = 0; i < px.length; i += 4) { px[i] = r; px[i + 1] = g; px[i + 2] = b; px[i + 3] = 255; }
+  }
+  // depth: larger = nearer the viewer (P's third coordinate)
+  tri(ax, ay, az, bx, by, bz, cx, cy, cz, col, write) {
+    const area = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+    if (Math.abs(area) < 1e-6) return;
+    const W = this.W, H = this.H, zb = this.z, px = this.img.data;
+    const x0 = Math.max(0, Math.floor(Math.min(ax, bx, cx))), x1 = Math.min(W - 1, Math.ceil(Math.max(ax, bx, cx)));
+    const y0 = Math.max(0, Math.floor(Math.min(ay, by, cy))), y1 = Math.min(H - 1, Math.ceil(Math.max(ay, by, cy)));
+    const [r, g, b, a] = col, inv = 1 / area, eps = -1e-7, opaque = a >= 0.999;
+    for (let y = y0; y <= y1; y++) {
+      const py = y + 0.5;
+      for (let x = x0; x <= x1; x++) {
+        const qx = x + 0.5;
+        const w0 = ((bx - qx) * (cy - py) - (by - py) * (cx - qx)) * inv;
+        if (w0 < eps) continue;
+        const w1 = ((cx - qx) * (ay - py) - (cy - py) * (ax - qx)) * inv;
+        if (w1 < eps) continue;
+        const w2 = 1 - w0 - w1;
+        if (w2 < eps) continue;
+        const z = w0 * az + w1 * bz + w2 * cz, i = y * W + x;
+        if (z <= zb[i]) continue;
+        const o = 4 * i;
+        if (opaque) { px[o] = r; px[o + 1] = g; px[o + 2] = b; }
+        else { px[o] += (r - px[o]) * a; px[o + 1] += (g - px[o + 1]) * a; px[o + 2] += (b - px[o + 2]) * a; }
+        if (write) zb[i] = z;
+      }
+    }
+  }
+  poly(q, col, write) {               // convex polygon, fan from the first vertex
+    for (let i = 1; i + 1 < q.length; i++)
+      this.tri(q[0][0], q[0][1], q[0][2], q[i][0], q[i][1], q[i][2], q[i + 1][0], q[i + 1][1], q[i + 1][2], col, write);
+  }
+  line(p, q, width, col, write) {      // a flat strip facing the viewer, depth along it
+    const dx = q[0] - p[0], dy = q[1] - p[1], L = Math.hypot(dx, dy) || 1, hw = Math.max(0.5, width / 2);
+    const nx = -dy / L * hw, ny = dx / L * hw, ex = dx / L * hw * 0.5, ey = dy / L * hw * 0.5;
+    const a = [p[0] + nx - ex, p[1] + ny - ey, p[2]], b = [p[0] - nx - ex, p[1] - ny - ey, p[2]];
+    const c = [q[0] - nx + ex, q[1] - ny + ey, q[2]], d = [q[0] + nx + ex, q[1] + ny + ey, q[2]];
+    this.poly([a, b, c, d], col, write);
+  }
+}
 
 const cam = {yaw: -0.7, pitch: 0.5, scale: 1500};
 function draw() {
@@ -122,20 +196,19 @@ function draw() {
     const x = p[0], y = p[1] - 0.15, z = p[2] - 0.05, xr = cy * x - sy * y, yr = sy * x + cy * y;
     return [w / 2 + xr * k, h * 0.55 - (z * cp + yr * sp) * k, z * sp - yr * cp];
   };
-  const items = [];                    // {depth, paint}
+  // primitives, rasterised at the end. bias only separates coplanar layers (table < page < markers): it is
+  // scaled to a tenth of a millimetre per unit, far below any real gap between surfaces
+  const BIAS = 1e-4, EDGE = 1.5e-3;   // outlines sit 1.5 mm toward the viewer so they win over their own face
+  const solid = [], edges = [], glass = [], overlay = [];
   const poly = (pts, fill, stroke, bias = 0) => {
-    const q = pts.map(P);
-    items.push({depth: q.reduce((s, v) => s + v[2], 0) / q.length + bias, paint() {
-      ctx.beginPath(); q.forEach((v, i) => i ? ctx.lineTo(v[0], v[1]) : ctx.moveTo(v[0], v[1])); ctx.closePath();
-      if (fill) { ctx.fillStyle = fill; ctx.fill(); }
-      if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 1; ctx.stroke(); }
-    }});
+    const q = pts.map(P).map(v => [v[0], v[1], v[2] + bias * BIAS]);
+    if (fill) (rgba(fill)[3] < 0.999 ? glass : solid).push({q, col: rgba(fill)});
+    if (stroke) q.forEach((v, i) => edges.push({p: v, q: q[(i + 1) % q.length], width: 1, col: rgba(stroke)}));
   };
   const line = (a, b, colour, width, bias = 0) => {
-    const p = P(a), q = P(b);
-    items.push({depth: (p[2] + q[2]) / 2 + bias, paint() {
-      ctx.beginPath(); ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]); ctx.strokeStyle = colour; ctx.lineWidth = width; ctx.lineCap = 'round'; ctx.stroke();
-    }});
+    const p = P(a), q = P(b), col = rgba(colour);
+    p[2] += bias * BIAS; q[2] += bias * BIAS;
+    (col[3] < 0.999 ? glass : solid).push({p, q, width, col});
   };
 
   const map = scene.map, off = map.placement.base_from_map, z0 = off.dz;
@@ -205,30 +278,26 @@ function draw() {
         if (nx * toward[0] + ny * toward[1] + nz * toward[2] < 0) continue;
         const lit = 0.38 + 0.62 * Math.max(0, (nx * L[0] + ny * L[1] + nz * L[2]) / (nl * ln));
         const fill = `rgb(${base.map(x => Math.round(x * lit)).join(',')})`;
-        const pa = scr[f[t]], pb = scr[f[t + 1]], pc = scr[f[t + 2]];
-        items.push({depth: (pa[2] + pb[2] + pc[2]) / 3, paint() {
-          ctx.beginPath(); ctx.moveTo(pa[0], pa[1]); ctx.lineTo(pb[0], pb[1]); ctx.lineTo(pc[0], pc[1]); ctx.closePath();
-          ctx.fillStyle = fill; ctx.fill(); ctx.strokeStyle = fill; ctx.lineWidth = 0.6; ctx.stroke();
-        }});
+        solid.push({q: [scr[f[t]], scr[f[t + 1]], scr[f[t + 2]]], col: rgba(fill)});
       }
     }
-    const pc = body.pad_centre, q = P(pc);
-    items.push({depth: q[2] + 0.08, paint() { ctx.beginPath(); ctx.arc(q[0], q[1], 3, 0, 7); ctx.fillStyle = '#ff6b6b'; ctx.fill(); }});
+    const q = P(body.pad_centre);
+    overlay.push(() => { ctx.beginPath(); ctx.arc(q[0], q[1], 3, 0, 7); ctx.fillStyle = '#ff6b6b'; ctx.fill(); });
   } else if (body) {
     // model samples as dots, each depth-sorted with the blocks and bins; size follows the zoom
     const dot = Math.max(1.6, k / 900);
     for (const [part, pts] of Object.entries(body.parts)) {
       const colour = PART_COLOURS[part] ?? '#9fb3bf';
       for (const p of pts) {
-        const q = P(p);
-        items.push({depth: q[2] + 0.002, paint() { ctx.fillStyle = colour; ctx.fillRect(q[0] - dot / 2, q[1] - dot / 2, dot, dot); }});
+        const q = P(p), h = dot / 2;
+        solid.push({q: [[q[0] - h, q[1] - h, q[2]], [q[0] + h, q[1] - h, q[2]], [q[0] + h, q[1] + h, q[2]], [q[0] - h, q[1] + h, q[2]]], col: rgba(colour)});
       }
     }
     // pad centre and the jaw axis through it (the grasp rule's reference)
     const pc = body.pad_centre, ax = body.jaw_axis.map(v => v * body.gap_mm / 2000);
     line(pc.map((v, i) => v - ax[i]), pc.map((v, i) => v + ax[i]), '#ff6b6b', 2, 0.05);
     const q = P(pc);
-    items.push({depth: q[2] + 0.06, paint() { ctx.beginPath(); ctx.arc(q[0], q[1], 3.5, 0, 7); ctx.fillStyle = '#ff6b6b'; ctx.fill(); }});
+    overlay.push(() => { ctx.beginPath(); ctx.arc(q[0], q[1], 3.5, 0, 7); ctx.fillStyle = '#ff6b6b'; ctx.fill(); });
   } else {
     // no body model from this back end: the old stick figure
     line([0, 0, top], g.points[1], '#7fc4e6', 12, 0.02);
@@ -243,8 +312,22 @@ function draw() {
   });
   hit.forEach((p, i) => { line(g.cam, p, 'rgba(95,196,138,.55)', 1, 0.05); line(p, hit[(i + 1) % 4], 'rgba(95,196,138,.8)', 1.5, 0.05); });
 
-  ctx.fillStyle = '#0b141b'; ctx.fillRect(0, 0, w, h);
-  items.sort((a, b) => a.depth - b.depth).forEach(i => i.paint());
+  // rasterise at 2x (or the screen's ratio, if higher) and let drawImage smooth it down: cheap anti-aliasing
+  const ss = Math.max(2, ratio), W = Math.max(1, Math.round(w * ss)), H = Math.max(1, Math.round(h * ss));
+  const zb = new ZBuffer(W, H, '#0b141b');
+  const S = v => [v[0] * ss, v[1] * ss, v[2]];
+  // a line item has p (and its end in q); a face has only q, its corners
+  for (const it of solid) it.p ? zb.line(S(it.p), S(it.q), it.width * ss, it.col, true) : zb.poly(it.q.map(S), it.col, true);
+  for (const e of edges) zb.line(S([e.p[0], e.p[1], e.p[2] + EDGE]), S([e.q[0], e.q[1], e.q[2] + EDGE]), e.width * ss, e.col, false);
+  const mid = it => it.p ? (it.p[2] + it.q[2]) / 2 : it.q.reduce((s, v) => s + v[2], 0) / it.q.length;
+  glass.sort((a, b) => mid(a) - mid(b));
+  for (const it of glass) it.p ? zb.line(S(it.p), S(it.q), it.width * ss, it.col, false) : zb.poly(it.q.map(S), it.col, false);
+  const buf = document.createElement('canvas');
+  buf.width = W; buf.height = H;
+  buf.getContext('2d').putImageData(zb.img, 0, 0);
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(buf, 0, 0, w, h);
+  overlay.forEach(f => f());
   ctx.fillStyle = '#8aa0ad'; ctx.font = '12px system-ui, sans-serif';
   ctx.fillText(meshes && body ? `课程 STL 网格（抽稀）· 夹爪四连杆开口 ${body.gap_mm.toFixed(0)} mm · 红点：指垫中心`
                : body ? `规划用的采样点（没有网格：先跑 dev/sim/web_meshes.py）· 夹爪开口 ${body.gap_mm.toFixed(0)} mm · 红点：指垫中心与爪轴`

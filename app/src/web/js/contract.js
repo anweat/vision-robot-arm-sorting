@@ -75,6 +75,7 @@ export const EVENTS = {
   alarm: { status: "stable", meaning: "需要人确认的报警", record: null },
   alarm_ack: { status: "stable", meaning: "报警已确认", record: null },
   speed: { status: "stable", meaning: "控制台速度改动", record: null },
+  script_changed: { status: "stable", meaning: "流程脚本在某一端被保存或删除", record: null },
 };
 
 // 分步流程（文档 32 §2）：步骤名、显示名、要不要选块、会不会动臂
@@ -93,7 +94,27 @@ export const FLOW_EXTRA_STEPS = [
 ];
 export const ALARM_NAMES = {
   grip_failed: "重试用尽仍空爪", jammed: "夹爪卡在块上", grasp_failed: "抓取中途停止",
-  place_failed: "放置中途停止", stall: "堵转",
+  place_failed: "放置中途停止", stall: "堵转", wait_gesture_timeout: "等手势超时",
+};
+export const alarmName = (kind) => ALARM_NAMES[kind] ?? kind;
+
+// 告警提示（作业台「提示」栏与告警页）：日志里出问题的事件按严重程度归类，人点"知道了"才清。
+// 和 alarm（流程脚本发的、要确认的报警，红条）分开：这些是旧流水线与执行侧直接写的故障事件。
+// 确认走同一条 alarm_ack（kind="notices"），写进日志，所有端同步消失。
+const where = (e) => (Array.isArray(e.cube) ? `（${e.cube[0]?.toFixed?.(1)}, ${e.cube[1]?.toFixed?.(1)}）cm` : "");
+export const NOTICES = {
+  pipeline_missed: { level: "warn", title: "抓空", text: (e) => `${categoryName(e.category)}${where(e)} ${e.reason ?? ""}` },
+  pipeline_approach_failed: { level: "warn", title: "接近遇阻", text: (e) => `${where(e)} ${e.reason ?? ""}` },
+  pipeline_put_failed: { level: "bad", title: "放置失败", text: (e) => `→ ${e.bin ?? "?"} ${e.reason ?? ""}` },
+  pipeline_stuck: { level: "warn", title: "物块互相挡住", text: (e) => `目标位 ${e.bin ?? "?"} 被挡` },
+  gripper_not_closed: { level: "warn", title: "夹爪没响应合爪", text: (e) => `第 ${e.attempt ?? "?"} 次，回读 ${e.readback ?? "—"}°` },
+  gripper_still_asleep: { level: "bad", title: "夹爪唤醒失败", text: (e) => `回读 ${e.readback ?? "—"}°` },
+  gripper_wake_refused: { level: "bad", title: "夹爪唤醒被拒", text: (e) => e.reason ?? "" },
+  table_z_disagrees: { level: "warn", title: "桌面高度与标定不符", text: (e) => `扫描 ${e.scan_cm} cm / 标定 ${e.calibrated_cm} cm，需重新标定` },
+  bin_full: { level: "warn", title: "容器已满", text: (e) => `${e.bin} 已有 ${e.count} 块，不再投放` },
+  unknown_object: { level: "warn", title: "发现未知物体", text: (e) => `${where(e)} 不抓取，图片已存档` },
+  stall: { level: "bad", title: "舵机堵转", text: (e) => `J${e.joint} 期望 ${e.expected}° 回读 ${e.readback}°` },
+  stopped: { level: "info", title: "任务中止", text: (e) => e.reason ?? "" },
 };
 
 // 异常日志页关心的事件：出问题的都在这里，其余进实时状态页的事件流

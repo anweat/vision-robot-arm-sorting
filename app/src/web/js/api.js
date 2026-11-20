@@ -65,6 +65,33 @@ export const sendCmd = async (cmd, extra = {}) => {
   return body;
 };
 
+/**
+ * 流程脚本（文档 35）：各端共用网关上的同一份脚本库。
+ * 解析与校验只在服务端做（src/flow/script.py），页面拿到解析后的结构和逐路径的错误/警告来画。
+ */
+const postJson = async (url, body) => {
+  const res = await fetch(authUrl(url), {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
+    body: JSON.stringify({ source: "web", ...body }),
+  });
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = new Error(payload.error || `失败 ${res.status}`);
+    err.status = res.status;
+    err.body = payload;                            // 409 冲突时带 current（另一端存下的内容）
+    throw err;
+  }
+  return payload;
+};
+export const fetchScripts = () => json("/api/scripts");
+export const fetchCapabilities = () => json("/api/scripts/capabilities");
+export const fetchScript = (name) => json(`/api/scripts/${encodeURIComponent(name)}`);
+export const checkScript = (text) => postJson("/api/scripts/check", { text });
+export const saveScript = (name, text, rev) => postJson("/api/scripts/save", { name, text, rev });
+export const deleteScript = (name, rev) => postJson("/api/scripts/delete", { name, rev });
+export const fetchHealth = () => json("/api/health");
+
 /** 页面关闭/切后台时放开操作权（sendBeacon 在 unload 期间也能发出去）；控制台 2 s 内自停 */
 export const releaseControl = () => {
   // 只停续租（release），不发 stop：stop 会连正在跑的分拣流程一起停，切个浏览器标签不该停机械臂

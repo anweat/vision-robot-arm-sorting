@@ -2,8 +2,9 @@
 // 指令一律经 POST /api/cmd 下发，字段按需求规格 ④；运动由控制台执行，本页不直接碰硬件。
 
 import { MODES, MODE_NAMES, JOINT_LIMITS, NAMED_POSES, categoryName } from "./contract.js";
-import { sendCmd, sendVoice, sendGesture, fetchInteract, armInteract, fetchBlocks, authUrl } from "./api.js";
+import { sendCmd, sendVoice, sendGesture, fetchInteract, armInteract, fetchBlocks } from "./api.js";
 import { toast } from "./format.js";
+import { createCamera } from "./media.js";
 
 const PRESETS = [["dance", "跳舞"], ["stack", "叠积木"], ["carry", "搬运"]];
 
@@ -47,20 +48,11 @@ export function createControlView(root) {
       <div class="row" id="modeRow"></div>
       <p class="hint" id="modeHint">当前模式由服务端持有，切换会写入运行记录。预设动作、视觉自主可以切，但执行侧和视觉侧还没接进来，切过去不会有实际动作。</p>
     </section>
-    <!-- 视图行：3D 动画 与 腕部相机 左右并排，对齐仿真工作台的顶栏布局。
-         3D 只留一个：接仿真控制台时直接用它自己的工作台；实机没有这一页，左栏给一句说明。 -->
-    <div class="grid-2 view-row">
-      <section class="panel">
-        <h2 id="sceneTitle">三维状态视图 <small>骨架点取自服务端正运动学回读，拖动旋转、滚轮缩放</small></h2>
-        <iframe id="simFrame" class="sim-frame" title="仿真工作台" hidden></iframe>
-        <p class="hint" id="sceneHint" hidden>接的是实机控制台，没有仿真工作台这一页；六轴角度与末端坐标见下方数值回读。</p>
-      </section>
-      <section class="panel">
-        <h2>腕部相机 <small>与概览页同一路画面，拖滑块时可对照着看</small></h2>
-        <img id="ctrlCam" class="cam" alt="腕部相机画面">
-        <p class="hint" id="ctrlCamHint">等待画面…</p>
-      </section>
-    </div>
+    <section class="panel cam-mini">
+      <h2>腕部相机 <small>拖滑块时对照着看；三维视图在作业台</small></h2>
+      <img id="ctrlCam" class="cam" alt="腕部相机画面">
+      <p class="hint" id="ctrlCamHint">等待画面…</p>
+    </section>
     <section class="panel">
       <h2>关节控制 <small>拖动滑块后点“下发”，统一走六舵机批量写入</small></h2>
       <div id="jointBars" class="joints"></div>
@@ -106,11 +98,11 @@ export function createControlView(root) {
       </div>
       <p class="hint" id="voiceHint"></p>
       <div class="row" id="gestureRow">
-        <span class="dim">手势（连发 3 帧，与识别器逐帧上报等价）</span>
+        <span class="dim">手势（连发 3 帧，与识别器逐帧上报等价；脚本里的「等手势」也认这里）</span>
+        <button data-gesture="ok">OK→开始</button>
+        <button data-gesture="palm">手掌→停止</button>
         <button data-gesture="fist">握拳→合爪</button>
-        <button data-gesture="like">点赞→启动</button>
-        <button data-gesture="ok">OK→停止</button>
-        <button data-gesture="palm">张开→松爪</button>
+        <button data-gesture="like">点赞→松爪</button>
       </div>
       <p class="hint" id="gestureHint"></p>
       <ul class="hint" id="interactRecent" style="max-height:120px;overflow:auto;padding-left:18px"></ul>
@@ -194,10 +186,6 @@ export function createControlView(root) {
     await cmd({ cmd: "speed", speed: +speedRange.value }, `速度 ${speedRange.value}°/s`);
     speedDragging = false;
   });
-  // 心跳：页面可见时每 0.8 s 一次；网关只在收到心跳时替本页续控制台租约，关页/切后台即停
-  setInterval(() => {
-    if (document.visibilityState === "visible") sendCmd("heartbeat", {}).catch(() => {});
-  }, 800);
   root.querySelectorAll("button[data-grip]").forEach((btn) =>
     btn.addEventListener("click", () =>
       cmd({ cmd: "gripper", action: btn.dataset.grip }, `夹爪“${btn.textContent}”已下发`)));
@@ -297,64 +285,7 @@ export function createControlView(root) {
   setInterval(pullBlocks, 2000);
   pullBlocks();
 
-  // 接的是仿真控制台时，用它的 3D 视图当这一页唯一的 3D。只嵌 ?embed=scene：
-  // 工作台其余面板（它自己的腕部相机、关节滑块、桌面物块表、日志、接口）这一页都有，
-  // 整页嵌进来就会两套控件并排、还各用各的 owner 抢操作权（409）。
-  const simFrame = $("simFrame");
-  const sceneTitle = $("sceneTitle");
-  const SCENE_SKELETON = "三维状态视图 <small>接的是实机控制台，数值回读见下方</small>";
-  const SCENE_SIM = "仿真工作台 <small>桌面、物块、料框都是仿真场景；拖动旋转、滚轮缩放</small>";
-  const simEmbedUrl = (base) => base + (base.indexOf("?") >= 0 ? "&" : "?") + "embed=scene";
-  let simUrl = null;
-  fetch(authUrl("/api/health")).then((r) => r.json()).then((h) => {
-    if (h.console && h.console_sim) simUrl = h.console.replace(/\/+$/, "") + "/sim/";
-    // 控制台可能比页面晚连上：探到之后再定一次，免得一直停在"没有工作台"的样子
-    if (simUrl) applyScene(true);
-  }).catch(() => { });
-
-  function applyScene(sim) {
-    simFrame.hidden = !sim;
-    $("sceneHint").hidden = sim;
-    sceneTitle.innerHTML = sim ? SCENE_SIM : SCENE_SKELETON;
-    // 已经加载过就别再重设 src：每次重设都会白屏一两秒，看起来像"没有内容"
-    if (sim && simFrame.getAttribute("src") !== simEmbedUrl(simUrl)) simFrame.src = simEmbedUrl(simUrl);
-    if (!sim) simFrame.src = "about:blank";   // 实机/后台时卸掉，仿真页自己还占一条长连接
-  }
-
-  // 腕部相机只在控制面板可见时拉：切到别的页签就停，不去占渲染线程。
-  // 上一帧没回来就先不再发新请求，否则浏览器会把旧请求中断掉、控制台刷一片 ERR_ABORTED
-  const cam = $("ctrlCam");
-  const camHint = $("ctrlCamHint");
-  // 失败指数退避：断线时别固定每 0.6 s 刷一片错，越失败间隔越长（上限 10 s）；
-  // 成功一帧就清零回到 0.6 s。camBusy 仍保证同一时刻只飞一帧请求。
-  let camBusy = false;
-  let camFail = 0;
-  let camTimer = null;
-  const CAM_BASE = 600, CAM_MAX = 10000;
-  const scheduleCam = () => {
-    clearTimeout(camTimer);
-    camTimer = setTimeout(tickCam, Math.min(CAM_BASE * 2 ** camFail, CAM_MAX));
-  };
-  const tickCam = () => {
-    if (root.hidden) { scheduleCam(); return; }   // 不可见也保持调度，切回来立即恢复
-    if (camBusy) return;
-    camBusy = true;
-    cam.src = authUrl(`/api/frame?t=${Date.now()}`);
-  };
-  cam.addEventListener("load", () => {
-    camBusy = false;
-    camFail = 0;
-    camHint.textContent = `${cam.naturalWidth}×${cam.naturalHeight} · 每 0.6 s 一帧`;
-    scheduleCam();
-  });
-  cam.addEventListener("error", () => {
-    camBusy = false;
-    camFail += 1;
-    const retry_s = Math.min(CAM_BASE * 2 ** camFail, CAM_MAX) / 1000;
-    camHint.textContent = `没有画面：未接控制台（--console）或相机还没出图（${retry_s} s 后重试）`;
-    scheduleCam();
-  });
-  tickCam();        // 首帧立即拉，之后由 load/error 自行调度
+  createCamera($("ctrlCam"), $("ctrlCamHint"), () => !root.hidden && !document.hidden);
 
   return {
     update(store) {
@@ -421,10 +352,5 @@ export function createControlView(root) {
           + ` 运动按每段 ≤${Math.round(arm.speed?.step_deg ?? 8)}° 分段执行（随速度变）、六轴同段同动，段间回读校验、遇阻力立即停；一次只执行一条，整条路径先检查再动。`;
     },
 
-    // 这个页签被切进来 / 切出去时调用：仿真页自己也占一条相机长连接，
-    // 切走就卸掉，免得把它和我们的两条流一起把浏览器同域 6 条配额吃光
-    show() { if (!root.hidden && simUrl) applyScene(true); },
-
-    hide() { applyScene(false); },
   };
 }
