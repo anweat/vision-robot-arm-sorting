@@ -66,7 +66,9 @@ APART_CM = 4.5
 # across the jaw, and with the jaw 36-39 deg off a face (the pads turn the block square), so no alignment test
 GRASP_OVERLAP_M = 0.0      # the pads must reach the block's side at all
 GRASP_ACROSS_M = 0.010     # pad centre to block centre, across the jaw axis in the table plane (held up to 8.8 mm)
-GRASP_ALIGN_DEG = 45.0     # jaw axis to the nearest face normal: 45 = any (real holds at 36-39 deg)
+GRASP_ALIGN_DEG = 40.0     # jaw axis to the nearest face normal: real grips held 36-39 deg off; corner-on (~45)
+                           # closed on nothing twice on 2026-09-27 (arm_limits gripper note); = planning squaring_max_deg
+GRASP_CORE_INSET_M = 0.005  # no gripper point inside the block shrunk this much at its sides (planning's target_touch_inset_m)
 PAD_HALF_M = 0.5 * (GG.pad_z_range_link(GR.contact(0.03))[1] - GG.pad_z_range_link(GR.contact(0.03))[0])
 PLATFORM_LINKS = tuple(TUNING.load().raw.get("checks", {}).get("platform_links", ()))
 CONTACT_STRIDE = 3         # every 3rd link sample (4 mm voxels); the gripper's 3 mm voxels all, so a 2 mm wall is not missed
@@ -463,8 +465,9 @@ class World:
         The pads are taken where they stand at contact with a BLOCK-wide block (planning.gripper.contact):
         their centre, the jaw axis and their height span along the link's z. A block qualifies when the pads
         cover >= GRASP_OVERLAP_M of its height, sit within GRASP_ACROSS_M of its centre across the jaw, the
-        jaw is within GRASP_ALIGN_DEG of a face normal (45: any), and the opening it closed from (`opened_j6`)
-        left room to straddle it. The pads then square it onto the jaw axis and push it to the middle."""
+        jaw is within GRASP_ALIGN_DEG of a face normal (corner-on is not), and the opening it closed from (`opened_j6`)
+        left room to straddle it, and no gripper point stands inside its core (GRASP_CORE_INSET_M in from the
+        sides: a finger on its top). The pads then square it onto the jaw axis and push it to the middle."""
         q5 = list(actual[:5])
         pad = np.array(GR.pad_centre(q5, GR.contact(BLOCK)))
         link = BODY.link5(q5)
@@ -473,6 +476,7 @@ class World:
         across_h = np.array([-jaw_h[1], jaw_h[0]])
         half_z = PAD_HALF_M * abs(pad_up[2])          # the pads' height span, seen vertically
         slack = 0.5 * (GG.gap_for_delta(GR.delta_for_j6(min(opened_j6, 180))) - BLOCK)
+        closed_on, _ = BODY.gripper(q5, GR.contact(BLOCK), stride=1, pose=link)   # every gripper point, pads on 30 mm
         best = None
         for bid, b in self.blocks.items():
             r, c = b["pose"][:3, :3], b["pose"][:3, 3]
@@ -493,6 +497,14 @@ class World:
                 rot = np.array([[ct, -st, 0], [st, ct, 0], [0, 0, 1]]) @ r
                 centre = c.copy()
                 centre[:2] += along * jaw_h
+                # squared and pushed to the middle, a finger must not stand inside the block's core
+                # (GRASP_CORE_INSET_M in from its sides): it would be pressing on its top, not closing on its
+                # sides, and the block tips or flicks away (the real J5 166 grip, 29 deg tilt)
+                up = int(np.argmax(np.abs(rot[2])))
+                lim = np.full(3, BLOCK / 2 - GRASP_CORE_INSET_M)
+                lim[up] = BLOCK / 2
+                if np.any(np.all(np.abs((closed_on - centre) @ rot) <= lim, axis=1)):
+                    continue
                 best = (float(np.linalg.norm(d[:2])), bid, centre, rot)
         return None if best is None else best[1:]
 

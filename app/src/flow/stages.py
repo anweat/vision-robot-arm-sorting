@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import math
+import urllib.request
 import sys
 import time
 from pathlib import Path
@@ -41,8 +42,21 @@ def _use_console(url: str | None) -> str:
     return console_step.BASE
 
 
+_SIM: dict = {}
+
+
 def _is_sim(url: str) -> bool:
-    return url.rstrip("/").endswith(":8770")
+    """Whether the console at `url` is the simulator, by what it says it is (/api/bootstrap status.mode), not
+    by its port: a simulator on another port was taken for the real arm (2026-11-20) and its scans written into
+    the real arm's records. A console that does not answer counts as the real arm (on-site confirmation)."""
+    url = url.rstrip("/")
+    if url not in _SIM:
+        try:
+            with urllib.request.urlopen(url + "/api/bootstrap", timeout=5) as r:
+                _SIM[url] = json.loads(r.read()).get("status", {}).get("mode") == "simulation"
+        except (OSError, ValueError):
+            return False
+    return _SIM[url]
 
 
 def _confirm_onsite(url: str, confirm: Callable[[str], str] | None, what: str) -> None:
@@ -57,9 +71,15 @@ def _confirm_onsite(url: str, confirm: Callable[[str], str] | None, what: str) -
 # ------------------------------------------------------------------------------------------------ scan
 
 def scan(sess: FlowSession, console: str | None = None, bins_design: str | None = None, really: bool = False,
-         confirm: Callable[[str], str] | None = None) -> dict:
+         confirm: Callable[[str], str] | None = None, refine: bool = False,
+         refine_near: Sequence[float] | None = None) -> dict:
     """Visit the scan poses (src/pipeline/field_scan.py) and save the views to <session>/scan/.
-    Moves the arm: needs really=True, and an on-site confirmation unless the console is the simulator."""
+    Moves the arm: needs really=True, and an on-site confirmation unless the console is the simulator.
+
+    `refine`: then, as the verified pipeline does (run.refine), one close view of every block only partly seen
+    or weakly detected, the bins kept out of the look poses. A position off by ~1.5 cm across the jaw closes
+    the pads on nothing (2026-11-20 simulator rounds, doc 34 §8). `refine_near` (base x, y): a close view of the
+    blocks within 4 cm of it however well they were seen -- the retry after an empty grip."""
     url = _use_console(console)
     if not really:
         raise RuntimeError("scan moves the arm: pass really=True (CLI --really)")
@@ -73,8 +93,28 @@ def scan(sess: FlowSession, console: str | None = None, bins_design: str | None 
     FS.scan(run)
     if bins_design and FS.has_bin_views(bins_design):
         FS.scan_bins(run, None, bins_design)
+    refined = 0
+    if refine or refine_near is not None:
+        import run as R
+        before = len(json.loads((run / "views.json").read_text(encoding="utf-8")))
+        weak = R.needs_refine
+        if refine_near is not None:
+            def chosen(cube, _near=tuple(refine_near)):
+                return math.dist(G.map_to_base(cube["map_cm"][0] / 100, cube["map_cm"][1] / 100), _near) < 0.04
+            R.needs_refine = chosen
+        try:
+            with G.Session() as lease:
+                if bins_design:
+                    R.use_bins(R.locate_bins(run, bins_design))  # look poses keep off the bins; blocks in them are done
+                scene = R.build_scene(run)
+                R.use_registration(scene["registration"])
+                R.refine(run, scene, lease)
+        finally:
+            R.needs_refine = weak
+        refined = len(json.loads((run / "views.json").read_text(encoding="utf-8"))) - before
     views = json.loads((run / "views.json").read_text(encoding="utf-8"))
-    out = dict(scan_dir=str(run), console=url, views=len(views), bin_views=(run / "bin_views.json").exists())
+    out = dict(scan_dir=str(run), console=url, views=len(views), refine_views=refined,
+               bin_views=(run / "bin_views.json").exists())
     sess.log("scan", **out)
     return out
 
@@ -186,7 +226,8 @@ def plan(sess: FlowSession, task, cmap=None) -> dict:
         dest = Destination(b["centre_m"][0], b["centre_m"][1], None, t.table_z + b["size_m"][2], b.get("name", "bin"))
     else:
         dest = Destination(to["table_m"][0], to["table_m"][1], to.get("yaw_deg"), None, "table")
-    pick, place = PP.plan_pick_and_place(w, start, target, dest, float(task.get("start_j6", 30)))
+    pick, place = PP.plan_pick_and_place(w, start, target, dest, float(task.get("start_j6", 30)),
+                                         avoid_j5=[float(v) for v in task.get("avoid_j5", ())])
     out = dict(task=task, ok=False, tuning=t.to_dict(), map=dict(objects=len(m.objects), shape=list(m.shape),
                                                                  source=m.source), plans=[pick.to_dict()])
     if pick.ok:
@@ -195,11 +236,14 @@ def plan(sess: FlowSession, task, cmap=None) -> dict:
         if place.ok:
             ret = task.get("return_to", start)
             if ret:
-                after = wp
+                # the way back keeps the clearances the release was planned with (planner.plan_place tiers),
+                # and the block just set down is between the open fingers at the back-off pose: it gets the
+                # touch margin there, as plan_place's own back-off step gives it
+                after = PP.touching(wp) if place.summary.get("place_tier") == "touching" else wp
                 if dest.rim_z is None:
                     rel = place.summary["release"]
-                    after = wp.with_extra(PS.block(rel["block_centre_cm"][0] / 100, rel["block_centre_cm"][1] / 100,
-                                                   rel["block_yaw_deg"], "placed", target.size), t.neighbour())
+                    after = after.with_extra(PS.block(rel["block_centre_cm"][0] / 100, rel["block_centre_cm"][1] / 100,
+                                                      rel["block_yaw_deg"], "placed", target.size), t.target_touch())
                 back = PP.plan_transit(after, place.end, ret, place.steps[-1].j6)
                 out["plans"].append(back.to_dict())
                 out["ok"] = back.ok

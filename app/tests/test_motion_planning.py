@@ -16,6 +16,7 @@ from planning import body as B  # noqa: E402
 from planning import checks as K  # noqa: E402
 from planning import config as C  # noqa: E402
 from planning import gripper as GR  # noqa: E402
+from planning import grasp as GP  # noqa: E402
 from planning import planner as P  # noqa: E402
 from planning import scene as S  # noqa: E402
 from planning import solver as V  # noqa: E402
@@ -157,11 +158,43 @@ class PickTest(unittest.TestCase):
         self.assertGreater(plan.summary["pad_above_table_cm"], 1.8)
         self.assertLess(plan.summary["pad_above_table_cm"], 2.7)
 
-    def test_a_block_at_45_deg_far_out_has_no_flat_grasp(self):
+    def test_a_block_at_45_deg_far_out_is_squared_by_a_level_jaw(self):
+        # 2026-11-20: no flat squared grasp there, but the level jaw is within squaring_max_deg of its faces and
+        # the closing pads turn it square (real grips held 36-39 deg off, doc 34 §8)
         w, tgt = world(target=(0.05, 0.24, 45.0))
         plan = P.plan_pick(w, OBSERVE, tgt)
-        self.assertFalse(plan.ok)
-        self.assertTrue(plan.reasons)
+        self.assertTrue(plan.ok, plan.reasons[:3])
+        g = plan.summary["grasp"]
+        self.assertFalse(g["aligned"])
+        self.assertLessEqual(g["residual_deg"], C.G["squaring_max_deg"])
+        self.assertLessEqual(g["tilt_deg"], C.G["max_grasp_tilt_deg"])
+
+    def test_the_relaxed_tiers_still_keep_off_a_wall_beside_the_block(self):
+        # only neighbouring blocks are relaxed: a bin wall (any non-block object) keeps every clearance
+        wall = S.box_on_table(0.037, 0.20, 0.004, 0.08, 0.042, 0.0, "wall")
+        w, tgt = world([wall], (0.0, 0.20, 0.0))
+        plan = P.plan_pick(w, OBSERVE, tgt)
+        if plan.ok:
+            for st in plan.steps:
+                self.assertFalse(st.check.worst_obstacle == "wall" and st.check.obstacles < 0, st.name)
+        else:
+            self.assertTrue(any("wall" in r for r in P.pick_plans.last_why))
+
+    def test_a_retry_turns_the_jaw_or_says_it_could_not(self):
+        # 2026-11-20 (doc 34 §8): an empty grip is retried across the other pair of faces when one is possible
+        w, tgt = world(target=(0.0, 0.20, 10.0))
+        first = P.plan_pick(w, OBSERVE, tgt)
+        again = next(P.pick_plans(w, OBSERVE, tgt, avoid_j5=[first.summary["j5"]]))
+        if again.summary.get("retry_same_jaw"):
+            self.assertEqual(again.summary["j5"], first.summary["j5"])
+        else:
+            self.assertGreaterEqual(P._jaw_turn(again.summary["j5"], first.summary["j5"]), P.AVOID_J5_DEG)
+
+    def test_a_grasp_never_tilts_the_jaw_past_the_limit(self):
+        # quarter-turning the jaw at pitch ~150 tilts it ~30 deg; the real grip with a 29 deg tilt closed on nothing
+        w, tgt = world([S.block(0.045, 0.20, name="n1"), S.block(-0.045, 0.20, name="n2")], (0.0, 0.20, 0.0), NO_ERRORS)
+        for g in GP.candidates(w, tgt):
+            self.assertLessEqual(g.tilt_deg, C.G["max_grasp_tilt_deg"])
 
     def test_near_the_base_steep_pitches_reach_and_the_platform_ends_it(self):
         # 2026-11-15: 13-15 cm out was refused because solve_tcp checked the joint floor on its first guess
@@ -224,8 +257,14 @@ class ObstacleTest(unittest.TestCase):
         self.assertTrue(plan.ok, plan.reasons)
         self.assertEqual(plan.summary["opening"], "narrow")
 
+    def tiers(self, *names):
+        old = C.G.get("tiers")
+        C.G["tiers"] = list(names)
+        self.addCleanup(C.G.__setitem__, "tiers", old)
+
     def test_the_error_budget_decides_a_tight_spot(self):
         # 5.5 cm apart: refused with the configured scene errors, a narrower opening without them
+        self.tiers("full")
         boxes = [S.block(0.055, 0.20, name="n1"), S.block(-0.055, 0.20, name="n2")]
         w, tgt = world(boxes, (0.0, 0.20, 0.0))
         tight = P.plan_pick(w, OBSERVE, tgt)
@@ -236,11 +275,29 @@ class ObstacleTest(unittest.TestCase):
         self.assertTrue(exact.ok, exact.reasons)
         self.assertIn(exact.summary["opening"], ("narrow", "tight"))
 
-    def test_neighbours_too_close_beside_it_are_named(self):
+    def test_with_the_full_tier_only_neighbours_too_close_are_named(self):
+        self.tiers("full")
         w, tgt = world([S.block(0.045, 0.20, name="n1"), S.block(-0.045, 0.20, name="n2")], (0.0, 0.20, 0.0), NO_ERRORS)
         plan = P.plan_pick(w, OBSERVE, tgt)
         self.assertFalse(plan.ok)
         self.assertTrue(any("n1" in r or "n2" in r for r in plan.reasons))
+
+    def test_the_tiers_relax_only_the_neighbours_and_say_so(self):
+        # 2026-11-20 (doc 34 §8): a tight spot the full clearances refuse is taken at a later tier, flagged
+        boxes = [S.block(0.045, 0.20, name="n1"), S.block(-0.045, 0.20, name="n2")]
+        w, tgt = world(boxes, (0.0, 0.20, 0.0))
+        plan = P.plan_pick(w, OBSERVE, tgt)
+        self.assertTrue(plan.ok, plan.reasons[:3])
+        self.assertIn(plan.summary["grasp_tier"], ("touching", "pipeline"))
+        self.assertTrue(plan.summary["tier_note"])
+        self.assertTrue(any(r.startswith("[full]") for r in P.pick_plans.last_why))
+        # a clear table needs no relaxing
+        w, tgt = world([], (0.0, 0.20, 0.0))
+        self.assertEqual(P.plan_pick(w, OBSERVE, tgt).summary["grasp_tier"], "full")
+        # the pipeline tier still keeps the platform, the table and the target's core
+        self.tiers("pipeline")
+        w, tgt = world([], (0.0, 0.11, 0.0))
+        self.assertFalse(P.plan_pick(w, OBSERVE, tgt).ok)
 
 
 class RouteTest(unittest.TestCase):

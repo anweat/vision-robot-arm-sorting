@@ -135,7 +135,7 @@ def _find(scene: dict, near: dict) -> dict | None:
 
 # ---------------------------------------------------------------------------------------------- steps
 
-def scan(ctx: Context, bins: str | None = None, source: str | None = None, **_) -> Outcome:
+def scan(ctx: Context, bins: str | None = None, source: str | None = None, refine=False, **_) -> Outcome:
     """S1: scan poses -> views -> back to the observe pose -> located.json -> collision map, in
     <session>/scan_<n>/. `source`: use this located.json instead of scanning (no arm motion; for replaying a
     recorded scene)."""
@@ -146,7 +146,10 @@ def scan(ctx: Context, bins: str | None = None, source: str | None = None, **_) 
     else:
         if not ctx.really:
             raise RuntimeError("scan moves the arm: run with --really (or give `source:` a located.json)")
-        ST.scan(sub, console=ctx.console, bins_design=bins, really=True, confirm=lambda _q: "yes")
+        # refine: true -- a close view of the weakly seen blocks; "block" -- of the current block (a retry)
+        near = ctx.block["centre_m"] if refine == "block" and ctx.block else None
+        ST.scan(sub, console=ctx.console, bins_design=bins, really=True, confirm=lambda _q: "yes",
+                refine=refine is True, refine_near=near)
         back = home(ctx)                 # plans start at the observe pose; the scan ends at its last view
         if back.result != "done":
             raise RuntimeError(f"扫描后回观察位失败：{back.summary}")
@@ -168,7 +171,8 @@ def relocate(ctx: Context, **_) -> Outcome:
     if not found:
         return Outcome("gone", f"重扫后在 {FIND_RADIUS_M * 100:.0f} cm 内找不到 {ctx.block['name']}")
     moved = math.dist(found["centre_m"], ctx.block["centre_m"])
-    ctx.block = dict(found, name=ctx.block["name"])
+    keep = {k: ctx.block[k] for k in ("failed_j5", "bin") if k in ctx.block}     # what the attempts learnt
+    ctx.block = dict(found, name=ctx.block["name"], **keep)
     return Outcome("found", f"{ctx.block['name']} 偏移 {moved * 100:.1f} cm", dict(moved_cm=round(moved * 100, 1)))
 
 
@@ -202,11 +206,23 @@ def plan(ctx: Context, to="by_class", table_m=None, start=None, tuning=None, **_
         task["start"] = list(start)
     if tuning:
         task["tuning"] = tuning
+    if ctx.block.get("failed_j5"):                 # a retry: close the jaw across the other faces
+        task["avoid_j5"] = list(ctx.block["failed_j5"])
     p = ST.plan(ctx.block_session(), task, cmap=cmap)
     if not p["ok"]:
         return Outcome("rejected", "解算不通过：" + "；".join(str(r) for r in p["reasons"][:2]), dict(reasons=p["reasons"][:5]))
     ctx.block["bin"] = dest.get("bin", "table")
-    return Outcome("ok", f"{len(p['steps'])} 步，去 {ctx.block['bin']}", dict(steps=len(p["steps"])))
+    # which solving tier each part needed (planner.grasp_tiers): anything past "full" is said in the summary
+    pick_s = p["plans"][0].get("summary", {})
+    place_s = p["plans"][1].get("summary", {}) if len(p["plans"]) > 1 else {}
+    tiers = dict(grasp=pick_s.get("grasp_tier", "full"), place=place_s.get("place_tier", "full"))
+    names = {"touching": "贴边", "pipeline": "按旧流水线口径（不避邻块）"}
+    note = "；".join(f"{'抓取' if k == 'grasp' else '放置'}{names[v]}" for k, v in tiers.items() if v in names)
+    aligned = (pick_s.get("grasp") or {}).get("aligned", True)
+    if not aligned:
+        note = "；".join(filter(None, [note, f"爪面未对正 {(pick_s.get('grasp') or {}).get('residual_deg')}°，靠合爪扳正"]))
+    return Outcome("ok", f"{len(p['steps'])} 步，去 {ctx.block['bin']}" + (f"（{note}）" if note else ""),
+                   dict(steps=len(p["steps"]), tiers=tiers, aligned=aligned))
 
 
 def _execute(ctx: Context, phases, grip_must_hold=True) -> dict:
@@ -223,6 +239,15 @@ def grasp(ctx: Context, **_) -> Outcome:
     return Outcome("done", f"抓取 {r['done']} 步完成")
 
 
+def _remember_failed_jaw(ctx: Context) -> None:
+    """The J5 of the grasp that closed on nothing (its plan.json), so the retry's plan turns the jaw."""
+    try:
+        j5 = ctx.block_session().load("plan.json")["plans"][0]["summary"]["j5"]
+    except (OSError, KeyError, IndexError, TypeError, ValueError):
+        return
+    ctx.block.setdefault("failed_j5", []).append(float(j5))
+
+
 def check(ctx: Context, slip_deg: float = SLIP_DEG, **_) -> Outcome:
     """S4: read the grasp's own log: what the grip read back, and whether J6 closed further during the lift."""
     g = ctx.block_session().load("grasp.json")
@@ -237,6 +262,7 @@ def check(ctx: Context, slip_deg: float = SLIP_DEG, **_) -> Outcome:
     if result == "not_closed":
         return Outcome("jammed", f"夹爪没有合拢（读回 {at_grip}°）", data)
     if result not in ("holding", "dry-run"):
+        _remember_failed_jaw(ctx)
         return Outcome("empty", f"空爪（读回 {at_grip}°）", data)
     if at_grip is not None and after is not None and after - at_grip >= slip_deg:
         return Outcome("slipped", f"抬起时滑脱（{at_grip}° → {after}°）", data)

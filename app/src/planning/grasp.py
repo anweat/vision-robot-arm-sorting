@@ -11,7 +11,8 @@ and wider. A candidate must
     clearance; the closing sweep is checked at the nominal pose against target_touch;
   * keep links 1-4 off the map and the gripper out of the platform;
   * square the jaw to the block faces (both face pairs, any half turn) without tilting it out of the table
-    plane by more than max_jaw_tilt_deg.
+    plane by more than max_jaw_tilt_deg -- or, when that tilts it, keep the jaw level up to squaring_max_deg off
+    the faces and let the closing pads turn the block square (the real arm held blocks 36-39 deg off).
 Ranked: aligned, flat, residual, widest open, most room, nearest the preferred pitch, least rolled.
 """
 
@@ -103,6 +104,7 @@ def candidates(w: K.World, target: Target, prefer: float | None = None, explain:
     base = [target.x + dx, target.y + dy, t.table_z + float(t.trims["pad_centre_height_m"]) + dz]
     out: list[Grasp] = []
     sc = C.G["pitch_scan"]
+    max_tilt = float(C.G.get("max_grasp_tilt_deg", 90.0))      # a jaw tilted further meets the block's edges
     feasible = V.pitch_range(base, C.ROLL_ZERO, c_delta, sc["from_deg"], sc["to_deg"], sc["resolution_deg"])
     if not feasible:
         why.append(f"{math.hypot(target.x, target.y) * 100:.1f} cm from the base: no pitch "
@@ -114,7 +116,9 @@ def candidates(w: K.World, target: Target, prefer: float | None = None, explain:
         if q0 is None:
             why.append(f"pitch {pitch}: out of reach")
             continue
-        for roll in V.roll_candidates(q0, target.yaw_deg)[:4]:
+        rolls = [r for r in V.roll_candidates(q0, target.yaw_deg, squaring_deg=float(C.G.get("squaring_max_deg", 0.0)))
+                 if r["tilt_deg"] <= max_tilt]
+        for roll in rolls[:4]:
             for opening in GR.OPENINGS:
                 note: list = []
                 g = _one(wt, target, base, pitch, roll, opening, c_delta, note)
@@ -148,6 +152,13 @@ def _one(w: K.World, target: Target, base, pitch, roll, opening, c_delta, note) 
     t_open, t_touch = t.target_open(target.size), t.target_touch()
     sweep_end = GR.gg.delta_for_gap(target.size + 0.004)
     tip_margin = t.table(t.clear["fingertip_table_m"])
+    # the closing sweep against the target's core: the pads meet its sides (and square it), they must not
+    # come down on its top (tuning clearances.target_touch_inset_m)
+    inset = t.target_touch_inset()
+    tb = w.target
+    w_core = w if tb is None or inset <= 0 else w.with_target(
+        S.Box(tb.kind, tb.name, tb.centre, (max(tb.half[0] - inset, 0.0), max(tb.half[1] - inset, 0.0), tb.half[2]),
+              tb.yaw_deg))
     closed_margin = t.table(t.clear["closed_fingertip_table_m"])
     q = close = open_c = None
     pad = base
@@ -172,7 +183,7 @@ def _one(w: K.World, target: Target, base, pitch, roll, opening, c_delta, note) 
             q = None
             continue
         open_c = K.pose_check(w, g5, opening.delta, target_margin=t_open)
-        close = K.sweep_check(w, g5, opening.delta, sweep_end, target_margin=t_touch, steps=4)
+        close = K.sweep_check(w_core, g5, opening.delta, sweep_end, target_margin=t_touch, steps=4)
         if open_c.ok and close.ok:
             break
         bad = open_c if not open_c.ok else close

@@ -98,6 +98,11 @@ class Tuning:
     def target_touch(self) -> float:
         return float(self.clear["target_touch_m"])
 
+    def target_touch_inset(self) -> float:
+        """How far the closing sweep's target box is shrunk on each side (its core): the pads may meet the
+        block's sides, not come down on its top."""
+        return float(self.clear.get("target_touch_inset_m", 0.0))
+
     def table(self, base: float) -> float:
         """A table clearance plus the table and arm height errors."""
         return self.combine(base, self.errors["table_z_m"], self.errors["arm_z_m"])

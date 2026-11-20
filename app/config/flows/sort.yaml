@@ -6,8 +6,8 @@ speed: 20                  # °/s，本流程期间的控制台速度（不超�
 stop_after_alarms: 3       # 连续这么多块报警就整轮停
 
 steps:
-  - step: scan             # S1 扫描识别：扫描位姿 → 识别 → located.json → 碰撞地图
-    with: {bins: bins_acrylic_v2_pair}
+  - step: scan             # S1 扫描识别：扫描位姿 → 识别 → 近看补拍看不全/得分低的块 → located.json → 碰撞地图
+    with: {bins: bins_acrylic_v2_pair, refine: true}
     on_result:
       empty: [{stop: 桌上没有找到物块}]
 
@@ -32,8 +32,8 @@ steps:
                 until: holding
                 do:
                   - step: back_off       # 张爪、抬起、回观察位
-                  - step: scan           # 重扫（物块可能被碰动）
-                    with: {bins: bins_acrylic_v2_pair}
+                  - step: scan           # 重扫（物块可能被碰动），并近看这一块
+                    with: {bins: bins_acrylic_v2_pair, refine: block}
                   - step: relocate       # 在新场景里找回这一块，找不到算 gone
                     on_result:
                       gone: [{record: missed}, {next_block: true}]

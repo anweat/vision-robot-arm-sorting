@@ -100,12 +100,18 @@ def jaw_bearing_tilt(q5: Sequence[float]) -> tuple[float, float]:
     return math.degrees(math.atan2(a[1], a[0])), math.degrees(math.asin(min(1.0, abs(a[2]))))
 
 
-def roll_candidates(q4: Sequence[float], yaw_deg: float | None, step: float = 0.5) -> list[dict]:
+def roll_candidates(q4: Sequence[float], yaw_deg: float | None, step: float = 0.5,
+                    squaring_deg: float = 0.0) -> list[dict]:
     """J5 values that square the jaw to faces at bearing `yaw_deg` (mod 90) at this arm pose, best first.
 
     Each local minimum of the folded residual over the J5 limits is a candidate, so half and quarter turns
     both appear; each carries its residual and the jaw's tilt out of the table plane (at pitch p a quarter
-    turn tilts it by up to 180 - p, and tilted pads meet a block's top and bottom edges)."""
+    turn tilts it by up to 180 - p, and tilted pads meet a block's top and bottom edges).
+
+    `squaring_deg` > 0 adds the J5 values that keep the jaw level (least tilt, each half turn) when their
+    residual is within that many degrees, marked `squares`: the closing pads turn the block square to
+    themselves (the real arm held blocks 36-39 deg off, doc 34 §8). They go right after the aligned, level
+    candidates -- for a block whose squared jaw would tilt one finger into the table."""
     lo, hi = C.LIMITS[5]
     if yaw_deg is None:
         b, t = jaw_bearing_tilt(list(q4) + [C.ROLL_ZERO])
@@ -124,4 +130,14 @@ def roll_candidates(q4: Sequence[float], yaw_deg: float | None, step: float = 0.
     tol, tilt = C.G["aligned_tolerance_deg"], C.G["max_jaw_tilt_deg"]
     out.sort(key=lambda c: (c["residual_deg"] > tol, c["tilt_deg"] > tilt,
                             c["residual_deg"] + 0.5 * c["tilt_deg"], abs(c["j5"] - C.ROLL_ZERO)))
+    if squaring_deg > 0:
+        level = []
+        for i, (j5, r, t) in enumerate(rows):          # local minima of the tilt
+            left = rows[i - 1][2] if i else math.inf
+            right = rows[i + 1][2] if i + 1 < len(rows) else math.inf
+            if t <= left and t <= right and r <= squaring_deg and all(abs(c["j5"] - j5) > 2 for c in out + level):
+                level.append(dict(j5=round(j5, 1), residual_deg=r, tilt_deg=t, squares=True))
+        level.sort(key=lambda c: (c["tilt_deg"], c["residual_deg"], abs(c["j5"] - C.ROLL_ZERO)))
+        at = sum(1 for c in out if c["residual_deg"] <= tol and c["tilt_deg"] <= tilt)
+        out[at:at] = level[:2]
     return out

@@ -277,7 +277,10 @@ def make_sink(sess: FlowSession, log: Path | None, echo: bool = True):
     import log_contract as L
 
     def sink(event: str, **fields) -> None:
-        fields = {k: v for k, v in fields.items() if v is not None}
+        # None means "not given" -- except for a field the contract requires and allows to be null
+        # ("category?": a block of unknown category is still recorded with category null)
+        required = (L.EVENTS.get(event) or {}).get("required", {})
+        fields = {k: v for k, v in fields.items() if v is not None or str(required.get(k, "")).endswith("?")}
         sess.log(event, **fields)
         line = dict(t=time.time(), event=event, **fields)
         if echo:

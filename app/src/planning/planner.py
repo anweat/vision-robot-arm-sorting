@@ -19,6 +19,7 @@ from . import gripper as GR
 from . import release as RL
 from . import route as RT
 from . import solver as V
+from . import tuning as TU
 from .grasp import Target
 from .motion import MotionPlan, Step
 from .release import Destination
@@ -66,16 +67,99 @@ def plan_pick(w: K.World, start5: Sequence[float], target: Target, start_j6: flo
                       summary=dict(target=target.to_dict()))
 
 
-def pick_plans(w: K.World, start5: Sequence[float], target: Target, start_j6: float = 30,
-               prefer: float | None = None, why: list | None = None):
-    """Feasible pick MotionPlans, best grasp first (a generator: plan_pick_and_place walks it until a place
-    works). Refusals are appended to `why`."""
+AVOID_J5_DEG = 30.0       # a retry's jaw must turn at least this much from a jaw that closed on nothing
+
+TIER_NOTES = {
+    "full": "",
+    "touching": "the neighbouring blocks checked as exact boxes with no clearance: the fingers may come up to them "
+                "(bins and everything else keep every clearance)",
+    "pipeline": "neighbouring blocks ignored at the grasp, as the verified console pipeline does: the fingers may "
+                "brush or nudge them (the real arm held 4 such blocks, doc 34 §8)",
+}
+
+
+TOUCH_M = 0.0005          # "touching": the gripper may come this near a neighbouring block, not into it
+
+
+def _local(w: K.World) -> K.World:
+    """The relaxed tiers' tuning for what stays in the map (bins, boxes): the position errors only -- no base
+    neighbour clearance, and not the map's largest object sigma applied to everything (one bin placed by
+    design, sigma 1 cm, grew the clearance round every object to ~14 mm). With the configured errors that is
+    ~5 mm round a bin wall: at 0 the simulated fingers brushed the walls, at ~9 mm most blocks within 3.5 cm of
+    a bin were refused (2026-11-20 simulator rounds, doc 34 §8)."""
     t = w.tuning
+    raw = TU._merge(t.raw, {"clearances": {"neighbour_m": 0.0}})
+    return w.with_tuning(type(t)(raw, t.source + " (local)", 0.0, list(t.notes)))
+
+
+def touching(w: K.World, skip: Sequence = ()) -> K.World:
+    """The other blocks taken out of the map and checked as exact boxes the gripper may come up to (TOUCH_M, no
+    position error); the bins and everything else stay in the map with the configured clearance and errors
+    (_local: without the map-wide sigma) -- a bin wall is not to be brushed."""
+    others = [lab for lab in w.block_labels() if lab not in skip and lab not in w.exclude]   # not the held block
+    out = _local(w).without(*others)
+    for lab in others:
+        out = out.with_extra(w.cmap.object_box(lab, w.tuning.table_z), TOUCH_M)
+    return out
+
+
+def grasp_tiers(w: K.World, target: Target) -> list[tuple[str, K.World]]:
+    """The worlds a grasp is solved in, strictest first (motion_planning.json grasp.tiers): "full" (every
+    clearance), "touching" (the neighbouring blocks as exact boxes the gripper may come up to), "pipeline" (the
+    other blocks left out of the grasp-local checks -- descend, open, close, lift). Bins, platform, table and
+    the target keep their checks in every tier, and the way to the hover still keeps clear of everything."""
+    out = []
+    others = [lab for lab in w.block_labels() if lab != target.label]
+    for tier in C.G.get("tiers", ["full"]):
+        if tier == "full":
+            out.append((tier, w))
+        elif tier == "touching":
+            out.append((tier, touching(w, skip=(target.label,))))
+        elif tier == "pipeline":
+            out.append((tier, _local(w).without(*others)))
+    return out
+
+
+def _jaw_turn(a: float, b: float) -> float:
+    """Angle between two jaw directions given as J5 (a half turn is the same jaw)."""
+    return abs((a - b + 90.0) % 180.0 - 90.0)
+
+
+def pick_plans(w: K.World, start5: Sequence[float], target: Target, start_j6: float = 30,
+               prefer: float | None = None, why: list | None = None, avoid_j5: Sequence[float] = ()):
+    """Feasible pick MotionPlans, best grasp first, tier by tier (grasp_tiers; a generator: plan_pick_and_place
+    walks it until a place works). Refusals are appended to `why`. `avoid_j5`: J5 values whose grasps closed on
+    nothing; grasps within AVOID_J5_DEG of one (either half turn) are passed over, so a retry closes the jaw
+    across the other pair of faces -- a position error across the jaw (10 mm tolerance) becomes one along it,
+    where the open pads have ~16 mm to spare."""
     why = [] if why is None else why
     pick_plans.last_why = why
-    cands = GP.candidates(w, target, prefer, why)
-    wt = GP.world_for(w, target)
-    w_held = w.without(target.label) if target.label else w
+    passed_over, given = [], 0
+    for tier, wl in grasp_tiers(w, target):
+        n = len(why)
+        for plan in _pick_plans(w, wl, tier, start5, target, start_j6, prefer, why):
+            j5 = plan.summary["j5"]
+            if any(_jaw_turn(j5, a) < AVOID_J5_DEG for a in avoid_j5):
+                why.append(f"pitch {plan.summary['pitch']} J5 {j5}: passed over, a grasp at J5 {list(avoid_j5)} closed on nothing")
+                passed_over.append(plan)
+                continue
+            given += 1
+            yield plan
+        if len(why) > n:
+            why[n:] = [f"[{tier}] {r}" for r in why[n:]]
+    if not given:                        # no other jaw: try the same one again rather than give the block up
+        for plan in passed_over:
+            plan.summary["retry_same_jaw"] = True
+            yield plan
+
+
+def _pick_plans(w: K.World, wl: K.World, tier: str, start5, target: Target, start_j6, prefer, why: list):
+    """Pick plans for one tier: grasp-local checks in `wl`; the way to the hover in `w` for the full tier, else
+    in the touching world (neighbours as exact boxes -- never ignored on the way, only at the grasp)."""
+    t = w.tuning
+    cands = GP.candidates(wl, target, prefer, why)
+    wt = GP.world_for(w if tier == "full" else touching(w, skip=(target.label,)), target)
+    w_held = wl.without(target.label) if target.label else wl
     c_delta = GR.contact(target.size)
     start_delta = GR.delta_for_j6(start_j6)
     t_open = t.target_open(target.size)
@@ -84,12 +168,13 @@ def pick_plans(w: K.World, start5: Sequence[float], target: Target, start_j6: fl
     for n, cand in enumerate(cands):
         o = cand.opening
         r = RT.plan_route(wt, start5, cand.hover, start_delta, None, target_margin=t_open)
+        wlt = GP.world_for(wl, target)
         if not r.ok:
             why.append(f"pitch {cand.pitch} J5 {cand.j5}: no way to the hover ({r.reason})")
             continue
         h5, g5 = cand.hover, cand.grasp
         held = GR.held_from_grasp(g5, target.size)
-        open_check = K.sweep_check(wt, h5, start_delta, o.delta, target_margin=t_open)
+        open_check = K.sweep_check(wlt, h5, start_delta, o.delta, target_margin=t_open)
         lift_check = K.move_check(w_held, g5, h5, c_delta, held,
                                   table_margin=RT.table_allowance(w_held, g5, h5, c_delta, held))
         if not open_check.ok or not lift_check.ok:
@@ -116,19 +201,21 @@ def pick_plans(w: K.World, start5: Sequence[float], target: Target, start_j6: fl
             fk_tip_at_grasp_cm=[round(v * 100, 2) for v in V.tip(g5)],
             room_to_neighbours_mm=None if cand.room_m == float("inf") else round(cand.room_m * 1000, 1),
             held_block=held.to_dict(), route=dict(method=r.method, **r.stats), table_z_cm=round(t.table_z * 100, 2),
-            alternatives=len(cands) - 1, **_site_flags(steps))
+            alternatives=len(cands) - 1, grasp_tier=tier, tier_note=TIER_NOTES.get(tier, ""), **_site_flags(steps))
         yield MotionPlan("pick", True, steps, summary, why[-6:], held=held)
 
 
 def plan_pick_and_place(w: K.World, start5: Sequence[float], target: Target, dest: Destination,
-                        start_j6: float = 30, prefer: float | None = None) -> tuple[MotionPlan, MotionPlan]:
+                        start_j6: float = 30, prefer: float | None = None,
+                        avoid_j5: Sequence[float] = ()) -> tuple[MotionPlan, MotionPlan]:
     """The best grasp whose carried block can also be released at `dest` (the grasp fixes the block's pose
     in the fingers, and with it which release poses keep it level). Returns (pick, place)."""
     why: list = []
     first = None
-    for pick in pick_plans(w, start5, target, start_j6, prefer, why):
+    for pick in pick_plans(w, start5, target, start_j6, prefer, why, avoid_j5):
         first = first or pick
-        place = plan_place(w.without(target.label) if target.label else w, pick.end, pick.held, dest)
+        place = plan_place(w.without(target.label) if target.label else w, pick.end, pick.held, dest,
+                           from_tier=pick.summary.get("grasp_tier", "full"))
         if place.ok:
             pick.summary["chosen_for_place"] = True
             return pick, place
@@ -142,11 +229,29 @@ def plan_pick_and_place(w: K.World, start5: Sequence[float], target: Target, des
 
 
 def plan_place(w: K.World, start5: Sequence[float], held: GR.Held, dest: Destination,
-               prefer_pitch: float | None = None) -> MotionPlan:
+               prefer_pitch: float | None = None, from_tier: str = "full") -> MotionPlan:
     """Carry the held block over the destination, set it down (table) or let go above the rim (bin), open,
-    back off. `w` must not contain the held block (World.without(its label))."""
-    t = w.tuning
+    back off. `w` must not contain the held block (World.without(its label)). Tried with every clearance,
+    then "touching" (never with the neighbours left out, so a block is not set down on another). `from_tier`:
+    the pick's tier -- the carry starts where the pick ended, so a place does not start stricter than it."""
     why: list = []
+    order = ("full", "touching")
+    first = order.index(from_tier) if from_tier in order else len(order) - 1
+    for tier, wl in (("full", w), ("touching", touching(w)))[first:]:
+        if tier not in C.G.get("tiers", ["full"]):
+            continue
+        n = len(why)
+        plan = _plan_place(wl, start5, held, dest, prefer_pitch, why)
+        why[n:] = [f"[{tier}] {r}" for r in why[n:]]
+        if plan is not None:
+            plan.summary.update(place_tier=tier, tier_note=TIER_NOTES.get(tier, ""))
+            plan.reasons = why[-6:]
+            return plan
+    return MotionPlan("place", False, reasons=why or ["no release pose"], summary=dict(destination=dest.to_dict()))
+
+
+def _plan_place(w: K.World, start5, held: GR.Held, dest: Destination, prefer_pitch, why: list) -> MotionPlan | None:
+    t = w.tuning
     c_delta = GR.contact(held.side)
     trim = _trim(w)
     grip = float(t.trims["grip_command_deg"])
@@ -190,4 +295,4 @@ def plan_place(w: K.World, start5: Sequence[float], held: GR.Held, dest: Destina
                        pitch=rel.pitch, j5=round(rel.j5, 1), into=dest.into, opening=o.action, open_j6=o.j6,
                        route=dict(method=carry.method, **carry.stats), **_site_flags(steps))
         return MotionPlan("place", True, steps, summary, why[-6:])
-    return MotionPlan("place", False, reasons=why or ["no release pose"], summary=dict(destination=dest.to_dict()))
+    return None

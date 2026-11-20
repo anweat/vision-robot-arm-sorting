@@ -47,6 +47,13 @@ class World:
     def with_extra(self, box: Box, margin: float) -> "World":
         return World(self.cmap, self.tuning, self.target, self.exclude, list(self.extra) + [(box, margin)])
 
+    def with_tuning(self, tuning: Tuning) -> "World":
+        return World(self.cmap, tuning, self.target, self.exclude, list(self.extra))
+
+    def block_labels(self) -> tuple:
+        """Labels of every block in the map (the neighbours a grasp's fingers might brush)."""
+        return tuple(o["id"] for o in self.cmap.objects if o.get("kind", "block") == "block")
+
     def tallest(self) -> float:
         tops = [self.cmap.tallest(self.tuning.table_z, self.exclude)] + [b.top for b, _ in self.extra]
         if self.target is not None:

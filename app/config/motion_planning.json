@@ -40,6 +40,12 @@
   ],
   "aligned_tolerance_deg": 12.0,
   "max_jaw_tilt_deg": 15.0,
+  "squaring_max_deg": 40.0,
+  "max_grasp_tilt_deg": 20.0,
+  "tiers": ["full", "touching", "pipeline"],
+  "_tiers_note": "2026-11-20: grasp solving tiers, strictest first, the first that yields a plan wins (planner.grasp_tiers). full: every clearance. touching: the neighbouring blocks checked as exact boxes the gripper may come up to (0.5 mm), with no position error. pipeline: the neighbouring blocks left out of the grasp-local checks, as the verified console pipeline does. Bins, platform and table keep every clearance in every tier (a simulator round with the bins at zero clearance brushed their walls, 2026-11-20). Evidence: the real arm held 4 blocks (2026-11-06 scans) whose grasp poses the model puts +7.8 to -5.8 mm from a neighbour against a 10.5-14.2 mm neighbour clearance (doc 34 §8). Plans carry grasp_tier; drop entries here to forbid a tier.",
+  "_max_grasp_tilt_note": "2026-11-20: a grasp whose jaw tilts out of the table plane by more than this is not tried (max_jaw_tilt_deg only ranks). Evidence from the real grips (dev/tools/grasp_replay.py): held with a 17 deg tilt (J5 121), closed on nothing with 28.7 deg (J5 166), the lower fingertip inside the block's top. Two points; 20 sits between them.",
+  "_squaring_note": "2026-11-20: when squaring the jaw to the faces would tilt it, also try the J5 that keeps it level if that is at most this far off the faces; the closing pads turn the block square. Evidence: three real grips with the jaw 36-39 deg off a face held (readback 128; dev/tools/grasp_replay.py, doc 34 §8); none further off was recorded. Such grasps report aligned=false.",
   "_moved_note": "pad_centre_height_m, grip_command_deg, prefer_pitch_deg -> planning_tuning.json trims; fingertip margins -> planning_tuning.json clearances (2026-11-15)",
   "_pad_centre_note": "middle of the pads above the table when they close on a 3 cm block. The verified console grasp (FK tip 1.2 cm above the -1.42 table, +1 cm radially) closes them at ~2.5 cm above this table, i.e. on the block's top centimetre; 1.8 cm puts them around its middle. Not tried on the arm.",
   "pitch_scan": {
@@ -65,9 +71,10 @@
    -15
   ],
   "max_block_tilt_deg": {
-   "table": 8.0,
+   "table": 17.0,
    "bin": 25.0
   },
+  "_table_tilt_note": "2026-11-20: 8 -> 17 deg. The verified console pipeline put blocks down on the map codes at its own pitch whatever the grasp pitch: of 29 real puts the pitch changed by up to 16 deg between grip and put (block tilted that much in the fingers), and all 29 completed; let go 3 mm up, the block rocks onto its face (doc 34 §8, data/runs/console_grasp/log.jsonl). 8 deg kept far grasps (pitch 130-135) from being set down nearer the base.",
   "_tilt_note": "a block gripped at pitch p tilts with any J5 roll at another pitch or bearing; set down on the table it must be near level, dropped into a bin it only has to fit the 80 mm opening. yaw None keeps the J5 it was carried at. 2026-11-15: on the table the limit is max(table, the tilt the grasp gave the block + 1): a block squared by a tilted jaw (steep pitch + J5 roll, up to grasp.max_jaw_tilt_deg) is held that far out of level, and set down at the grasp's pitch and J5 it comes down exactly as it was lifted.",
   "rises_m": [
    0.03,
