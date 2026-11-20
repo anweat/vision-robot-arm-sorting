@@ -2,6 +2,7 @@
 # Run ON the board (docs 31 §2.1c): bring up camera server, console and gateway; safe to re-run.
 #   ssh -p 2222 root@<phone Tailscale IP> 'sh /root/arm-app/scripts/board_up.sh'
 #   ... 'sh /root/arm-app/scripts/board_up.sh stop'      stop the three (beacon keeps running)
+#   ... 'python3 /root/arm-app/scripts/board_check.py'   only check, start nothing (doc 36)
 #
 # Starting the console does not move the arm: it only reads the servos until a client sends a motion command
 # (doc 32 §1.2: the first motion command takes control). Check the arm's surroundings before driving it.
@@ -54,7 +55,11 @@ printf 'console: '; curl -s -m 2 -o /dev/null -w '%{http_code}\n' http://127.0.0
 
 # 3. gateway :8090 on all interfaces (phone relay, eth1); --lan forces the token
 [ -s "$TOKEN_FILE" ] || $VPY -c 'import secrets; print(secrets.token_urlsafe(12))' > "$TOKEN_FILE"
-if ! alive gateway; then
+# Something already answering on :8090 (a gateway started by hand, say) is left alone instead of being doubled.
+GW_CODE=$(curl -s -m 1 -o /dev/null -w '%{http_code}' http://127.0.0.1:8090/api/health)
+if ! alive gateway && [ "$GW_CODE" != 000 ]; then
+  echo "gateway: :8090 already answers ($GW_CODE) but not from gateway.pid; left as it is"
+elif ! alive gateway; then
   setsid nohup $VPY src/web/serve.py --console http://127.0.0.1:8765 --lan --port 8090 \
     --token "$(cat "$TOKEN_FILE")" --log data/web/log.jsonl --flow-python "$VPY" \
     --task "$GATEWAY_TASK" --pipeline-args "$PIPELINE_ARGS" \
@@ -64,3 +69,5 @@ if ! alive gateway; then
 fi
 printf 'gateway: '; curl -s -m 2 -H "X-Token: $(cat "$TOKEN_FILE")" http://127.0.0.1:8090/api/health; echo
 echo "map ARM_MAP=$ARM_MAP; start runs: $GATEWAY_TASK $PIPELINE_ARGS; token in /root/arm-app/$TOKEN_FILE"
+# Gateways started by hand on other ports, a missing phone link, the beacon: one summary (read-only)
+/usr/bin/python3 scripts/board_check.py || true

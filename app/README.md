@@ -18,7 +18,7 @@
 | 操作员任务 | `src/tasks/`：`console_grasp`、`sort_blocks`、`scramble`、`bin_checkout`、`touch_survey`、`gripper_probe` | 板上，经控制台 | 抓放、分拣、打乱、桶核对、触地标定、夹爪慢合探测 |
 | 语音/手势指令 | `src/interact/intents.py` | 仿真已接；实机未接 | 识别结果→指令的判定（[25](../docs/atlas-200i-dk-a2/25-语音手势接口.md)） |
 | 手机 App | `mobile/android/` | 安卓手机 | 跳板（Tailscale 转发网关与 SSH）+ 双摇杆控制 + 任务页（[说明](mobile/android/README.md)） |
-| 上板脚本 | `scripts/board_up.sh`、`scripts/board_beacon.py`、`scripts/deploy.sh` | 板上 / Mac | 起停三项服务、局域网广播板卡地址、从 Mac 部署 |
+| 上板脚本 | `scripts/board_up.sh`、`scripts/board_beacon.py`、`scripts/board_check.py`、`scripts/deploy.sh` | 板上 / Mac | 起停三项服务、局域网广播板卡地址、板卡自检（只读）、从 Mac 部署；整条链路检查用仓库的 `dev/tools/check_links.py`（[36](../docs/atlas-200i-dk-a2/36-启动与链路检测指南.md)） |
 | 配置 | `config/` | — | 限位、地图、桶、夹爪与连杆模型、标定、规划参数、流程脚本 |
 | 接口契约与样例 | `contracts/log_event.schema.json`、`samples/` | — | 日志契约的 JSON Schema（由 `src/tools/log_contract.py` 生成）；回放与测试用的日志样例 |
 | 测试 | `tests/` | Mac | 只测这里的代码，不需要硬件 |
