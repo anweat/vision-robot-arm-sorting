@@ -1,0 +1,41 @@
+# 预设动作「叠积木」（网关 run_preset stack、网页「手动操作」的预设按钮）。2026-11-21 新写，只在仿真里跑过。
+# 扫描 → 由近及远：第一块当塔底不动，后面的逐块叠到塔顶，塔到 3 块就停 → 回观察位。
+# 叠好的位置不靠重扫：普通扫描把每块都当成放在桌面上，看不出叠层（docs/current/41），
+# 所以放好后按规划的落点更新场景（steps._scene_after_place），下一块据此规划。也因此空爪时不重扫重试，
+# 只张爪退回、跳过这一块。叠放的规划见 docs/current/40；对齐和松爪后会不会带歪下面的块，实机都没看过。
+name: stack
+title: 叠积木（预设动作）
+description: 扫描 → 第一块作塔底，后面的逐块叠上去（最多 3 层）→ 回观察位；不进桶
+speed: 20
+stop_after_alarms: 2
+steps:
+  - step: led
+    with: {color: blue}
+  - step: scan
+    with: {bins: bins_acrylic_v2_pair, refine: true}
+    on_result:
+      empty: [{step: led, with: {color: "off"}}, {stop: 桌上没有找到物块}]
+  - for_each: blocks
+    order: reach
+    do:
+      - step: plan
+        with: {to: stack, on: top, levels: 3}
+        on_result:
+          base: [{next_block: true}]                  # 塔底：留在原处
+          no_destination: [{record: skipped, reason: 塔已经够高}, {next_block: true}]
+          rejected: [{record: skipped}, {next_block: true}]
+      - step: grasp
+        on_result:
+          failed: [{step: led, with: {color: red}}, {alarm: grasp_failed, then: stop}]
+      - step: check
+        on_result:
+          holding: []
+          jammed: [{step: back_off}, {step: led, with: {color: red}}, {alarm: jammed, then: stop}]
+          default: [{step: back_off}, {record: missed, reason: 空爪或滑脱，不重扫重试}, {next_block: true}]
+      - step: place
+        on_result:
+          failed: [{step: led, with: {color: red}}, {alarm: place_failed, then: stop}]
+      - record: sorted
+  - step: home
+  - step: led
+    with: {color: "off"}

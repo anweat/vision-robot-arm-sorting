@@ -82,6 +82,8 @@ class Runner:
     def __init__(self, ctx: SP.Context, script: dict | None = None):
         self.ctx = ctx
         self.script = script or {}
+        if self.script.get("motion"):
+            ctx.motion = self.script["motion"]
         self.alarm_streak = 0
         self.block_alarmed = False
         self.block_started = 0.0

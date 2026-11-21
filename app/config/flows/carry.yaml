@@ -1,0 +1,39 @@
+# 预设动作「搬运」（网关 run_preset carry、网页「手动操作」的预设按钮）。2026-11-21 新写，只在仿真里跑过。
+# 扫描 → 由近及远逐块搬到桌面上的空位（A4 纸面内、离原处至少 6 cm、离别的物体 1.5 cm，由近到远试 6 个）→ 回观察位。
+# 放好后按规划的落点更新场景（steps._scene_after_place），后面的块不会选到已经被占的空位。
+# 空爪不重扫重试（重扫会丢掉这次更新的落点），只张爪退回、跳过。不进桶，所以收尾不做 verify（它查的是块离开桌面）。
+name: carry
+title: 搬运（预设动作）
+description: 扫描 → 每块搬到桌面上旁边的空位 → 回观察位；不进桶
+speed: 20
+stop_after_alarms: 2
+steps:
+  - step: led
+    with: {color: blue}
+  - step: scan
+    with: {bins: bins_acrylic_v2_pair, refine: true}
+    on_result:
+      empty: [{step: led, with: {color: "off"}}, {stop: 桌上没有找到物块}]
+  - for_each: blocks
+    order: reach
+    do:
+      - step: plan
+        with: {to: table}
+        on_result:
+          no_destination: [{record: skipped, reason: 桌面上没有空位}, {next_block: true}]
+          rejected: [{record: skipped}, {next_block: true}]
+      - step: grasp
+        on_result:
+          failed: [{step: led, with: {color: red}}, {alarm: grasp_failed, then: stop}]
+      - step: check
+        on_result:
+          holding: []
+          jammed: [{step: back_off}, {step: led, with: {color: red}}, {alarm: jammed, then: stop}]
+          default: [{step: back_off}, {record: missed, reason: 空爪或滑脱，不重扫重试}, {next_block: true}]
+      - step: place
+        on_result:
+          failed: [{step: led, with: {color: red}}, {alarm: place_failed, then: stop}]
+      - record: sorted
+  - step: home
+  - step: led
+    with: {color: "off"}

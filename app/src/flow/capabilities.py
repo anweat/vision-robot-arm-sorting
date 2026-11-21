@@ -50,6 +50,8 @@ CAPABILITIES: dict[str, dict] = {
         group="vision", label="扫描识别", moves=True, block=False, status="ready",
         help="到扫描位姿逐视角拍照 → 识别 → 定位物块与桶 → 碰撞地图；refine 近看补拍看不全的块",
         params=dict(bins=P("str", "桶设计", None, help=BINS_HELP),
+                    observe=P("str", "观察脚本", "field", advanced=True,
+                              help="按哪份观察脚本走扫描位姿（app/config/observe/<名字>.yaml；默认 field 整场扫描）"),
                     refine=P("enum", "近看补拍", False, enum=[False, True, "block"],
                              help="true：补拍看不全/得分低的块；block：只近看当前这一块"),
                     min_views=P("int", "幻影门槛", 0, min=0, max=8,
@@ -73,12 +75,21 @@ CAPABILITIES: dict[str, dict] = {
     "plan": dict(
         group="grasp", label="解算验证", moves=False, block=True, status="ready",
         help="抓取 + 投放 + 返回整条路径先检查，不动臂",
-        params=dict(to=P("enum", "放到", "by_class", enum=["by_class", "table"],
-                         help="by_class：按类别投对应的桶；table：放回桌面")),
-        results=["ok", "rejected", "no_destination", "gone"], success=["ok"]),
+        params=dict(to=P("enum", "放到", "by_class", enum=["by_class", "table", "stack"],
+                         help="by_class：按类别放进对应的桶；table：放到桌面上的空位（离原处至少 6 cm、离别的物体 1.5 cm，"
+                              "由近到远试 6 个，规划通过的第一个）；stack：叠到 on 指定的那块上（面对齐）"),
+                    on=P("str", "叠在", None, help="to=stack 时下面那块：场景里的块名（如 b2），或 top＝本轮叠起来的塔顶"
+                                                   "（还没有塔时当前块作塔底、不动，结果 base）"),
+                    levels=P("int", "塔高上限", 3, min=2, max=4, unit="块", advanced=True,
+                             help="on=top 时塔到这么多块就不再往上叠（结果 no_destination）"),
+                    bin_mode=P("enum", "入桶方式", "set", enum=["set", "drop"],
+                               help="set：伸进桶里尽量放低再松爪（夹爪碰不到桶壁的最低处）；drop：在桶沿上方松手（2026-11-21 前的做法）")),
+        results=["ok", "rejected", "no_destination", "gone", "base"], success=["ok"]),
     "grasp": dict(
         group="grasp", label="抓取", moves=True, block=True, status="ready",
-        help="下探、合爪、抬起（按解算好的路径）", params={},
+        help="下探、合爪、抬起（按解算好的路径）", params=dict(motion=P("enum", "动作方式", None, enum=["steps", "continuous"],
+                                help="steps：每一步停下、读回核对再走下一步；continuous：合爪、放下前修正之间的各步连成一条轨迹一次发出，"
+                                     "只在张爪处和末尾停（docs/current/42 §4，未上实机）。不填按脚本顶层 motion")),
         results=["done", "failed"], success=["done"]),
     "check": dict(
         group="grasp", label="抓后检查", moves=False, block=True, status="ready",
@@ -91,7 +102,9 @@ CAPABILITIES: dict[str, dict] = {
         results=["done", "failed"], success=["done"]),
     "place": dict(
         group="grasp", label="放置", moves=True, block=True, status="ready",
-        help="搬到目标位、松手、回观察位", params={},
+        help="搬到目标位、松手、回观察位", params=dict(motion=P("enum", "动作方式", None, enum=["steps", "continuous"],
+                                help="steps：每一步停下、读回核对再走下一步；continuous：合爪、放下前修正之间的各步连成一条轨迹一次发出，"
+                                     "只在张爪处和末尾停（docs/current/42 §4，未上实机）。不填按脚本顶层 motion")),
         results=["done", "failed"], success=["done"]),
     # ---- motion ----------------------------------------------------------------------------------------
     "home": dict(
@@ -183,7 +196,8 @@ CONTROL = {
     "next_block": dict(keys=["next_block", "note"], label="下一块", help="结束这一块，处理下一块（只在 for_each 里）"),
     "stop": dict(keys=["stop", "note"], label="停止流程", help="整个流程到此为止，值是原因"),
 }
-TOP_KEYS = ["name", "title", "description", "version", "speed", "stop_after_alarms", "steps"]
+TOP_KEYS = ["name", "title", "description", "version", "speed", "motion", "stop_after_alarms", "steps"]
+MOTIONS = ["steps", "continuous"]   # top-level `motion`: how grasp / place send their steps (flow/moves.py)
 RECORDS = ["sorted", "missed", "skipped"]
 THEN = ["skip_block", "stop", "continue"]
 ORDERS = ["reach", "scene"]
@@ -192,4 +206,4 @@ ORDERS = ["reach", "scene"]
 def catalog() -> dict:
     """The JSON a page needs to show, check and build scripts."""
     return dict(version=2, groups=GROUPS, statuses=list(STATUSES), capabilities=CAPABILITIES, control=CONTROL,
-                top_keys=TOP_KEYS, records=RECORDS, then=THEN, orders=ORDERS)
+                top_keys=TOP_KEYS, records=RECORDS, then=THEN, orders=ORDERS, motions=MOTIONS)

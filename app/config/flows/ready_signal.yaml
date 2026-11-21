@@ -1,8 +1,9 @@
-# 就绪提示：亮绿灯、响一声、播报“准备就绪”。三项板卡端都还没有接口（capabilities.py 标为 unavailable），
-# 这份脚本能读能改，但运行会在动臂前被拒绝并写明缺什么——留着当板卡端加接口后的验收用例。
+# 就绪提示：亮绿灯、响一声、播报“准备就绪”。灯和蜂鸣已有控制台接口（/api/led、/api/beep，PR #7 移植，2026-11-20），
+# 播报 say 板卡端还没有（capabilities.py 标为 unavailable），所以这份脚本能读能改，但运行会在动臂前被拒绝并写明缺什么——
+# 留着当播报接好后的验收用例。
 name: ready_signal
-title: 就绪提示（声光，待板卡接口）
-description: 绿灯 + 蜂鸣 + 播报；板卡端加 /api/led、/api/buzzer、播报后可用
+title: 就绪提示（声光，待播报接口）
+description: 绿灯 + 蜂鸣 + 播报；板卡端接好播报（say）后可用
 steps:
   - step: led
     with: {color: green}

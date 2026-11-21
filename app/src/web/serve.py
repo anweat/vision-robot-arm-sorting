@@ -60,7 +60,7 @@ from flow.capabilities import catalog as capability_catalog  # noqa: E402
 WEB = Path(__file__).resolve().parent
 
 MODES = ("manual", "preset", "auto")
-PRESETS = ("dance", "stack", "carry")   # 预设动作 = config/flows/<名字>.yaml 流程脚本（dance 已有）
+PRESETS = ("dance", "stack", "carry")   # 预设动作 = config/flows/<名字>.yaml 流程脚本（三份都有，2026-11-21）
 SOURCES = ("web", "mobile", "voice", "gesture", "timer", "button")
 CMDS = ("start", "stop", "set_mode", "run_preset", "set_joints", "move_to", "unlock_bin",
         "enable", "gripper", "heartbeat", "takeover", "speed", "drive", "goto", "flow_step", "alarm_ack", "release",
@@ -1322,7 +1322,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(dict(ok=True, action=action, holding=grip.get("holding"),
                                    result=grip.get("result"), readback=grip.get("readback")))
 
-        # 以下运动都要控制台（H1-3）。预设动作组的跳舞、搬运是一组动作，由硬件组提供，这里不假造。
+        # 以下运动都要控制台（H1-3）。预设动作是同名流程脚本（dance / stack / carry.yaml），没有脚本就 501，不假造。
         if cmd == "run_preset":                        # 预设动作就是同名的流程脚本（dance.yaml）
             preset = body.get("preset")
             if preset not in PRESETS:

@@ -264,7 +264,7 @@ class GatewayTest(unittest.TestCase):
         status, body = self.call("/api/scripts")
         self.assertEqual(status, 200)
         names = {s["name"]: s for s in body["scripts"]}
-        self.assertTrue({"sort", "gesture_scan", "gesture_sort", "dance", "gripper_check", "ready_signal"} <= set(names))
+        self.assertTrue({"sort", "gesture_scan", "gesture_sort", "dance", "stack", "carry", "gripper_check", "ready_signal"} <= set(names))
         self.assertTrue(names["dance"]["runnable"] and names["gesture_sort"]["runnable"])
         self.assertFalse(names["ready_signal"]["runnable"])
         status, cat = self.call("/api/scripts/capabilities")
@@ -292,12 +292,16 @@ class GatewayTest(unittest.TestCase):
         self.assertEqual(self.call("/api/scripts/delete", dict(name="t1"))[0], 200)
 
     def test_run_preset_is_the_script(self):
-        status, body = self.call("/api/cmd", dict(cmd="run_preset", preset="stack"))
+        import serve as S
+        from unittest.mock import patch
+        with patch.object(S, "PRESETS", S.PRESETS + ("wave",)):   # a preset name with no script behind it
+            status, body = self.call("/api/cmd", dict(cmd="run_preset", preset="wave"))
         self.assertEqual(status, 501)
         self.assertIn("流程脚本", body["error"])
-        status, body = self.call("/api/cmd", dict(cmd="run_preset", preset="dance"))
-        self.assertEqual(status, 409)                       # dance.yaml exists; no console in this test
-        self.assertIn("未接控制台", body["error"])
+        for preset in ("dance", "stack", "carry"):          # each is config/flows/<preset>.yaml; no console here
+            status, body = self.call("/api/cmd", dict(cmd="run_preset", preset=preset))
+            self.assertEqual(status, 409, preset)
+            self.assertIn("未接控制台", body["error"])
 
     def test_run_script_refuses_before_spawning(self):
         status, body = self.call("/api/cmd", dict(cmd="run_script", name="ready_signal"))

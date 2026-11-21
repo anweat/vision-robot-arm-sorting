@@ -57,6 +57,9 @@ class _Checker:
         sp = s.get("speed")
         if sp is not None and (not _num(sp) or not 3 <= sp <= 40):
             self.err("speed", "speed 应为 3–40 的数字（°/s）")
+        mo = s.get("motion")
+        if mo is not None and mo not in ("steps", "continuous"):
+            self.err("motion", "motion 应为 steps 或 continuous")
         n = s.get("stop_after_alarms")
         if n is not None and (not isinstance(n, int) or isinstance(n, bool) or n < 1):
             self.err("stop_after_alarms", "stop_after_alarms 应为 ≥1 的整数")

@@ -10,7 +10,7 @@ files (`orchestrator.py --step grasp --session S --block b3`).
 |----------|---------------|-------------------------------------------|
 | scan     | yes           | done, empty                               |
 | relocate | no            | found, gone                               |
-| plan     | no            | ok, rejected, no_destination, gone        |
+| plan     | no            | ok, rejected, no_destination, gone, base  |
 | grasp    | yes           | done, failed                              |
 | check    | no            | holding, empty, slipped, jammed           |
 | back_off | yes           | done, failed                              |
@@ -20,6 +20,7 @@ files (`orchestrator.py --step grasp --session S --block b3`).
 """
 from __future__ import annotations
 
+import copy
 import json
 import math
 import time
@@ -32,6 +33,14 @@ from .session import FlowSession, load_json
 
 SLIP_DEG = 3            # J6 closing this much further across the lift: the block left the fingers (console_grasp)
 FIND_RADIUS_M = 0.03    # a block found again after a rescan must be this close to where it was
+# to: table with no table_m -- a free spot on the page (docs/current/35 §10.1, carry.yaml)
+TABLE_AREA_M = (-0.13, 0.09, 0.13, 0.265)   # x0, y0, x1, y1, base frame: the A4 page of map_a4_v4 (long edge across,
+                                            # base = map + (0, 6.75 cm)) less 1.5-2 cm at the edges
+SPOT_STEP_M = 0.02
+SPOT_CLEAR_M = 0.015    # between the block's footprint circle and any other object's
+SPOT_MIN_MOVE_M = 0.06  # a carry that moves the block less than this is not worth the trip
+SPOT_TRIES = 6          # spots planned, nearest first, before `rejected`
+TOWER_LEVELS = 3        # stack with on: top -- the tower stops growing at this many blocks
 SUCCESS = dict(scan="done", relocate="found", plan="ok", grasp="done", check="holding", back_off="done",
                place="done", verify="ok", home="done")
 
@@ -57,6 +66,8 @@ class Context:
     first_scene: dict | None = None     # the scene the round started from (verify compares with it)
     sorted: list = field(default_factory=list)
     scans: int = 0
+    motion: str = "steps"               # how grasp / place send their steps (flow/moves.py); a script's top-level `motion`
+    tower: list = field(default_factory=list)   # plan to: stack, on: top -- scene names, base first
 
     # ---- helpers ------------------------------------------------------------------------------------
     def emit(self, event: str, **fields) -> None:
@@ -148,10 +159,74 @@ def _find(scene: dict, near: dict) -> dict | None:
     return best
 
 
+def free_spots(scene: dict, block: dict, area=TABLE_AREA_M, step: float = SPOT_STEP_M,
+               clear: float = SPOT_CLEAR_M, min_move: float = SPOT_MIN_MOVE_M) -> list[list[float]]:
+    """Spots on the page where `block` could be set down: its footprint circle `clear` away from every other
+    object's (blocks and bins, noise left out), at least `min_move` from where it is; nearest first.
+    Whether the arm reaches one, and the way there, is the planner's to say."""
+    def radius(o):
+        return math.hypot(*o["size_m"][:2]) / 2
+    others = [o for o in scene.get("objects", []) if o.get("name") != block.get("name") and not o.get("noise")]
+    r0 = radius(block)
+    x0, y0, x1, y1 = area
+    out = []
+    nx, ny = int((x1 - x0) / step + 1e-9), int((y1 - y0) / step + 1e-9)   # floor: no spot past the page's edge
+    for i in range(nx + 1):
+        for j in range(ny + 1):
+            c = (x0 + i * step, y0 + j * step)
+            d = math.dist(c, block["centre_m"])
+            if d < min_move:
+                continue
+            if all(math.dist(c, o["centre_m"]) >= r0 + radius(o) + clear for o in others):
+                out.append((d, [round(c[0], 3), round(c[1], 3)]))
+    return [s for _, s in sorted(out)]
+
+
+def _scene_after_place(ctx: Context) -> None:
+    """After a block was set down on the table or on another block: the scene as the plan left it, so the next
+    block's plan sees it where it now stands (a free spot taken, a tower one level higher) without a rescan --
+    the ordinary scan takes every block to stand on the table (stack_scan, docs/current/41, is not a step yet).
+    A block put into a bin keeps the old handling (plan drops it from the first scene)."""
+    dest = ctx.block.get("to") or {}
+    if "bin" in dest:
+        return
+    try:
+        p = ctx.block_session().load("plan.json")
+        rel = p["plans"][1]["summary"]["release"]
+    except (OSError, KeyError, IndexError, TypeError, ValueError):
+        return
+    scene = copy.deepcopy(ctx.scene)
+    if ctx.scene is ctx.first_scene:               # blocks already put into bins leave the copy, as plan does
+        binned = {f["name"] for o in ctx.sorted if "bin" in (o.get("to") or {"bin": 1})
+                  and (f := _find_any(scene, o)) is not None}
+        scene["objects"] = [o for o in scene["objects"] if o["name"] not in binned]
+    obj = next((o for o in scene["objects"] if o.get("name") == p["task"]["pick"]), None)
+    if obj is None:
+        return
+    c = rel["block_centre_cm"]
+    new = [c[0] / 100, c[1] / 100]
+    if obj.get("map_cm"):                           # map and base frame differ by a shift (map_a4: no rotation)
+        obj["map_cm"] = [round(obj["map_cm"][0] + (new[0] - obj["centre_m"][0]) * 100, 2),
+                         round(obj["map_cm"][1] + (new[1] - obj["centre_m"][1]) * 100, 2)] + list(obj["map_cm"][2:])
+    bottom = 0.0
+    if "stack_on" in dest:
+        under = next((o for o in scene["objects"] if o.get("name") == dest["stack_on"]), None)
+        if under is not None:
+            bottom = float(under.get("bottom_m", 0.0)) + float(under["size_m"][2])
+    obj.update(centre_m=[round(v, 4) for v in new], yaw_deg=rel["block_yaw_deg"], bottom_m=round(bottom, 4),
+               placed_by_flow=True)
+    after = FlowSession(ctx.block_session().path / "after")
+    after.save("located.json", scene)
+    ST.build_map(after)
+    ctx.scene, ctx.map_path = scene, after.file("collision_map.json")
+    if "stack_on" in dest:
+        ctx.tower.append(obj["name"])
+
+
 # ---------------------------------------------------------------------------------------------- steps
 
 def scan(ctx: Context, bins: str | None = None, source: str | None = None, refine=False, min_views: int = 0,
-         **_) -> Outcome:
+         observe: str = "field", **_) -> Outcome:
     """S1: scan poses -> views -> back to the observe pose -> located.json -> collision map, in
     <session>/scan_<n>/. `source`: use this located.json instead of scanning (no arm motion; for replaying a
     recorded scene)."""
@@ -165,7 +240,7 @@ def scan(ctx: Context, bins: str | None = None, source: str | None = None, refin
         # refine: true -- a close view of the weakly seen blocks; "block" -- of the current block (a retry)
         near = ctx.block["centre_m"] if refine == "block" and ctx.block else None
         ST.scan(sub, console=ctx.console, bins_design=bins, really=True, confirm=lambda _q: "yes",
-                refine=refine is True, refine_near=near)
+                refine=refine is True, refine_near=near, observe=observe)
         back = home(ctx)                 # plans start at the observe pose; the scan ends at its last view
         if back.result != "done":
             raise RuntimeError(f"扫描后回观察位失败：{back.summary}")
@@ -198,8 +273,13 @@ def relocate(ctx: Context, **_) -> Outcome:
     return Outcome("found", f"{ctx.block['name']} 偏移 {moved * 100:.1f} cm", dict(moved_cm=round(moved * 100, 1)))
 
 
-def plan(ctx: Context, to="by_class", table_m=None, start=None, tuning=None, **_) -> Outcome:
-    """S2: grasp + place + return, the whole path checked against the collision map. Nothing moves."""
+def plan(ctx: Context, to="by_class", table_m=None, start=None, tuning=None, on=None, bin_mode="set",
+         levels: int = TOWER_LEVELS, **_) -> Outcome:
+    """S2: grasp + place + return, the whole path checked against the collision map. Nothing moves.
+
+    to=table without table_m: the free spots of the page (free_spots), nearest first, the first that plans.
+    to=stack, on=top: onto the tower this run is building (ctx.tower); with no tower yet the current block is
+    its base and stays where it is (result `base`)."""
     ctx.load_latest()
     current = _find(ctx.scene, ctx.block)          # the latest scan names blocks afresh: match by position
     if current is None:
@@ -210,12 +290,26 @@ def plan(ctx: Context, to="by_class", table_m=None, start=None, tuning=None, **_
         target = next((b for b in bin_objects(ctx.scene) if b.get("class") == cls), None) if cls else None
         if target is None:
             return Outcome("no_destination", f"{ctx.block['name']}（{cls or '类别未知'}）没有对应的桶")
-        dest = {"bin": target["name"]}
+        dests = [{"bin": target["name"], "mode": bin_mode}]
     elif to == "table":
-        dest = {"table_m": list(table_m)}
+        spots = [list(table_m)] if table_m else free_spots(ctx.scene, current)[:SPOT_TRIES]
+        if not spots:
+            return Outcome("no_destination", f"桌面上找不到放 {ctx.block['name']} 的空位")
+        dests = [{"table_m": s} for s in spots]
+    elif to == "stack":
+        if on == "top":
+            if not ctx.tower:
+                ctx.tower.append(name)
+                return Outcome("base", f"{ctx.block['name']} 作塔底，不动", dict(tower=list(ctx.tower)))
+            if len(ctx.tower) >= int(levels):
+                return Outcome("no_destination", f"塔已经 {len(ctx.tower)} 层（上限 {levels}）")
+            on = ctx.tower[-1]
+        under = next((o for o in ctx.scene["objects"] if o.get("kind") == "block" and o.get("name") == on), None)
+        if under is None:
+            return Outcome("no_destination", f"场景里找不到要叠在下面的块 {on!r}")
+        dests = [{"stack_on": under["name"]}]
     else:
-        raise ValueError(f"plan: to 只允许 by_class / table，收到 {to!r}")
-    task = dict(pick=name, to=dest)
+        raise ValueError(f"plan: to 只允许 by_class / table / stack，收到 {to!r}")
     cmap = ctx.map_path
     gone = [o["name"] for o in ctx.sorted if (f := _find_any(ctx.scene, o)) is not None and f["name"] != name] \
         if ctx.scene is ctx.first_scene else []
@@ -224,16 +318,23 @@ def plan(ctx: Context, to="by_class", table_m=None, start=None, tuning=None, **_
         bs.save("located.json", dict(ctx.scene, objects=[o for o in ctx.scene["objects"] if o["name"] not in gone]))
         ST.build_map(bs)
         cmap = bs.file("collision_map.json")
-    if start:
-        task["start"] = list(start)
-    if tuning:
-        task["tuning"] = tuning
-    if ctx.block.get("failed_j5"):                 # a retry: close the jaw across the other faces
-        task["avoid_j5"] = list(ctx.block["failed_j5"])
-    p = ST.plan(ctx.block_session(), task, cmap=cmap)
+    for dest in dests:
+        task = dict(pick=name, to=dest)
+        if start:
+            task["start"] = list(start)
+        if tuning:
+            task["tuning"] = tuning
+        if ctx.block.get("failed_j5"):             # a retry: close the jaw across the other faces
+            task["avoid_j5"] = list(ctx.block["failed_j5"])
+        p = ST.plan(ctx.block_session(), task, cmap=cmap)
+        if p["ok"]:
+            break
     if not p["ok"]:
-        return Outcome("rejected", "解算不通过：" + "；".join(str(r) for r in p["reasons"][:2]), dict(reasons=p["reasons"][:5]))
-    ctx.block["bin"] = dest.get("bin", "table")
+        tried = f"（试了 {len(dests)} 个空位）" if len(dests) > 1 else ""
+        return Outcome("rejected", "解算不通过" + tried + "：" + "；".join(str(r) for r in p["reasons"][:2]),
+                       dict(reasons=p["reasons"][:5], tried=len(dests)))
+    ctx.block["bin"] = dest.get("bin") or (f"on {dest['stack_on']}" if "stack_on" in dest else "table")
+    ctx.block["to"] = dest
     # which solving tier each part needed (planner.grasp_tiers): anything past "full" is said in the summary
     pick_s = p["plans"][0].get("summary", {})
     place_s = p["plans"][1].get("summary", {}) if len(p["plans"]) > 1 else {}
@@ -247,14 +348,15 @@ def plan(ctx: Context, to="by_class", table_m=None, start=None, tuning=None, **_
                    dict(steps=len(p["steps"]), tiers=tiers, aligned=aligned))
 
 
-def _execute(ctx: Context, phases, grip_must_hold=True) -> dict:
+def _execute(ctx: Context, phases, grip_must_hold=True, motion: str | None = None) -> dict:
     return ST.execute(ctx.block_session(), console=ctx.console, really=ctx.really, confirm=lambda _q: "yes",
-                      backend=ctx.make_backend(), phases=phases, grip_must_hold=grip_must_hold)
+                      backend=ctx.make_backend(), phases=phases, grip_must_hold=grip_must_hold,
+                      motion=motion or ctx.motion)
 
 
-def grasp(ctx: Context, **_) -> Outcome:
+def grasp(ctx: Context, motion: str | None = None, **_) -> Outcome:
     """S3: descend, close, lift (the plan's `pick` steps). A grip that does not hold is left to `check`."""
-    r = _execute(ctx, ("pick",), grip_must_hold=False)
+    r = _execute(ctx, ("pick",), grip_must_hold=False, motion=motion)
     ctx.block_session().save("grasp.json", r)
     if not r["ok"]:
         return Outcome("failed", f"抓取中途停止：{r['stopped']}", dict(stopped=r["stopped"]))
@@ -314,12 +416,13 @@ def back_off(ctx: Context, **_) -> Outcome:
     return Outcome("done", "已张爪退回观察位")
 
 
-def place(ctx: Context, **_) -> Outcome:
+def place(ctx: Context, motion: str | None = None, **_) -> Outcome:
     """S6: carry, release, return (the plan's `place` and `transit` steps)."""
-    r = _execute(ctx, ("place", "transit"))
+    r = _execute(ctx, ("place", "transit"), motion=motion)
     if not r["ok"]:
         return Outcome("failed", f"放置中途停止：{r['stopped']}", dict(stopped=r["stopped"]))
     ctx.sorted.append(ctx.block)
+    _scene_after_place(ctx)
     return Outcome("done", f"已放到 {ctx.block.get('bin', '目标位')}")
 
 
