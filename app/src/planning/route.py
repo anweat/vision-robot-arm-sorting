@@ -146,7 +146,8 @@ def _astar(w: K.World, a5, b5, delta, held, kw, known_bad: set = frozenset()) ->
 
     def edge_ok(u, v, qu, qv):
         if (tuple(round(x, 3) for x in qu), tuple(round(x, 3) for x in qv)) in known_bad:
-            return False
+            bad.add((u, v))     # barred by a repair: also for this search, or the re-parenting below picks it
+            return False        # again and again (2026-11-21: an endless loop from a fractional readback start)
         if (u, v) in good:
             return True
         if (u, v) in bad:
@@ -155,7 +156,11 @@ def _astar(w: K.World, a5, b5, delta, held, kw, known_bad: set = frozenset()) ->
         (good if c.ok else bad).add((u, v))
         return c.ok
 
+    pops, max_pops = 0, 40 * limit          # re-parented nodes are popped without counting as expansions
     while heap:
+        pops += 1
+        if pops > max_pops:
+            break
         f, gu, u = heapq.heappop(heap)
         if u in closed or gu > g.get(u, math.inf) + 1e-12:
             continue
@@ -211,6 +216,7 @@ def _astar(w: K.World, a5, b5, delta, held, kw, known_bad: set = frozenset()) ->
                 g[v], parent[v] = cost, u
                 heapq.heappush(heap, (cost + weight * h(v), cost, v))
     why = (f"A*: no path within {limit} expansions" if expanded > limit
+           else f"A*: gave up after {max_pops} heap pops" if pops > max_pops
            else "A*: the free space around the start does not connect to the goal")
     return None, dict(expanded=expanded, nodes_checked=len(nodes), reason=why)
 

@@ -42,7 +42,11 @@
   "max_jaw_tilt_deg": 15.0,
   "squaring_max_deg": 40.0,
   "max_grasp_tilt_deg": 20.0,
-  "tiers": ["full", "touching", "pipeline"],
+  "tiers": [
+   "full",
+   "touching",
+   "pipeline"
+  ],
   "_tiers_note": "2026-11-20: grasp solving tiers, strictest first, the first that yields a plan wins (planner.grasp_tiers). full: every clearance. touching: the neighbouring blocks checked as exact boxes the gripper may come up to (0.5 mm), with no position error. pipeline: the neighbouring blocks left out of the grasp-local checks, as the verified console pipeline does. Bins, platform and table keep every clearance in every tier (a simulator round with the bins at zero clearance brushed their walls, 2026-11-20). Evidence: the real arm held 4 blocks (2026-11-06 scans) whose grasp poses the model puts +7.8 to -5.8 mm from a neighbour against a 10.5-14.2 mm neighbour clearance (doc 34 §8). Plans carry grasp_tier; drop entries here to forbid a tier.",
   "_max_grasp_tilt_note": "2026-11-20: a grasp whose jaw tilts out of the table plane by more than this is not tried (max_jaw_tilt_deg only ranks). Evidence from the real grips (dev/tools/grasp_replay.py): held with a 17 deg tilt (J5 121), closed on nothing with 28.7 deg (J5 166), the lower fingertip inside the block's top. Two points; 20 sits between them.",
   "_squaring_note": "2026-11-20: when squaring the jaw to the faces would tilt it, also try the J5 that keeps it level if that is at most this far off the faces; the closing pads turn the block square. Evidence: three real grips with the jaw 36-39 deg off a face held (readback 128; dev/tools/grasp_replay.py, doc 34 §8); none further off was recorded. Such grasps report aligned=false.",
@@ -61,18 +65,11 @@
   "table_gap_m": 0.003,
   "bin_clearance_m": 0.015,
   "rise_m": 0.03,
-  "pitch_spread_deg": [
-   0,
-   5,
-   -5,
-   10,
-   -10,
-   15,
-   -15
-  ],
   "max_block_tilt_deg": {
    "table": 17.0,
-   "bin": 25.0
+   "bin": 25.0,
+   "stack": 8.0,
+   "bin_set": 25.0
   },
   "_table_tilt_note": "2026-11-20: 8 -> 17 deg. The verified console pipeline put blocks down on the map codes at its own pitch whatever the grasp pitch: of 29 real puts the pitch changed by up to 16 deg between grip and put (block tilted that much in the fingers), and all 29 completed; let go 3 mm up, the block rocks onto its face (doc 34 §8, data/runs/console_grasp/log.jsonl). 8 deg kept far grasps (pitch 130-135) from being set down nearer the base.",
   "_tilt_note": "a block gripped at pitch p tilts with any J5 roll at another pitch or bearing; set down on the table it must be near level, dropped into a bin it only has to fit the 80 mm opening. yaw None keeps the J5 it was carried at. 2026-11-15: on the table the limit is max(table, the tilt the grasp gave the block + 1): a block squared by a tilted jaw (steep pitch + J5 roll, up to grasp.max_jaw_tilt_deg) is held that far out of level, and set down at the grasp's pitch and J5 it comes down exactly as it was lifted.",
@@ -82,7 +79,20 @@
    0.015,
    0.01
   ],
-  "_rises_note": "a table set-down comes straight down at the release pitch from the first of these heights that reaches (the block keeps its tilt only at that pitch)"
+  "_rises_note": "a table set-down comes straight down at the release pitch from the first of these heights that reaches (the block keeps its tilt only at that pitch)",
+  "_stack_tilt_note": "2026-11-21: set down on another block (into 'stack') the held block may lean at most this much: let go 3 mm above a 30 mm top it rocks onto its face, and leaning further its lower edge lands nearer the support's edge. bin_set: lowered onto a bin's floor inside its walls it may lean as much as a drop (25), and no less than the grasp left it. Not tried on the arm.",
+  "min_extra_gap_m": 0.008,
+  "_min_extra_gap_note": "2026-11-21: the narrowest release opening leaves this much between the pads and the block (4 mm a side; gripper.release_openings tries the console's openings and every 10 deg of J6 between them, widest first). Inside a bin (80 mm) or beside a stack the widest open (61 mm) may meet a wall.",
+  "over_rim_extra_m": [
+   0.0,
+   0.01,
+   0.02
+  ],
+  "_over_rim_note": "2026-11-21: set into a bin (mode 'set'), the pose above has the held block's bottom bin_clearance_m over the rim plus the first of these that reaches; it comes straight down inside the walls from there.",
+  "max_pitches": 9,
+  "_pitches_note": "2026-11-21: release pitches are solved per spot (release.pitches: solver.pitch_range, every grasp.pitch_scan step_deg, nearest the carry's first, at most max_pitches) within the level limit of where it goes plus the grasp's tilt; was a fixed spread of +-15 deg around the carry pitch, which could not reach a bin floor ~17 cm from the base (needs > 160) with a block picked at 27 cm (< 141).",
+  "stack_gap_m": 0.006,
+  "_stack_gap_note": "2026-11-21: set down on a block, its bottom this far above the top (table_gap_m elsewhere). In the simulator with servos stopping up to 1.5 deg short, the held block's height came out within +-3-5 mm of the plan; at 3 mm it was pressed onto the block below in 2 of 4 stacks. Not tried on the arm."
  },
  "joint_limits_deg": {
   "1": [

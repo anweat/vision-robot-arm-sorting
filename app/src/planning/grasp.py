@@ -33,27 +33,39 @@ ROOM_LADDER = (0.0, 0.002, 0.004, 0.006, 0.008, 0.01, 0.015, 0.02)
 
 @dataclass
 class Target:
-    """The block to pick, base frame. `label`: its cells in the collision map (left out of map checks)."""
+    """The block to pick, base frame. `label`: its cells in the collision map (left out of map checks).
+    `bottom`: its bottom above the table (0 on the table; a block on a block 0.03). `support`: what it stands
+    on when that is not the table (a Box and its map label): left out of the map and checked as a precise box
+    the fingertips keep the table clearance from, as they do from the table."""
     x: float
     y: float
     yaw_deg: float | None = None
     size: float = C.BLOCK
     label: int | None = None
     name: str = "target"
+    bottom: float = 0.0
+    support: S.Box | None = None
+    support_label: int | None = None
 
     def box(self, table_z: float) -> S.Box:
-        return S.Box("block", self.name, (self.x, self.y, table_z + self.size / 2), (self.size / 2,) * 3,
-                     self.yaw_deg or 0.0)
+        return S.Box("block", self.name, (self.x, self.y, table_z + self.bottom + self.size / 2),
+                     (self.size / 2,) * 3, self.yaw_deg or 0.0)
 
     @classmethod
-    def from_map(cls, cmap, key) -> "Target":
+    def from_map(cls, cmap, key, table_z: float | None = None) -> "Target":
         o = cmap.object(key)
+        under = cmap.support_of(key)
+        tz = (cmap.table_z_m if cmap.table_z_m is not None else C.TABLE_Z) if table_z is None else table_z
         return cls(o["centre_m"][0], o["centre_m"][1], o.get("yaw_deg"), float(min(o["size_m"][:2])), o["id"],
-                   o.get("name", str(o["id"])))
+                   o.get("name", str(o["id"])), float(o.get("bottom_m", 0.0)),
+                   cmap.object_box(under["id"], tz) if under else None, under["id"] if under else None)
 
     def to_dict(self) -> dict:
-        return dict(x_cm=round(self.x * 100, 2), y_cm=round(self.y * 100, 2), yaw_deg=self.yaw_deg,
-                    size_mm=round(self.size * 1000, 1), label=self.label, name=self.name)
+        d = dict(x_cm=round(self.x * 100, 2), y_cm=round(self.y * 100, 2), yaw_deg=self.yaw_deg,
+                 size_mm=round(self.size * 1000, 1), label=self.label, name=self.name)
+        if self.bottom > 0.001:
+            d.update(bottom_cm=round(self.bottom * 100, 2), on=self.support.name if self.support else None)
+        return d
 
 
 @dataclass
@@ -82,7 +94,16 @@ class Grasp:
 
 
 def world_for(w: K.World, target: Target) -> K.World:
-    return w.with_target(target.box(w.tuning.table_z), target.label)
+    wt = w.with_target(target.box(w.tuning.table_z), target.label)
+    if target.support is not None:       # the block it stands on: a table for the fingertips (see Target)
+        wt = wt.without(target.support_label).with_extra(target.support, support_margin(w))
+    return wt
+
+
+def support_margin(w: K.World) -> float:
+    """How near the gripper may come to the block a target stands on: touching, as the closing fingers may
+    the table. Their height over its top is checked as over the table (_one: fingertips)."""
+    return w.tuning.target_touch()
 
 
 def offset(x: float, y: float, o) -> tuple[float, float, float]:
@@ -101,7 +122,7 @@ def candidates(w: K.World, target: Target, prefer: float | None = None, explain:
     wt = world_for(w, target)
     c_delta = GR.contact(target.size)
     dx, dy, dz = offset(target.x, target.y, t.trims["grasp_offset_m"])
-    base = [target.x + dx, target.y + dy, t.table_z + float(t.trims["pad_centre_height_m"]) + dz]
+    base = [target.x + dx, target.y + dy, t.table_z + target.bottom + float(t.trims["pad_centre_height_m"]) + dz]
     out: list[Grasp] = []
     sc = C.G["pitch_scan"]
     max_tilt = float(C.G.get("max_grasp_tilt_deg", 90.0))      # a jaw tilted further meets the block's edges
@@ -166,7 +187,7 @@ def _one(w: K.World, target: Target, base, pitch, roll, opening, c_delta, note) 
     # finger above the pads leans in over the block's top edge
     for lift in C.G["pad_lifts_m"]:
         pad = [base[0], base[1], base[2] + lift]
-        if pad[2] > t.table_z + target.size - C.G["pad_below_top_m"]:
+        if pad[2] > t.table_z + target.bottom + target.size - C.G["pad_below_top_m"]:
             break
         q = V.solve_tcp(pad, pitch, j5, c_delta)
         if q is None:
@@ -177,8 +198,9 @@ def _one(w: K.World, target: Target, base, pitch, roll, opening, c_delta, note) 
             note.append(f"grasp pose {[round(v) for v in g5]} outside the joint limits")
             q = None
             continue
-        if (GR.lowest(g5, c_delta) < t.table_z + tip_margin
-                or GR.lowest(g5, GR.CLOSED) < t.table_z + closed_margin):
+        floor = t.table_z if target.support is None else target.support.top   # what the fingertips stand over
+        if (GR.lowest(g5, c_delta) < floor + tip_margin
+                or GR.lowest(g5, GR.CLOSED) < floor + closed_margin):
             note.append(f"pads +{lift * 1000:.0f} mm: fingertips too near the table")
             q = None
             continue

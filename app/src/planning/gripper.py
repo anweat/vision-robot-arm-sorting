@@ -27,6 +27,25 @@ OPENINGS = tuple(Opening(a, float(j6), gg.delta_for_j6(j6), gg.gap_for_delta(gg.
                  for a, j6 in C.G["openings"])
 
 
+RELEASE_J6_STEP = 10            # release openings between the console's: every this many degrees of J6
+
+
+@lru_cache(maxsize=16)
+def release_openings(width: float = C.BLOCK) -> tuple:
+    """Openings to let go of a `width` block, widest first: the console's (OPENINGS) and, in between, every
+    RELEASE_J6_STEP of J6 (action "j6": reached by J6 jogs, flow.stages.Console.gripper), down to the
+    narrowest that still leaves release.min_extra_gap_m between the pads and the block. Inside a bin or next
+    to a stack the widest may meet a wall; a narrower one is the dynamic jaw width."""
+    min_gap = width + float(C.R.get("min_extra_gap_m", 0.008))
+    out = list(OPENINGS)
+    for j6 in range(int(OPENINGS[0].j6) + RELEASE_J6_STEP, 180, RELEASE_J6_STEP):
+        if any(abs(o.j6 - j6) < RELEASE_J6_STEP / 2 for o in out):
+            continue
+        d = gg.delta_for_j6(j6)
+        out.append(Opening("j6", float(j6), d, gg.gap_for_delta(d)))
+    return tuple(sorted((o for o in out if o.gap_m >= min_gap), key=lambda o: -o.gap_m))
+
+
 @lru_cache(maxsize=64)
 def contact(width: float = C.BLOCK) -> float:
     return gg.contact_delta(width)
@@ -76,8 +95,15 @@ class Held:
                     tilt_deg=round(self.tilt_deg, 1))
 
 
-def held_from_grasp(q5, width: float = C.BLOCK) -> Held:
-    """The block as the fingers hold it after closing at arm pose q5 (block flat on the table before)."""
+def held_from_grasp(q5, width: float = C.BLOCK, block_centre=None) -> Held:
+    """The block as the fingers hold it after closing at arm pose q5 (block flat on the table before).
+
+    `block_centre` (base frame): where the block's centre was. The pads close on it where they stand -- 18 mm
+    over its bottom (trims.pad_centre_height_m), so 3 mm above its centre, and wherever the grasp offset or
+    the arm's error put them across the jaw -- and push it to their middle only along the jaw axis. So its
+    centre in the fingers is the pad middle plus that offset with the jaw-axis part removed; without
+    `block_centre` it is taken at the pad middle (before 2026-11-21: off by those 3 mm, turned with the
+    pitch at the release)."""
     pose = link5(q5)
     up = [pose[2][0], pose[2][1], pose[2][2]]           # world z in link5 coordinates (row 2 of R)
     x = [1.0, 0.0, 0.0]
@@ -87,7 +113,13 @@ def held_from_grasp(q5, width: float = C.BLOCK) -> Held:
     y = [z[1] * x[2] - z[2] * x[1], z[2] * x[0] - z[0] * x[2], z[0] * x[1] - z[1] * x[0]]
     rot = [[x[r], y[r], z[r]] for r in range(3)]
     tilt = math.degrees(math.acos(max(-1.0, min(1.0, sum(up[k] * z[k] for k in range(3))))))
-    return Held(gg.pad_centre_link(contact(width)), rot, width, tilt)
+    centre = list(gg.pad_centre_link(contact(width)))
+    if block_centre is not None:
+        d = [block_centre[r] - gg.to_base(pose, centre)[r] for r in range(3)]       # base frame
+        local = [sum(pose[r][k] * d[r] for r in range(3)) for k in range(3)]      # into link5 (R^T d)
+        local[0] = 0.0                                                            # squared along the jaw
+        centre = [centre[k] + local[k] for k in range(3)]
+    return Held(centre, rot, width, tilt)
 
 
 def held_default(width: float = C.BLOCK) -> Held:

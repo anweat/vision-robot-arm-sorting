@@ -78,6 +78,7 @@ TIER_NOTES = {
 }
 
 
+LIFT_OFF_M = 0.003        # a block lifted off another: how far its corners may start inside the one below
 TOUCH_M = 0.0005          # "touching": the gripper may come this near a neighbouring block, not into it
 
 
@@ -160,6 +161,9 @@ def _pick_plans(w: K.World, wl: K.World, tier: str, start5, target: Target, star
     cands = GP.candidates(wl, target, prefer, why)
     wt = GP.world_for(w if tier == "full" else touching(w, skip=(target.label,)), target)
     w_held = wl.without(target.label) if target.label else wl
+    if target.support is not None:        # lifted off a block: it starts on it (corners of a block held with a
+        # tilted jaw a little into its top), and only goes up: the lift may begin LIFT_OFF_M inside it
+        w_held = w_held.without(target.support_label).with_extra(target.support, -LIFT_OFF_M)
     c_delta = GR.contact(target.size)
     start_delta = GR.delta_for_j6(start_j6)
     t_open = t.target_open(target.size)
@@ -173,7 +177,7 @@ def _pick_plans(w: K.World, wl: K.World, tier: str, start5, target: Target, star
             why.append(f"pitch {cand.pitch} J5 {cand.j5}: no way to the hover ({r.reason})")
             continue
         h5, g5 = cand.hover, cand.grasp
-        held = GR.held_from_grasp(g5, target.size)
+        held = GR.held_from_grasp(g5, target.size, target.box(t.table_z).centre)
         open_check = K.sweep_check(wlt, h5, start_delta, o.delta, target_margin=t_open)
         lift_check = K.move_check(w_held, g5, h5, c_delta, held,
                                   table_margin=RT.table_allowance(w_held, g5, h5, c_delta, held))
@@ -257,10 +261,11 @@ def _plan_place(w: K.World, start5, held: GR.Held, dest: Destination, prefer_pit
     grip = float(t.trims["grip_command_deg"])
     for rel in RL.candidates(w, start5, held, dest, prefer_pitch, why):
         o = rel.opening
-        after = w.with_extra(rel.placed, t.target_touch())
-        if dest.rim_z is None:
+        wd = RL.world_for(w, dest)          # a block stacked on: a precise box, not its map cells
+        after = wd.with_extra(rel.placed, t.target_touch())
+        if dest.mode == "set":
             a5, r5 = rel.above, rel.pose
-            lower = K.move_check(w, a5, r5, c_delta, held, table_margin=RT.table_allowance(w, a5, r5, c_delta, held))
+            lower = K.move_check(wd, a5, r5, c_delta, held, table_margin=RT.table_allowance(wd, a5, r5, c_delta, held))
             back = K.move_check(after, r5, a5, o.delta, None, table_margin=RT.table_allowance(after, r5, a5, o.delta, None))
             if not (lower.ok and back.ok):
                 why.append(f"pitch {rel.pitch} J5 {rel.j5}: {'lower' if not lower.ok else 'back off'}: "
@@ -273,7 +278,9 @@ def _plan_place(w: K.World, start5, held: GR.Held, dest: Destination, prefer_pit
             steps = _legs("carry", carry, grip, True, trim)
             steps.append(Step("move", "lower", r5, grip, True, lower, trim=trim))
             steps.append(Step("gripper", "release", r5, o.j6, False, rel.checks["open"], action=o.action,
-                              note="pads move back and apart; the block is set down", trim=trim))
+                              note=f"pads move back and apart ({o.gap_m * 1000:.0f} mm); the block is set down "
+                                   + {"table": "on the table", "stack": f"on {dest.support.name if dest.support else ''}",
+                                      "bin": "on the bin's floor"}[dest.into], trim=trim))
             steps.append(Step("move", "back off", a5, o.j6, False, back, trim=trim))
         else:
             carry = RT.plan_route(w, start5, rel.pose, c_delta, held)
@@ -292,7 +299,8 @@ def _plan_place(w: K.World, start5, held: GR.Held, dest: Destination, prefer_pit
                        target_base_cm=[round(rel.placed.centre[0] * 100, 2), round(rel.placed.centre[1] * 100, 2)],
                        block_level_deg=round(rel.level_deg, 1),
                        block_bottom_above_table_cm=round((rel.bottom_z - t.table_z) * 100, 2),
-                       pitch=rel.pitch, j5=round(rel.j5, 1), into=dest.into, opening=o.action, open_j6=o.j6,
+                       pitch=rel.pitch, j5=round(rel.j5, 1), into=dest.into, mode=dest.mode, opening=o.action,
+                       open_j6=o.j6, open_gap_mm=round(o.gap_m * 1000, 1),
                        route=dict(method=carry.method, **carry.stats), **_site_flags(steps))
         return MotionPlan("place", True, steps, summary, why[-6:])
     return None

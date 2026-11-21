@@ -10,10 +10,12 @@ console path). Each stage can be called on its own; nothing here talks to the ar
     checks.py         World (map + tuning + target) and the pose / move / sweep checks
     solver.py         pad-centre TCP inverse kinematics and wrist-roll (J5) alignment
     grasp.py          grasp solving -> Grasp candidates
-    release.py        release solving -> Release candidates
+    release.py        release solving -> Release candidates (table, stack, into a bin: set or drop)
     route.py          joint paths: straight, else A* over a tip lattice, shortcut and re-checked
     motion.py         the result objects: Check, Step, MotionPlan
     planner.py        plan_transit / plan_pick / plan_place -> MotionPlan
+    correct.py        at a set-down: where the held block is by the servo readback, and the nudge that puts it
+                      on target (used by flow.stages.execute)
 """
 
 from __future__ import annotations
