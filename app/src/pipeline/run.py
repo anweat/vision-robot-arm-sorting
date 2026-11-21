@@ -119,8 +119,13 @@ def detector_clusters(scan: S.Scan) -> list[dict]:
         for d in det.detect(img, conf=DET_MIN_CONF):
             x0, y0, x1, y1 = d["bbox"]
             p = pose.pixel_to_plane(((x0 + x1) / 2, (y0 + y1) / 2), scan.k, scan.dist, z=S.BLOCK / 2)
-            c = dict(xy=[p[0] * 100, p[1] * 100], category=d["category"], conf=d["conf"], view=v)
-            (cut if x0 <= 2 or y0 <= 2 or x1 >= w - 3 or y1 >= h - 3 else casts).append(c)
+            c = dict(xy=[p[0] * 100, p[1] * 100], category=d["category"], conf=d["conf"], view=v,
+                     bbox=[round(float(b), 1) for b in d["bbox"]])
+            if x0 <= 2 or y0 <= 2 or x1 >= w - 3 or y1 >= h - 3:
+                c["cut"] = True
+                cut.append(c)
+            else:
+                casts.append(c)
     clusters: list[dict] = []
     for c in sorted(casts, key=lambda c: -c["conf"]):
         near = [k for k in clusters if math.dist(k["xy"], c["xy"]) <= DET_MERGE_CM]
@@ -158,6 +163,8 @@ def detector_clusters(scan: S.Scan) -> list[dict]:
         k["views"] = len({m["view"] for m in k["members"]})
         k["xy"] = [round(v, 2) for v in k["xy"]]
         k["approx"] = bool(k.get("approx"))
+        # the whole boxes, for the ROI silhouette fit (cross_check); a box cut by the border has no outline
+        k["boxes"] = [dict(view=m["view"], bbox=m["bbox"]) for m in k["members"] if not m.get("cut")]
         del k["members"]
     return clusters
 
@@ -259,6 +266,7 @@ def build_scene(run: Path) -> dict:
     official_on_cubes(scan, cubes)
     for c in cubes:
         c["category"], c["source"] = categorize(c)
+    cross_check(scan, cubes)
     vis = C.draw(top, found)
     for i, c in enumerate(cubes):
         tag = f"{c['colour'] or '-'} {(c['category'] or '?')[:4]}"
@@ -270,6 +278,66 @@ def build_scene(run: Path) -> dict:
     return scene
 
 
+# Cross-check of every block's position (doc 39 §7): the orthophoto square, the detector boxes cast onto the
+# block's mid plane, and the ROI silhouette fit (vision/roi_pose.py) in each view whose box is whole. In the
+# simulator, against the truth: ROI 0.04 / 0.17 cm (median / p90) and 0.5 / 1.5 deg, the orthophoto square
+# 0.09 / 1.49 cm and 2.4 / 26 deg -- its misses are blocks with a sticker up near 40 deg, squared on the wrong
+# outline. So a pooled ROI fit replaces the square when they agree, and when they do not and the ROI is
+# backed (two views that agree, or the detector's own centre nearer it than the square).
+ROI_CHECK = os.environ.get("ARM_SCENE_ROI", "on") != "off"     # off: the square alone, as before 2026-11-20
+ROI_AGREE_CM = 0.4
+ROI_AGREE_DEG = 6.0
+ROI_SPREAD_CM = 0.3
+
+
+def _fold(d: float) -> float:
+    return (d + 45) % 90 - 45
+
+
+def cross_check(scan: S.Scan, cubes: list[dict]) -> None:
+    """Fill each cube's `roi` (pooled ROI fit or None) and `checks`, and move it to the ROI fit when backed.
+    checks.result: "roi agrees" | "roi corrected" | "conflict" (ROI and square disagree, nothing backs
+    either: kept the square) | "no roi" (no whole detector box in any view: a close look is needed)."""
+    import roi_pose as RP
+    for c in cubes:
+        k = c.get("detector") or {}
+        prior = [v / 100 for v in (k.get("xy") or c["map_cm"])]
+        fits = []
+        for m in k.get("boxes", []):
+            r = RP.solve_top_face(scan.images[m["view"]], m["bbox"], scan.poses[m["view"]], scan.k, scan.dist,
+                                  initial_yaw=None, prior_xy=prior)
+            if r["ok"]:
+                fits.append(dict(view=m["view"], map_cm=r["map_cm"], yaw_deg=r["yaw_deg"]))
+        if not fits:
+            c["roi"], c["checks"] = None, dict(result="no roi")
+            continue
+        xy = np.median([f["map_cm"] for f in fits], axis=0)
+        a = np.radians(np.array([f["yaw_deg"] for f in fits]) * 4)
+        yaw = float(np.degrees(math.atan2(np.sin(a).mean(), np.cos(a).mean())) / 4)
+        spread = float(np.median([math.dist(f["map_cm"], xy) for f in fits]))
+        roi = dict(n=len(fits), map_cm=[round(float(v), 2) for v in xy], yaw_deg=round(yaw, 1),
+                   spread_cm=round(spread, 2), views=[f["view"] for f in fits])
+        d = math.dist(roi["map_cm"], c["map_cm"])
+        dyaw = abs(_fold(roi["yaw_deg"] - c["yaw_deg"]))
+        det_xy = k.get("xy")
+        checks = dict(roi_vs_square_cm=round(d, 2), roi_vs_square_deg=round(dyaw, 1),
+                      detector_vs_roi_cm=round(math.dist(det_xy, roi["map_cm"]), 2) if det_xy else None,
+                      detector_vs_square_cm=round(math.dist(det_xy, c["map_cm"]), 2) if det_xy else None)
+        if d <= ROI_AGREE_CM and dyaw <= ROI_AGREE_DEG:
+            checks["result"] = "roi agrees"
+        elif (roi["n"] >= 2 and spread <= ROI_SPREAD_CM) or (
+                det_xy and checks["detector_vs_roi_cm"] < checks["detector_vs_square_cm"]):
+            checks["result"] = "roi corrected"
+        else:
+            checks["result"] = "conflict"
+        if checks["result"] != "conflict" and ROI_CHECK:
+            c["square"] = dict(map_cm=c["map_cm"], yaw_deg=c["yaw_deg"])
+            c["map_cm"], c["yaw_deg"] = roi["map_cm"], roi["yaw_deg"]
+            col, row = S.Scan.to_px(c["map_cm"][0] / 100, c["map_cm"][1] / 100)
+            c["px"] = [int(round(col)), int(round(row))]
+        c["roi"], c["checks"] = roi, checks
+
+
 REFINE_BELOW_COVERAGE = 0.98
 # 2026-09-26, 60 placed blocks: every block whose centre or yaw came out wrong had either a weak outline
 # (score below 0.4) or was found only in boxes cut by the image border ("approx"), which are the blocks at
@@ -278,6 +346,10 @@ REFINE_BELOW_SCORE = 0.4
 
 
 def needs_refine(cube: dict) -> bool:
+    # a block no view saw whole (no ROI fit) or whose estimates disagree gets a close look: there it is in the
+    # middle of the frame and the ROI fit has its whole outline (doc 39 §7)
+    if (cube.get("checks") or {}).get("result") in ("no roi", "conflict"):
+        return True
     return (cube["coverage"] < REFINE_BELOW_COVERAGE or cube["score"] < REFINE_BELOW_SCORE
             or bool((cube.get("detector") or {}).get("approx")))
 

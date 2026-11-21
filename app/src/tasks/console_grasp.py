@@ -548,33 +548,68 @@ def quality(board_obj: dict | None, phone_obj: dict | None) -> list[str]:
     return problems
 
 
+LOOK_MARGIN_PX = 20          # the whole cube (all 8 corners) inside the frame by this much
+LOOK_SIZE_PX = (110, 420)    # its projected box diagonal: big enough for the outline (the frame rule keeps it whole)
+LOOK_TIP_ABOVE_M = 0.04      # the closed-finger tip stays this high over the table at a look pose (block top + 1 cm)
+LOOK_CAM_ABOVE_M = 0.10      # and the camera this high
+LOOK_LOWEST_DEG = -10        # J3/J4 as low as the console's limits (arm_limits.json, doc 32 §1.1); a block ~13 cm
+                             # from the base is only seen whole with J4 at -5 to -10, so below 0 costs 8 px a degree
+
+
 def look_pose(bx: float, by: float, current: list[int]) -> list[int]:
-    """J1-J4 that put the block's top centre nearest the middle of the wrist camera image
-    (base turn around the block's bearing, shoulder raised 95-125 as in observe_v1)."""
+    """J1-J4 that show the whole block near the middle of the wrist camera image, for the ROI silhouette fit.
+
+    Before 2026-11-20 only J1 and J2 (95-125, J3 = J4 = 5 as in observe_v1) were searched with the block's top
+    centre kept 80 px off the border: a block near the base then stayed cut by the bottom of the frame (the
+    camera sits 5.7 cm off the tool axis), and the ROI fit, which needs the whole outline, had nothing (doc 39
+    §7). Now J2-J4 are searched too; every cube corner must be in frame, the cube a usable size, the fingers and
+    the camera well above the table, J3/J4 below 0 only when nothing else shows it, and the move clear of the console's keep-out (check_path)."""
     import numpy as np
+    import dofbot_kinematics as kin
     from camera_model import ArmCamera
     from map_registration import load_intrinsics
     cam, (k, _) = ArmCamera(), load_intrinsics()
+    soft = CONFIG["soft_limits_deg"]          # J1 inside the soft limits
     bearing = 90 + math.degrees(math.atan2(-bx, by))
-    point = np.array([bx, by, TABLE_Z + BLOCK, 1.0])
-    best = None
-    for j1 in range(round(bearing) - 20, round(bearing) + 21, 2):
-        for j2 in range(95, 126, 5):
-            q = [j1, j2, 5, 5]
-            p = np.linalg.inv(cam.base_T_cam(q + [90])) @ point
-            if p[2] <= 0.05:
-                continue
-            u, v = k[0, 0] * p[0] / p[2] + k[0, 2], k[1, 1] * p[1] / p[2] + k[1, 2]
-            score = math.hypot(u - 320, v - 240)
-            if 80 < u < 560 and 80 < v < 400 and (best is None or score < best[0]):
-                try:
-                    check_path(current, q)
-                except ConsoleError:
-                    continue
-                best = (score, q)
-    if best is None:
-        raise ConsoleError(f"no look pose puts base ({bx*100:.1f}, {by*100:.1f}) cm in view")
-    return best[1]
+    h = BLOCK / 2
+    cube = np.array([[bx + sx * h, by + sy * h, TABLE_Z + sz, 1.0] for sx in (-1, 1) for sy in (-1, 1)
+                     for sz in (0.0, BLOCK)])
+    top = np.array([bx, by, TABLE_Z + BLOCK, 1.0])
+    found = []
+    for j1 in range(round(bearing) - 12, round(bearing) + 13, 3):
+        for j2 in range(70, 131, 5):
+            for j3 in range(LOOK_LOWEST_DEG, 61, 5):
+                for j4 in range(LOOK_LOWEST_DEG, 61, 5):
+                    q = [j1, j2, j3, j4]
+                    if not soft["1"][0] <= j1 <= soft["1"][1]:
+                        continue
+                    t = np.linalg.inv(cam.base_T_cam(q + [90]))
+                    p = cube @ t.T
+                    if (p[:, 2] <= 0.05).any():
+                        continue
+                    u = k[0, 0] * p[:, 0] / p[:, 2] + k[0, 2]
+                    v = k[1, 1] * p[:, 1] / p[:, 2] + k[1, 2]
+                    if u.min() < LOOK_MARGIN_PX or v.min() < LOOK_MARGIN_PX or u.max() > 640 - LOOK_MARGIN_PX \
+                            or v.max() > 480 - LOOK_MARGIN_PX:
+                        continue
+                    diag = math.hypot(u.max() - u.min(), v.max() - v.min())
+                    if not LOOK_SIZE_PX[0] <= diag <= LOOK_SIZE_PX[1]:
+                        continue
+                    if kin.forward(q + [90])["tip"][2] < TABLE_Z + LOOK_TIP_ABOVE_M \
+                            or cam.base_T_cam(q + [90])[2, 3] < TABLE_Z + LOOK_CAM_ABOVE_M:
+                        continue
+                    c = top @ t.T
+                    cu, cv = k[0, 0] * c[0] / c[2] + k[0, 2], k[1, 1] * c[1] / c[2] + k[1, 2]
+                    below = sum(max(0, -a) for a in q[1:])          # under 0: allowed by the console, used only when needed
+                    found.append((math.hypot(cu - 320, cv - 240) + 0.2 * sum(abs(a - b) for a, b in zip(q, current[:4]))
+                                  + 8 * below, q))
+    for _, q in sorted(found):
+        try:
+            check_path(current, q)
+        except ConsoleError:
+            continue
+        return q
+    raise ConsoleError(f"no look pose shows base ({bx*100:.1f}, {by*100:.1f}) cm whole")
 
 
 def save_images(run: Path, name: str) -> None:
