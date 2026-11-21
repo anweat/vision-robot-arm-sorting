@@ -1,0 +1,21 @@
+# 叠放、从叠层上取下、放进桶（docs/current/40 §3；原 dev/sim/vertical_check.py 的五种情况）
+# 块位置取仿真真值（含高度）：这里核对的是规划和执行，不是感知。每种情况接着上一种留下的桌面。
+# 地图 cm（map_a4_v4 上 base = map + (0.1, 6.8) cm）；桶在 base (±9.5, 14)，块放在中间、y 21 以外；C、D 有对应的桶。
+name: vertical
+title: 叠放、取下、放进桶（规划 + 执行，真值定位）
+bins: bins_acrylic_v2_pair
+seed: 3
+locate: truth            # truth：用仿真真值；scan：每种情况前按观察脚本扫描定位（observe:）
+table_trim: true         # 把仿真与规划器桌面高度差写进 trims.table_z_m（等于做过触桌标定，doc 40 §2）
+faults: {stop_short_deg: 1.5}
+blocks:
+  - {tag: A, category: other, map_cm: [-3.0, 18.0], yaw: 8.0}
+  - {tag: B, category: recyclable, map_cm: [4.0, 15.0], yaw: 0.0}
+  - {tag: C, category: kitchen, map_cm: [0.0, 21.0], yaw: -12.0}
+  - {tag: D, category: hazardous, map_cm: [-12.0, 17.0], yaw: 5.0}
+cases:
+  - {name: stack, pick: A, to: {stack_on: B}, expect: {on: B}}
+  - {name: stack2, pick: C, to: {stack_on: A}, expect: {on: A}}
+  - {name: unstack, pick: C, to: {table_m: [0.10, 0.25]}, expect: {on: table}}
+  - {name: bin_set, pick: D, to: {bin: auto, mode: set}, expect: {inside: true}}
+  - {name: bin_drop, pick: C, to: {bin: auto, mode: drop}, expect: {inside: true}}

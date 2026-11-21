@@ -336,7 +336,8 @@ class SimApp(console.App):
         elif path == "/api/sim/remove":
             world.remove(body.get("id"))
         elif path == "/api/sim/faults":
-            world.set_faults(body.get("grip_miss"), body.get("servo_bias_deg"))
+            world.set_faults(body.get("grip_miss"), body.get("servo_bias_deg"), body.get("pose_jitter_deg"),
+                             body.get("stop_short_deg"))
         elif path == "/api/sim/map":
             world.set_map(body.get("name"))
         elif path == "/api/sim/prop":
@@ -402,7 +403,8 @@ def handler(app: SimApp):
                 elif path == "/api/sim/options":
                     self.send(dict(maps=sorted(f.stem for f in W.CONFIG.glob("map_*.json")),
                                    bins=sorted(f.stem for f in W.CONFIG.glob("bins_*.json")),
-                                   categories=list(W.CATEGORIES), faces=app.world.items))
+                                   categories=list(W.CATEGORIES), faces=app.world.items,
+                                   speed=app.control.time_scale))     # waits divided by this (--speed)
                 elif path in ("/api/sim/detect", "/api/sim/annotated"):
                     conf = float(query.get("conf", ["0.25"])[0])
                     if not 0.01 <= conf <= 0.99:

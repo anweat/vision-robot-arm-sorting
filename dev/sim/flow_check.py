@@ -28,6 +28,8 @@ sys.path.insert(0, str(ROOT / "app" / "src"))
 
 from flow import stages as ST          # noqa: E402
 from flow.session import FlowSession   # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import harness as H                    # noqa: E402
 
 REACHABLE = (("kitchen", [0.0, 13.0], 5.0), ("hazardous", [-7.0, 14.0], -10.0),
              ("recyclable", [7.5, 11.5], 15.0), ("other", [3.5, 17.5], 0.0))
@@ -51,21 +53,14 @@ def main(argv=None) -> int:
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--session", default=str(ROOT / "data" / "flow" / "sim_check"))
     a = ap.parse_args(argv)
-    ST._use_console(a.console)
-    import console_step as cs
-    boot = cs.call("/api/bootstrap")
-    if boot.get("status", {}).get("mode") != "simulation":
-        raise SystemExit(f"{a.console} is not the simulator; refusing")
-    tok = boot["token"]
+    sim = H.Sim(a.console)             # refuses a console that is not the simulator
+    cs = sim.cs
     if a.layout == "random":
-        cs.call("/api/sim/reset", {"count": 4, "seed": a.seed}, token=tok)
+        sim.reset(a.seed, count=4)
     else:
-        cs.call("/api/sim/reset", {"count": 0}, token=tok)
-        for cat, xy, yaw in (EDGE if a.layout == "edge" else REACHABLE):
-            r = cs.call("/api/sim/block", {"category": cat, "map_cm": xy, "yaw_deg": yaw}, token=tok)
-            if r.get("error"):
-                raise SystemExit(r["error"])
-    truth = cs.call("/api/sim/world")
+        sim.lay_out([dict(tag=str(i), category=cat, map_cm=xy, yaw=yaw)
+                     for i, (cat, xy, yaw) in enumerate(EDGE if a.layout == "edge" else REACHABLE)], seed=a.seed)
+    truth = sim.world()
     root = Path(a.session)
     shutil.rmtree(root, ignore_errors=True)
     s1 = FlowSession(root / "before")

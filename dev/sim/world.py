@@ -175,6 +175,9 @@ class World:
         self.servos = list(START_POSE)
         self.grip_miss = 0.0        # injected fault: the share of grips that close on nothing
         self.bias = [0.0] * 5       # injected fault: degrees the arm stands off its command, joints 1-5
+        self.jitter_sigma = [0.0] * 5   # injected fault: per-move random offset (sigma, deg), joints 1-5
+        self.stop_short = 0.0           # injected fault: each move stops up to this short (deg), seen in the readback
+        self.jitter = [0.0] * 5         # this move's draw
         self.faults = random.Random(seed)
         self.contacts: list[dict] = []
         self.contact_count = 0
@@ -201,12 +204,16 @@ class World:
             self.map_revision += 1
             self.revision = getattr(self, "revision", 0) + 1
 
-    def set_faults(self, grip_miss=None, servo_bias_deg=None) -> dict:
+    def set_faults(self, grip_miss=None, servo_bias_deg=None, pose_jitter_deg=None, stop_short_deg=None) -> dict:
         """Make the simulated arm fail on purpose, so the failure paths have something to handle.
         `grip_miss`: share of grips that close on nothing. `servo_bias_deg`: five numbers, degrees the arm
         really stands off what it reads back (joints 1-5); the readback and so the pipeline's forward
-        kinematics stay unaware of it."""
-        if grip_miss is None and servo_bias_deg is None:
+        kinematics stay unaware of it. `pose_jitter_deg`: five sigmas (deg, joints 1-5) of a random offset drawn
+        afresh at every move -- the real servos' per-pose error (+-1.5 deg roll, ~10 px per view, doc 30 §6),
+        which no fixed model removes. `stop_short_deg`: every joint 1-5 of every move stops up to this far short
+        of the command (uniform), and the readback says so -- the real servos' 1-3 deg before the console's settle
+        (planning_tuning.json execute), the error flow.stages.execute corrects from the readback."""
+        if grip_miss is None and servo_bias_deg is None and pose_jitter_deg is None and stop_short_deg is None:
             raise ValueError("grip_miss 必须是 0–1 的数：合爪夹空的比例")
         if grip_miss is not None and (isinstance(grip_miss, bool) or not isinstance(grip_miss, (int, float))
                                       or not 0 <= grip_miss <= 1):
@@ -216,7 +223,21 @@ class World:
                 or any(isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v)
                        or abs(v) > MAX_BIAS_DEG for v in servo_bias_deg)):
             raise ValueError(f"servo_bias_deg 必须是 5 个绝对值不超过 {MAX_BIAS_DEG:g} 的数（关节 1–5，度）")
+        if pose_jitter_deg is not None and (
+                not isinstance(pose_jitter_deg, (list, tuple)) or len(pose_jitter_deg) != 5
+                or any(isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v)
+                       or not 0 <= v <= MAX_BIAS_DEG for v in pose_jitter_deg)):
+            raise ValueError(f"pose_jitter_deg 必须是 5 个 0–{MAX_BIAS_DEG:g} 的数（关节 1–5 每次移动的随机偏差 sigma，度）")
+        if stop_short_deg is not None and (isinstance(stop_short_deg, bool) or not isinstance(stop_short_deg, (int, float))
+                                           or not 0 <= stop_short_deg <= MAX_BIAS_DEG):
+            raise ValueError(f"stop_short_deg 必须是 0–{MAX_BIAS_DEG:g} 的数（每次移动停在指令前多少度以内）")
         with self.lock:
+            if stop_short_deg is not None:
+                self.stop_short = float(stop_short_deg)
+            if pose_jitter_deg is not None:
+                self.jitter_sigma = [float(v) for v in pose_jitter_deg]
+                self.jitter = [0.0] * 5
+                self.revision += 1
             if grip_miss is not None:
                 self.grip_miss = float(grip_miss)
             if servo_bias_deg is not None:
@@ -228,12 +249,16 @@ class World:
         out = dict(grip_miss=self.grip_miss)
         if any(self.bias):
             out["servo_bias_deg"] = list(self.bias)
+        if any(self.jitter_sigma):
+            out["pose_jitter_deg"] = list(self.jitter_sigma)
+        if self.stop_short:
+            out["stop_short_deg"] = self.stop_short
         return out
 
     @property
     def actual(self) -> list[float]:
-        """Where the joints really stand: the command plus the injected offset."""
-        return [s + b for s, b in zip(self.servos[:5], self.bias)] + list(self.servos[5:])
+        """Where the joints really stand: the command plus the injected offset and this move's jitter."""
+        return [s + b + j for s, b, j in zip(self.servos[:5], self.bias, self.jitter)] + list(self.servos[5:])
 
     def matches_default_map(self) -> bool:
         """Whether every code on the table is where the default map (the one the console's localization
@@ -439,6 +464,8 @@ class World:
         """Called with every pose the simulated arm takes."""
         with self.lock:
             before, self.servos = self.servos, list(servos)
+            if any(self.jitter_sigma) and list(before[:5]) != list(self.servos[:5]):
+                self.jitter = [self.faults.gauss(0.0, sg) if sg else 0.0 for sg in self.jitter_sigma]
             opening = self.servos[5] < before[5]
             closing = self.servos[5] > before[5] and self.servos[5] >= HOLDING_READBACK
             actual = self.actual
@@ -446,8 +473,9 @@ class World:
             self.check_contacts(before, gripping=found[0] if found else None)
             if self.held and opening:
                 b = self.blocks[self.held]
+                low = b["pose"][2, 3] - BLOCK / 2 * float(np.abs(b["pose"][2, :3]).sum())   # its lowest corner, let go
                 b["pose"][:3, :3] = settle(b["pose"][:3, :3])
-                b["pose"][2, 3], b["perched"] = self.landing(b["pose"], self.held)
+                b["pose"][2, 3], b["perched"] = self.landing(b["pose"], self.held, low)
                 b["grip"], self.held = None, None
             elif self.held:
                 b = self.blocks[self.held]
@@ -510,17 +538,55 @@ class World:
                 best = (float(np.linalg.norm(d[:2])), bid, centre, rot)
         return None if best is None else best[1:]
 
-    def landing(self, pose: np.ndarray, block_id: str) -> tuple[float, bool]:
-        """(centre height, perched) of a block let go at `pose`. It drops to the highest surface under its
-        centre; if one of its corners is over something higher (a bin's rim, say) it hangs on that edge
-        instead -- `perched`, which a bin counts as not inside (its footprint is sampled on a 25 x 25 grid (1.3 mm)). Tilting and falling off are not modelled."""
-        xy = pose[:2, 3]
-        z = self.rest_height(xy, block_id, pose[2, 3])
+    def block_top_under(self, xy, ignore: str, below: float) -> tuple[float, str | None, float]:
+        """(top, id, offset) of the highest block whose top face holds base point xy and is not above
+        `below`: the block a centre over it stands on, with how far the point is off its centre (m)."""
+        best = (-math.inf, None, 0.0)
+        for bid, b in self.blocks.items():
+            if bid in (ignore, self.held):
+                continue
+            r, c = b["pose"][:3, :3], b["pose"][:3, 3]
+            top = c[2] + BLOCK / 2 * float(np.abs(r[2]).sum())     # its highest corner (flat: c + side/2)
+            local = r.T @ np.array([xy[0] - c[0], xy[1] - c[1], 0.0])
+            if np.all(np.abs(local[:2]) <= BLOCK / 2) and top <= below and top > best[0]:
+                best = (top, bid, float(np.hypot(*(np.asarray(xy) - c[:2]))))
+        return best
+
+    def landing(self, pose: np.ndarray, block_id: str, low: float | None = None) -> tuple[float, bool]:
+        """(centre height, perched) of a block let go at `pose`, and its landing record (`landed`).
+
+        It drops to the highest surface under its centre (table, a prop's top, a block's top face). If a
+        corner is over something higher: on a bin's rim it hangs there (`perched`, which a bin counts as not
+        inside); on a block it tips off that block -- its centre of mass is not over it -- and lies beside
+        (`toppled`, put at the height under its centre; rolling away is not modelled). The footprint is
+        sampled on a 25 x 25 grid (1.3 mm). landed: on (table / prop / block id), fall_mm (its bottom when
+        let go (`low`: its lowest corner before it settled level) over the surface), offset_mm (its centre off
+        the centre of the block under it), toppled."""
+        xy, below = pose[:2, 3], pose[2, 3]
         half = BLOCK / 2
-        # a 2 mm wall lies between a block's corners as often as under one: look over its whole footprint
-        reach = [self.prop_under(xy + pose[:2, :2] @ np.array([sx * half, sy * half]), pose[2, 3])[0] + half
-                 for sx in np.linspace(-1, 1, 25) for sy in np.linspace(-1, 1, 25)]
-        return (max(z, max(reach)), True) if max(reach) > z + 0.0005 else (z, False)
+        ptop, pid = self.prop_under(xy, below)[0], None
+        for k, p in self.props.items():
+            local = p["pose"][:2, :2].T @ (np.asarray(xy, float) - p["pose"][:2, 3])
+            if any(abs(local[0] - c[0]) <= h[0] and abs(local[1] - c[1]) <= h[1] and
+                   abs(p["pose"][2, 3] + c[2] + h[2] - ptop) < 1e-6 for c, h in p["parts"]):
+                pid = k
+        btop, bid, off = self.block_top_under(xy, block_id, below)
+        top, on = (btop, bid) if btop > ptop else (ptop, pid or "table")
+        z = top + half
+        grid = [xy + pose[:2, :2] @ np.array([sx * half, sy * half]) for sx in np.linspace(-1, 1, 25)
+                for sy in np.linspace(-1, 1, 25)]
+        prop_reach = max(self.prop_under(g, below)[0] for g in grid) + half
+        block_reach = max(self.block_top_under(g, block_id, below)[0] for g in grid) + half
+        bottom = below - half * float(np.abs(pose[2, :3]).sum()) if low is None else low
+        landed = dict(on=on, fall_mm=round(float(max(0.0, bottom - top)) * 1000, 1),
+                      offset_mm=round(off * 1000, 1) if bid and on == bid else None, toppled=False)
+        self.blocks[block_id]["landed"] = landed
+        if block_reach > z + 0.0005:
+            landed["toppled"] = True
+            return z, False
+        if prop_reach > z + 0.0005:
+            return prop_reach, True
+        return z, False
 
     def check_contacts(self, before, gripping: str | None = None) -> None:
         """Note every prop the gripper's fingers or the carried block enter on the way from the previous
@@ -694,7 +760,7 @@ class World:
                     inside = None               # hanging on the rim: neither in nor out
                 out.append(dict(id=bid, category=b["category"], colour=COLOURS[b["category"]],
                                 up=self.items[b["category"]][face], held=bid == self.held, inside=inside,
-                                perched=bool(b.get("perched")),
+                                perched=bool(b.get("perched")), landed=b.get("landed"),
                                 map_cm=[round(float(m[0]) * 100, 2), round(float(m[1]) * 100, 2)],
                                 base_cm=[round(float(v) * 100, 2) for v in c], yaw_deg=round(yaw, 1),
                                 on_map=bool(MAP_X_CM[0] <= m[0] * 100 <= MAP_X_CM[1] and MAP_Y_CM[0] <= m[1] * 100 <= MAP_Y_CM[1]),
@@ -734,5 +800,12 @@ class WorldArm:
         return self.pose[:5] + [self.world.gripper_readback(self.pose[5])]
 
     def write6(self, pose, duration_ms):
-        self.pose = list(pose)
+        pose = list(pose)
+        s = self.world.stop_short
+        if s:                    # each joint that moves stops up to `s` short of the command, readback included
+            for j in range(5):
+                d = pose[j] - self.pose[j]
+                if abs(d) > 1e-6:
+                    pose[j] -= math.copysign(min(abs(d), self.world.faults.uniform(0.0, s)), d)
+        self.pose = pose
         self.world.arm_moved(self.pose)

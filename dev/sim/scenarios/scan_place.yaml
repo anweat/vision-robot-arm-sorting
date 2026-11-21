@@ -1,0 +1,18 @@
+# 扫描 → 定位 → 规划 → 执行，整条链路（感知在环，原 dev/sim/flow_check.py 的 reachable 布局）
+# 每种情况前按观察脚本扫描一次（observe:），用扫描定出的位置规划，再按仿真真值判落点。
+# 仿真渲染用的相机模型和定位用的是同一个（doc 16），所以定位误差偏乐观。
+name: scan_place
+title: 扫描定位后搬到桌面空位（感知在环）
+seed: 7
+locate: scan
+observe: field            # app/config/observe/field.yaml
+table_trim: false         # 扫描自己定桌面高度
+faults: {stop_short_deg: 1.0}
+blocks:
+  - {tag: K, category: kitchen, map_cm: [0.0, 13.0], yaw: 5.0}
+  - {tag: H, category: hazardous, map_cm: [-7.0, 14.0], yaw: -10.0}
+  - {tag: R, category: recyclable, map_cm: [7.5, 11.5], yaw: 15.0}
+  - {tag: O, category: other, map_cm: [3.5, 17.5], yaw: 0.0}
+cases:
+  - {name: kitchen, pick: K, to: {table_m: [-0.065, 0.27]}, expect: {on: table}}
+  - {name: other, pick: O, to: {table_m: [-0.10, 0.17]}, expect: {on: table}}
