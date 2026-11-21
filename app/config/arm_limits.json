@@ -66,6 +66,9 @@
     "speed_default_deg_s": 20,
     "speed_min_deg_s": 3,
     "speed_max_deg_s": 40,
+    "pass_settle_ms": 0,
+    "pass_tolerance_deg": 8,
+    "_pass_note": "2026-11-21 (doc 42 §4): /api/trajectory passes through the waypoints that are not stops: no settle wait after their segments, and a readback lagging its command by up to pass_tolerance_deg is not resistance there (at the stops and the last waypoint the normal settle and readback_tolerance_deg apply). Simulator only so far; on the arm, measure the lag first (a lag that reads as resistance stops the arm: raise pass_settle_ms before the tolerance).",
     "_note": "2026-11-18 (doc 32 §1.3): speed in deg/s is the only setting; src/teleop/motion_policy.motion_for derives max_step_deg / segment_ms / settle_ms from it (6 deg/s ~ the old 5 deg 800+300 ms, 37 deg/s ~ the old explore 15 deg 400+120 ms). max_step_deg/segment_ms/settle_ms here are what safe_arm.py's own CLI uses. 40 deg/s is not measured on the arm: the failure mode of going faster is a readback that lags and reads as resistance, which stops the arm; if spurious stops appear, raise settle first."
   },
   "keep_out": {

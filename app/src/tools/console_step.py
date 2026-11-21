@@ -105,6 +105,11 @@ class Session:
     def grip(self, action):
         return self._post('/api/gripper', {'action': action, 'revision': self.revision})
 
+    def trajectory(self, waypoints, stops=()):
+        """A series of poses as one continuous move (/api/trajectory, docs/current/42 §4): the console checks the
+        whole chain first, stops only at `stops` and the last. Returns its status with `trajectory.reached`."""
+        return self._post('/api/trajectory', {'waypoints': [list(w) for w in waypoints], 'stops': list(stops)}, timeout=180)
+
     def pose(self, target):
         plan = self._post('/api/pose/plan', {'target': list(target)})
         return self._post('/api/pose/execute', {'plan_id': plan['id'], 'revision': plan['revision']}, timeout=120)

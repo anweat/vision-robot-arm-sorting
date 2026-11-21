@@ -301,6 +301,102 @@ class Controller:
             return safe_arm.plan_segments(base, target, step)
         return self._move(owner, plan=segments, kind='goto')
 
+    # ---- continuous moves (docs/current/42 §4) -------------------------------------------------------
+    MAX_WAYPOINTS = 40
+
+    def _waypoints(self, waypoints, stops):
+        if not isinstance(waypoints, list) or not 1 <= len(waypoints) <= self.MAX_WAYPOINTS:
+            raise ValueError(f'路点必须是 1–{self.MAX_WAYPOINTS} 个姿态')
+        out = []
+        for w in waypoints:
+            if not isinstance(w, list) or len(w) not in (5, 6) or \
+                    any(v is not None and (isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v)) for v in w):
+                raise ValueError('每个路点必须是 5 或 6 个角度（null 表示沿用上一个路点）')
+            out.append(list(w) + [None] * (6 - len(w)))
+        stops = set(stops or [])
+        if any(type(i) is not int or not 0 <= i < len(out) for i in stops):
+            raise ValueError('停点必须是路点的序号')
+        return out, stops | {len(out) - 1}
+
+    @staticmethod
+    def _resolve(base, waypoints):
+        """Absolute integer poses: a null joint keeps the waypoint before's value (the first: `base`, the last
+        command -- so a closed gripper keeps its command, not its readback)."""
+        out, prev = [], list(base)
+        for w in waypoints:
+            prev = [p if v is None else int(round(v)) for p, v in zip(prev, w)]
+            out.append(list(prev))
+        return out
+
+    def _chain(self, base, poses, stops):
+        """Segments through every waypoint (none larger than max_step_deg), with the index of the waypoint each
+        segment ends and whether the arm stops there."""
+        step = self.cfg['motion']['max_step_deg']
+        goals, ends, prev = [], {}, list(base)
+        for i, pose in enumerate(poses):
+            segs = safe_arm.plan_segments(prev, pose, step)
+            goals += segs
+            if segs:
+                ends[len(goals) - 1] = i
+            prev = pose
+        stop_at = {g for g, i in ends.items() if i in stops}
+        if goals:
+            stop_at.add(len(goals) - 1)
+        return goals, ends, stop_at
+
+    def plan_trajectory(self, waypoints, stops=None):
+        """Check a series of poses as one path from the current readback (limits and keep-out on every segment);
+        nothing is sent. Returns the preview: segments, which waypoints stop, the estimated time."""
+        waypoints, stops = self._waypoints(waypoints, stops)
+        with self.gate:
+            if self.busy or time.time()-self.observed_at > 2:
+                raise ValueError('需要静止且新鲜的回读')
+            start = list(self.pose)
+            base = list(self.command) if self.command is not None and all(
+                abs(c-r) <= self.cfg['motion']['readback_tolerance_deg'] for c, r in zip(self.command, start)) else start
+            poses = self._resolve([int(round(v)) for v in base], waypoints)
+            goals, ends, stop_at = self._chain(start, poses, stops)
+            previous, margins = list(start), []
+            for n, goal in enumerate(goals):
+                try:
+                    safe_arm.validate_target(previous, goal, self.cfg)
+                    margins.append(safe_arm.check_keep_out(previous, goal, self.cfg, recover=True))
+                except safe_arm.MotionError as exc:
+                    raise ValueError(f'路径第 {n+1}/{len(goals)} 段（到路点 {self._waypoint_of(ends, n)+1}）不可行：{exc}') from exc
+                previous = goal
+            m = self.cfg['motion']
+            passing = len(goals) - len(stop_at)
+            seconds = (len(goals)*m['segment_ms'] + len(stop_at)*m['settle_ms'] + passing*m.get('pass_settle_ms', 0))/1000
+            return dict(start=start, poses=poses, stops=sorted(stops), segments=len(goals), stop_segments=len(stop_at),
+                        seconds=round(seconds, 1), margin_cm=round(min(margins)*100, 2) if margins else None,
+                        revision=self.revision)
+
+    @staticmethod
+    def _waypoint_of(ends, n):
+        return min((i for g, i in ends.items() if g >= n), default=0)
+
+    def trajectory(self, owner, waypoints, stops=None):
+        """Go through a series of poses in one move: the whole chain is checked before the first segment, then
+        sent segment after segment without the settle wait in between, except at the waypoints in `stops` (and the
+        last), where the arm settles and the readback is held to the normal tolerance. In between, a segment's
+        readback is held to motion.pass_tolerance_deg: a joint that falls that far behind its command is
+        resistance, and the arm holds at its readback as on any other move. The path is the same joint-space
+        line through the waypoints as one goto per waypoint would take; only the stops between them are gone.
+        Returns the status with `trajectory`: the readback at the end of every waypoint."""
+        waypoints, stops = self._waypoints(waypoints, stops)
+        flow = dict(stops=set(), ends={}, reached={})
+
+        def segments(base):
+            poses = self._resolve(base, waypoints)
+            goals, ends, stop_at = self._chain(base, poses, stops)
+            flow.update(stops=stop_at, ends=ends, poses=poses)
+            return goals
+        self.log('trajectory', waypoints=waypoints, stops=sorted(stops))
+        status = self._move(owner, plan=segments, kind='trajectory', flow=flow)
+        reached = [flow['reached'].get(i) for i in range(len(waypoints))]
+        return dict(status, trajectory=dict(poses=flow.get('poses'), stops=sorted(stops), reached=reached,
+                                            segments=len(flow['ends']) and max(flow['ends']) + 1))
+
     # previews kept for the old console page and console_step.Session; they are goto underneath
     def plan_home(self):
         with self.gate:
@@ -591,10 +687,13 @@ class Controller:
                 self.busy = False
         return result
 
-    def _move(self, owner, revision=None, joint=None, delta=None, plan=None, kind='jog', skip=(), timing=None, claim=True):
+    def _move(self, owner, revision=None, joint=None, delta=None, plan=None, kind='jog', skip=(), timing=None, claim=True,
+              flow=None):
         """`timing`: segment length in s for drive segments (their settle is short); else the speed's timing.
         `claim=False` (the drive loop): only an owner whose lease is still alive may move, so a stop that lands
-        between two drive segments is never undone by the next segment taking control again."""
+        between two drive segments is never undone by the next segment taking control again.
+        `flow` (trajectory): the segments not in flow['stops'] are passed through -- motion.pass_settle_ms instead of
+        the settle, readback held to motion.pass_tolerance_deg; flow['reached'][waypoint] gets each waypoint's readback."""
         with self.gate:
             if self.busy:
                 raise ValueError('正在运动；指令不排队')
@@ -639,14 +738,17 @@ class Controller:
                         hint = '；保持当前俯角无法到达，可先调整俯仰或前后位置' if kind == 'cartesian' else ''
                         raise PlanRejected(f'计划被拒绝，未发送任何指令：{exc}{hint}') from exc
                     previous = goal
-                for goal in goals:
+                for n, goal in enumerate(goals):
                     safe_arm.validate_target(current, goal, self.cfg)
                     margin = safe_arm.check_keep_out(current, goal, self.cfg, recover=True)
                     motion = self.cfg['motion']          # a speed change applies from the next segment
+                    passing = flow is not None and n not in flow['stops']
                     if timing:
                         largest = max(abs(a-b) for a, b in zip(goal[:5], current[:5]))
                         seg_ms = int(max(timing*1000, 1000*largest/self.speed))
                         settle_ms = DRIVE_SETTLE_MS
+                    elif passing:
+                        seg_ms, settle_ms = motion['segment_ms'], motion.get('pass_settle_ms', 0)
                     else:
                         seg_ms, settle_ms = motion['segment_ms'], motion['settle_ms']
                     with self.gate:
@@ -662,10 +764,14 @@ class Controller:
                     observed = self.arm.read()
                     if len(observed) != 6 or any(v is None or not math.isfinite(v) for v in observed):
                         raise ValueError('动作后回读失败；停止后续指令，不自动退回')
-                    problems = safe_arm.check_reached(observed, goal, tolerance, skip)
+                    problems = safe_arm.check_reached(observed, goal, motion.get('pass_tolerance_deg', 2*tolerance)
+                                                      if passing else tolerance, skip)
                     with self.gate:
                         self.pose, self.observed_at = list(observed), time.time()
-                    self.log('readback', target=goal, observed=observed, problems=problems, kind=kind)
+                    self.log('readback', target=goal, observed=observed, problems=problems, kind=kind,
+                             **(dict(passing=passing) if flow is not None else {}))
+                    if flow is not None and n in flow['ends']:
+                        flow['reached'][flow['ends'][n]] = list(observed)
                     if problems:
                         # hold where the arm actually is, so no servo keeps pushing into the obstacle
                         hold = [o if o is not None else g for o, g in zip(observed, goal)]

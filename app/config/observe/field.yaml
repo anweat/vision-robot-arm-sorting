@@ -1,0 +1,21 @@
+# 整场扫描（观察脚本，app/src/pipeline/observe.py 执行；格式见 docs/current/42 §2）
+# 5 个高视角覆盖远处抓取带（地图 y 10–17 cm、|x| ≤ 13 cm，图像留 30 px 边），3 个近视角补近排。
+# 2026-11-14：两侧近视角从 J1 50/125 内移到 62/118，离方台禁区 +0.3 cm；近排覆盖从 38 % 降到 30 %。
+# 改姿态后先离线核对：python3 app/src/pipeline/observe.py check field
+name: field
+title: 整场扫描
+j5: roll_zero          # 夹爪滚转：roll_zero（arm_limits.json gripper.roll_zero_deg）或角度
+settle_s: 0.8          # 两次回读相隔这么久、各关节相差 ≤ 1° 才算停稳
+pause_s: 0             # 停稳后再多等这么久才拍（每个视角可单独写）
+board: true            # 等控制台给出这个姿态的定位结果（地图码、官方模型检测）
+on_blocked: skip       # 去某个视角的路被桶挡住：skip 跳过这个视角 / stop 整个扫描停下
+event: scan_view       # 每拍一张写一条的日志事件（日志契约 scan_view）
+views:                 # name 只是标签（按 J1 命名）；图片仍按顺序存成 view_00.jpg …
+  - {name: high_j1_100, pose: [100, 125, 0, 0]}
+  - {name: high_j1_70, pose: [70, 125, 0, 0]}
+  - {name: mid_j1_110, pose: [110, 105, 15, 0]}
+  - {name: high_j1_80, pose: [80, 120, 0, 0]}
+  - {name: side_j1_40, pose: [40, 90, 30, 0]}
+  - {name: near_j1_62, pose: [62, 106, 5, 0]}
+  - {name: near_j1_90, pose: [90, 105, 5, 0]}
+  - {name: near_j1_118, pose: [118, 106, 5, 0]}

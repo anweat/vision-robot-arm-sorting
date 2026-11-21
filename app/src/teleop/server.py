@@ -135,6 +135,10 @@ class App:
             if body.get('dry'):
                 return c.plan_goto(body.get('pose'), body.get('named'))
             c.goto(owner, body.get('pose'), body.get('named'))
+        elif path == '/api/trajectory':      # a series of poses as one continuous move (docs/current/42 §4)
+            if body.get('dry'):
+                return c.plan_trajectory(body.get('waypoints'), body.get('stops'))
+            return c.trajectory(owner, body.get('waypoints'), body.get('stops'))
         elif path == '/api/drive':
             c.drive(owner, body.get('mode', 'cartesian'), body.get('v'), body.get('wrist', 0))
         elif path == '/api/touch':
@@ -248,11 +252,13 @@ def handler(app):
         def log_message(self, *args):
             pass
 
-        def send(self, body, ctype='application/json', status=200):
+        def send(self, body, ctype='application/json', status=200, extra=()):
             if not isinstance(body, bytes):
                 body = json.dumps(body,ensure_ascii=False,allow_nan=False).encode()
             self.send_response(status)
             self.send_header('Content-Type',ctype)
+            for k, v in extra:
+                self.send_header(k, v)
             self.send_header('Content-Length',str(len(body)))
             self.send_header('Cache-Control','no-store')
             self.send_header('X-Content-Type-Options','nosniff')
@@ -296,8 +302,12 @@ def handler(app):
                     jpeg,_=app.phone.snapshot() if app.phone else (None,None)
                     self.send(jpeg,'image/jpeg') if jpeg else self.send({'error':'no phone'},status=503)
                 elif path == '/api/frame':
-                    jpeg,_ = app.camera.snapshot()
-                    self.send(jpeg,'image/jpeg') if jpeg else self.send({'error':'no frame'},status=503)
+                    # X-Frame-Time: when the frame was captured (board clock), so a scan can take only a frame
+                    # captured after the arm came to rest (src/adapters/capture.py)
+                    jpeg,info = app.camera.snapshot()
+                    stamp = (info or {}).get('stamp') or 0
+                    self.send(jpeg,'image/jpeg',extra=(('X-Frame-Time',f'{stamp:.6f}'),('X-Frame-Seq',str((info or {}).get('seq') or 0)))
+                              if stamp else ()) if jpeg else self.send({'error':'no frame'},status=503)
                 elif path == '/api/frozen':
                     if app.frozen:
                         self.send((app.control.directory/app.frozen['file']).read_bytes(),'image/jpeg')
