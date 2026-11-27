@@ -1,0 +1,71 @@
+{
+  "session_date": "2026-11-25",
+  "device": "Atlas 200I DK A2 + Dofbot + wrist-mounted USB camera",
+  "app_base_commit": "08b5070997f3954170a0c69fd3ec0a55e5404a23",
+  "app_notes": "Integrated local revision with a board-deployed joint interpolation correction. That code correction is outside this records submission.",
+  "map": "map_a4_v4",
+  "conditions": {
+    "block_side_m_model": 0.03,
+    "controller_speed_deg_s": 3,
+    "controller_platform_and_table_checks_enabled": true,
+    "grasp_and_place_solution_tier": "full",
+    "colour_order_required": false
+  },
+  "first_two_layer_trial": {
+    "evidence_type": "real_motion_readback_and_operator_observation",
+    "tower_bottom_to_top": ["red", "yellow"],
+    "yellow_grip_command_deg": 133,
+    "yellow_grip_readback_deg": 129,
+    "yellow_grip_result": "holding",
+    "pick_steps_completed": 5,
+    "place_and_return_steps_completed": 6,
+    "final_pose_deg": [90, 109, 15, 6, 92, 30],
+    "operator_observation": "The yellow block lifted clear. Both layers remained standing after release and retreat, with no obvious skew.",
+    "measured_offset_mm": null
+  },
+  "first_third_layer_attempt": {
+    "evidence_type": "real_camera_scan_and_planner_checks",
+    "scan_views": 5,
+    "blue_outline": "no reliable ROI",
+    "green_distinct_roi_views": 2,
+    "green_grasp_planner_result": "blocked by the upper yellow block",
+    "third_layer_grasp_execution": false,
+    "alternate_setup_only_in_model": {
+      "blue_block_removed_from_workspace": true,
+      "green_block_xy_m_in_arm_base_frame": [-0.085, 0.255],
+      "pick_place_and_return_planned": true,
+      "executed": false
+    }
+  },
+  "gripper_fault_and_recovery": {
+    "evidence_type": "real_motion_readback",
+    "yellow_grip_command_deg": 133,
+    "yellow_grip_readback_deg": 29,
+    "yellow_grip_result": "not_closed",
+    "empty_gripper_fault_command_deg": 38,
+    "empty_gripper_fault_readback_deg": 29,
+    "operator_power_cycled_servo_controller": true,
+    "full_empty_test_command_deg": [133, 30],
+    "full_empty_test_readback_deg": [132, 30],
+    "empty_test_passed": true,
+    "loaded_grasp_retest_passed": null
+  },
+  "later_repositioned_red_on_yellow_attempt": {
+    "evidence_type": "real_scan_and_descent_with_readback_planner_recheck",
+    "scan_views": 6,
+    "descent_command_deg": [70, 40, 35, 58, 92, 30],
+    "descent_readback_deg": [70, 39, 35, 58, 92, 30],
+    "closing_margin_against_green_mm_model": -1.9,
+    "adjustment_reported_pose_deg": [70, 39, 35, 58, 92, 30],
+    "gripper_closed": false,
+    "placement_executed": false
+  },
+  "result": {
+    "maximum_confirmed_standing_layers": 2,
+    "confirmed_two_layer_trials": 1,
+    "third_layer_confirmed": false,
+    "fourth_layer_confirmed": false,
+    "r09_acceptance_complete": false,
+    "height_source": "Block-size model and execution state; no real stack height measurement in this trial."
+  }
+}
