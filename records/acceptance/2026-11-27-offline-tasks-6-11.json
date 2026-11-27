@@ -1,0 +1,265 @@
+{
+  "date": "2026-11-27T15:30:52.093781+08:00",
+  "device": "LAPTOP-MFA1PPBQ",
+  "platform": "Windows-11-10.0.26300-SP0",
+  "python": "3.14.5 (tags/v3.14.5:5607950, May 10 2026, 10:43:50) [MSC v.1944 64 bit (AMD64)]",
+  "revision": "34cb05404db90f946869e9ac7cb803b9cbc9f93b",
+  "profile": "all",
+  "ok": true,
+  "checks": [
+    {
+      "name": "schema_scripts_templates",
+      "ok": true,
+      "exit_code": 0,
+      "tests": null,
+      "skipped": 0,
+      "seconds": 0.44,
+      "log": "D:\\30817\\vision-robot-arm-sorting-main\\data\\offline-6-11\\final-check\\schema_scripts_templates.out"
+    },
+    {
+      "name": "python_app",
+      "ok": true,
+      "exit_code": 0,
+      "tests": 426,
+      "skipped": 9,
+      "seconds": 120.94,
+      "log": "D:\\30817\\vision-robot-arm-sorting-main\\data\\offline-6-11\\final-check\\python_app.out"
+    },
+    {
+      "name": "python_dev",
+      "ok": true,
+      "exit_code": 0,
+      "tests": 128,
+      "skipped": 0,
+      "seconds": 147.11,
+      "log": "D:\\30817\\vision-robot-arm-sorting-main\\data\\offline-6-11\\final-check\\python_dev.out"
+    },
+    {
+      "name": "android_build_unit",
+      "ok": true,
+      "exit_code": 0,
+      "tests": null,
+      "skipped": 0,
+      "seconds": 4.6,
+      "log": "D:\\30817\\vision-robot-arm-sorting-main\\data\\offline-6-11\\final-check\\android_build_unit.out"
+    },
+    {
+      "name": "android_emulator",
+      "ok": true,
+      "exit_code": 0,
+      "tests": null,
+      "skipped": 0,
+      "seconds": 18.14,
+      "log": "D:\\30817\\vision-robot-arm-sorting-main\\data\\offline-6-11\\final-check\\android_emulator.out"
+    }
+  ],
+  "known_findings": [
+    {
+      "scenario": "vertical",
+      "case": "unstack",
+      "contacts": {
+        "block_contacts": [
+          {
+            "block": "b15",
+            "what": "block",
+            "at_cm": [
+              4.7,
+              23.1,
+              4.5
+            ],
+            "servos": [
+              75.0,
+              48.0,
+              61.0,
+              22.0,
+              270.0,
+              133.0
+            ]
+          },
+          {
+            "block": "b15",
+            "what": "block",
+            "at_cm": [
+              5.0,
+              23.3,
+              4.4
+            ],
+            "servos": [
+              72.0,
+              42.0,
+              62.0,
+              29.0,
+              270.0,
+              133.0
+            ]
+          }
+        ]
+      },
+      "evidence": "D:\\30817\\vision-robot-arm-sorting-main\\data\\offline-6-11\\final-check\\python_dev\\scenarios\\test_vertical_reports_unstack_and_drop_contacts_as_failures\\vertical\\report.json"
+    },
+    {
+      "scenario": "vertical",
+      "case": "bin_drop",
+      "contacts": {
+        "block_contacts": [
+          {
+            "block": "b15",
+            "what": "finger",
+            "at_cm": [
+              5.3,
+              22.9,
+              4.5
+            ],
+            "servos": [
+              68.0,
+              35.0,
+              35.0,
+              63.0,
+              270.0,
+              30.0
+            ]
+          },
+          {
+            "block": "b15",
+            "what": "finger",
+            "at_cm": [
+              4.5,
+              22.4,
+              4.6
+            ],
+            "servos": [
+              68.0,
+              35.0,
+              35.0,
+              63.0,
+              270.0,
+              133.0
+            ]
+          }
+        ]
+      },
+      "evidence": "D:\\30817\\vision-robot-arm-sorting-main\\data\\offline-6-11\\final-check\\python_dev\\scenarios\\test_vertical_reports_unstack_and_drop_contacts_as_failures\\vertical\\report.json"
+    }
+  ],
+  "evidence": "offline/simulation/emulator; no physical hardware",
+  "hardware_connected": false,
+  "dependencies": {
+    "numpy": "2.5.4",
+    "opencv-python": "4.14.0.94",
+    "onnxruntime": "1.31.1",
+    "pyyaml": "6.0.4",
+    "playwright": "1.65.2"
+  },
+  "working_tree_dirty": true,
+  "android": {
+    "ok": true,
+    "evidence": "Android emulator and local simulator only",
+    "serial": "emulator-5580",
+    "tests": 3,
+    "csv_records": 1000,
+    "xlsx_records": 1000,
+    "android_api": "35"
+  },
+  "android_unit_tests": {
+    "tests": 16,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "tasks": {
+    "6": {
+      "status": "verified offline",
+      "browser": "Chromium via Playwright",
+      "tests": 3,
+      "records": 1000,
+      "pages": 10,
+      "page_size": 100,
+      "csv_records": 1000,
+      "excel_xml_records": 1000,
+      "filtered_records": 50,
+      "screenshot": "data\\offline-6-11\\final-check\\python_dev\\browser\\test_thousand_rows_pagination_filters_and_exports\\records.png"
+    },
+    "7": {
+      "status": "verified emulator",
+      "instrumentation_tests": 3,
+      "unit_tests": 16,
+      "records": 1000,
+      "flow": "mobile-demo: notify -> wait -> alarm -> mobile acknowledgement",
+      "exports": [
+        "CSV",
+        "XLSX"
+      ],
+      "screenshots": [
+        "data\\offline-6-11\\final-check\\android_emulator\\offline-script.png",
+        "data\\offline-6-11\\final-check\\android_emulator\\offline-records.png"
+      ],
+      "boundary": "No physical phone/board or App-initiated grasping acceptance"
+    },
+    "8": {
+      "status": "verified injected recognition results",
+      "tests": 3,
+      "conditions": "threshold, continuous frames, latch, shared cross-source cooldown, arm gate, stop priority, alarms/ack, wait_voice/say refused",
+      "boundary": "No microphones, ASR accuracy, live gesture accuracy or speech output tested"
+    },
+    "9": {
+      "status": "regression implemented; two known contact failures retained",
+      "tests": 3,
+      "normal": "empty table; unreachable rejection without execution; bin set under 1.5deg stop-short in steps and continuous; zero-fault stack/stack2/bin_set",
+      "known_failed_cases": [
+        "vertical/unstack",
+        "vertical/bin_drop"
+      ],
+      "expected_failure_detection": "Tests verify contact cases produce ok=false; these motions have NOT passed collision-free acceptance"
+    },
+    "10": {
+      "status": "local all profile verified; CI prepared",
+      "entry": "dev/tools/check_offline.py",
+      "workflow": ".github/workflows/offline-checks.yml",
+      "yaml_valid": true,
+      "executed_on_github": false
+    },
+    "11": {
+      "status": "template delivered",
+      "blank": "records/hardware-tests/placement-template.json",
+      "example": "records/hardware-tests/placement-example-simulation.json",
+      "example_kind": "constructed simulation example; no real measurements",
+      "methods": [
+        "ruler/calipers against map markers",
+        "rescan and compare located.json to target"
+      ]
+    }
+  },
+  "source_sha256": {
+    "app\\src\\web\\js\\logs.js": "c72246a67d3002cfd5828ae8077e147960c048d49723d04af42a00e829cd4685",
+    "app\\src\\web\\js\\store.js": "99db490f1e718aecc598276e3d68bbdb4be4df20fd27587eef45818bfa46e5c5",
+    "app\\src\\web\\js\\recordexport.js": "02de456a867ad419acee745db35dd02793554c31f5f4ac8f2b340d84796193da",
+    "app\\mobile\\android\\app\\src\\main\\java\\com\\example\\myapplication00001\\TaskScreen.kt": "e14743981a8fef44f72cc3019343f12296824934da92a5eff6ee5adc1d37bbf6",
+    "app\\mobile\\android\\app\\src\\main\\java\\com\\example\\myapplication00001\\FlowScriptsPanel.kt": "47fa1279aab697ec9cfa4f660e496f82808f7e6b0a09889eb6d7bed4e0410deb",
+    "app\\mobile\\android\\app\\src\\test\\java\\com\\example\\myapplication00001\\ScriptProgressTest.kt": "502ab8e12bc7b8b414c1bcf1b8f63432d6d7fe0c91e717729e12d747c59b2d01",
+    "app\\mobile\\android\\app\\src\\androidTest\\java\\com\\example\\myapplication00001\\OfflineGatewayTest.kt": "6a540b902915183c244d14fe2976f453c9d453e738060cd91e7f952d3b932272",
+    "dev\\tests\\offline_fixture.py": "2c2838af890d51dc6c4e33ebce92ac6c331b41e0d86feecaff1196c3be66293a",
+    "dev\\tests\\test_gateway_integration.py": "ac1195e89633fd8ce33ee8aff8d5a5658c50bc95ea746a4340474e2ccec33f3c",
+    "dev\\tests\\test_web_records_browser.py": "08c0a0b43c5b58bef47b840a356e952e4ff9d3884414b8fb7a88142b70fc01f9",
+    "dev\\tests\\test_interaction_gateway.py": "7859e38dd3dc6de7f54bdd1d2ba942463589967e4affaefe3deaaae816eb0533",
+    "dev\\tests\\test_scenario_regression.py": "cc3d30349b24145b3ca482b2fc164f627ce48d3db4728a50e567555f6ade136e",
+    "dev\\sim\\bench.py": "c7453996281be9a4cc2fc7dea5aff7e307eafe3f06897d639fdca5dbaed0c4c1",
+    "dev\\sim\\scenarios\\offline_edges.yaml": "bf553aa2c16f5b4170318b7a85b8aa6bcc9afbb6e56e436a9fe1e306c7e76e0f",
+    "dev\\tools\\check_offline.py": "79d4d458e5321f54f52bd96451634a0da05a35006c75662d1a1e875a01a5b46d",
+    "dev\\tools\\android_offline.py": "57f2e0dbfe57522633ada617b6b1b5332027ed45ee1db9d5bced3fdf75c1be7d",
+    "dev\\requirements-offline.txt": "21317922d961d87af7ef768d015a09dcfed53140ce7eb887fdc1131017bd8724",
+    ".github\\workflows\\offline-checks.yml": "fd7f269bdbb9d4b65fe2fdd15986db850ba7db05427f2b00ef2515c587d11e1b",
+    "records\\hardware-tests\\placement-template.json": "8dd571612ede38796845575c828d9e3978bd3a2334120ae934b667105afe8ec0",
+    "records\\hardware-tests\\placement-example-simulation.json": "071305b25dbbadf045a451be2823b01b6c32cecfcd19b135ccd1f2a09e20f639"
+  },
+  "exploratory_failure_logs": [
+    "data/offline-6-11/scenario-tests.out",
+    "data/offline-6-11/scenario-final.out"
+  ],
+  "notes": [
+    "All statuses are software/simulation/emulator only.",
+    "Nine existing app Python tests skip on their environment prerequisites; dev suite skips none.",
+    "The final full checker started before adding its working_tree_dirty metadata field; source hashes here describe final files.",
+    "No source motion margins or physical hardware calibration parameters were relaxed.",
+    "Original vertical success judged landing only; the new gate additionally fails any contact counter increase."
+  ]
+}

@@ -13,6 +13,7 @@ export class Store {
     this.total = 0;              // 日志总行数（/api/log 的 total / 见过的最大 seq）
     this.records = [];           // 逐块记录（六项）
     this.summary = null;
+    this.recordsError = null;
     this.status = { mode: "manual", joints_deg: null, t: null };
     this.rounds = [];            // 已结束的轮（只含任务轮，不含历史回放）
     this.current = null;         // 进行中的轮（可能一直没有结束，见契约 §7）
@@ -121,10 +122,15 @@ export class Store {
   /** 记录与统计不随每次事件刷新，按需拉（1 000 条以内很快） */
   async refresh() {
     try {
-      const [records, summary] = await Promise.all([fetchRecords(), fetchSummary()]);
+      let [records, summary] = await Promise.all([fetchRecords(), fetchSummary()]);
+      if ((records.records ?? []).length !== summary.records) {
+        [records, summary] = await Promise.all([fetchRecords(), fetchSummary()]);
+      }
+      if ((records.records ?? []).length !== summary.records) throw new Error("记录正在更新，请重试");
       this.records = records.records ?? [];
       this.summary = summary;
-    } catch { /* 保持上一次 */ }
+      this.recordsError = null;
+    } catch (err) { this.recordsError = err.message || "无法读取记录"; }
     this.notify();
   }
 

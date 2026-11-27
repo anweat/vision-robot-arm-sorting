@@ -425,7 +425,7 @@ class State:
     def __init__(self, log_path: Path, token: str | None = None,
                  scene_json: Path | None = None, scene_image: Path | None = None,
                  console: Console | None = None, timers: Timers | None = None,
-                 archive: Path | None = None):
+                 archive: Path | None = None, flow_root: Path | None = None):
         self.log_path = log_path
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
         self.token = token
@@ -445,6 +445,8 @@ class State:
         self.motion_lock = threading.Lock()      # 运动串行化：同一时刻只执行一条运动指令
         self.replay = False                      # --replay 时为真：页面据此标"回放"，不冒充实时
         self.flow = None                         # 编排器子进程（src/flow/orchestrator.py）
+        self.flow_lock = threading.Lock()
+        self.flow_root = Path(flow_root) if flow_root is not None else ROOT / "data" / "flow"
         self.flow_python = [sys.executable]      # 跑编排器的解释器（要 numpy 等；--flow-python 改）
         self.task = "pipeline"                   # 「开始」跑什么：pipeline 已验证的旧流水线（默认）/ flow 分步编排器
         self.pipeline_args: list[str] = []       # 传给 src/pipeline/task.py → run.py 的参数（如 --bins DESIGN）
@@ -572,6 +574,10 @@ class State:
         )
 
     def _spawn_flow(self, args: list[str], source: str, command: str, script: str = "flow", log: bool = True) -> dict:
+        with self.flow_lock:
+            return self._spawn_flow_locked(args, source, command, script, log)
+
+    def _spawn_flow_locked(self, args: list[str], source: str, command: str, script: str, log: bool) -> dict:
         """Run the task executor against the console as a child process: src/flow/orchestrator.py
         (文档 32 §3), or with script="pipeline" src/pipeline/task.py（已验证的旧流水线，文档 34 §4.2）。
 
@@ -593,10 +599,13 @@ class State:
         else:
             cmd = [*self.flow_python, str(ROOT / "src" / "flow" / "orchestrator.py"), *args,
                    "--console", console.base, "--really", "--log", str(self.log_path)]
-        self.flow_out = ROOT / "data" / "flow" / "gateway_last.out"
+        if script != "pipeline" and "--session" not in args:
+            cmd += ["--session", str(self.flow_root / f"{time.strftime('%Y%m%d_%H%M%S')}_{secrets.token_hex(4)}")]
+        self.flow_out = self.flow_root / "gateway_last.out"
         self.flow_out.parent.mkdir(parents=True, exist_ok=True)
         env = dict(os.environ, ARM_GATEWAY=self.base_url, ARM_GATEWAY_TOKEN=self.token or "")
-        self.flow = subprocess.Popen(cmd, cwd=ROOT, env=env, stdout=self.flow_out.open("w"), stderr=subprocess.STDOUT)
+        with self.flow_out.open("w", encoding="utf-8") as output:
+            self.flow = subprocess.Popen(cmd, cwd=ROOT, env=env, stdout=output, stderr=subprocess.STDOUT)
         self.flow_script = {"flow": "sort", "pipeline": None, "step": None}.get(script, script)
         if log:                                  # 语音/手势触发的由 intents 的事件记（带 confidence / detail）
             try:
@@ -797,9 +806,15 @@ class State:
         return out
 
     def stop_flow(self) -> bool:
-        if self.flow and self.flow.poll() is None:
-            self.flow.terminate()
-            return True
+        with self.flow_lock:
+            if self.flow and self.flow.poll() is None:
+                self.flow.terminate()
+                try:
+                    self.flow.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    self.flow.kill()
+                    self.flow.wait(timeout=5)
+                return True
         return False
 
     @property
@@ -809,7 +824,7 @@ class State:
             for line in reversed(self.log_path.read_text(encoding="utf-8").splitlines()[-400:]):
                 e = json.loads(line)
                 if e.get("event") == "step" and e.get("session"):
-                    return str(ROOT / "data" / "flow" / e["session"])
+                    return str(self.flow_root / e["session"])
         except (OSError, ValueError):
             return None
         return None
@@ -1137,13 +1152,20 @@ class Handler(BaseHTTPRequestHandler):
         url = urlsplit(self.path)
         if not self._authorized():
             return self._fail("token 无效", status=401)
-        if url.path not in ("/api/cmd", "/api/timers") and not url.path.startswith(("/api/interact/", "/api/scripts/")):
-            return self._fail("没有这个接口", status=404)
-        if not self._write_allowed():
+        supported = url.path in ("/api/cmd", "/api/timers") or url.path.startswith(("/api/interact/", "/api/scripts/"))
+        if supported and not self._write_allowed():
             return
         try:
-            body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
+            raw = self.rfile.read(int(self.headers.get("Content-Length") or 0))
         except (ValueError, OSError):
+            return self._fail("请求体不是 JSON")
+        # Drain the request before closing an unknown route; unread bytes can turn the 404 into a TCP reset
+        # on Windows (the client observes WinError 10053 rather than the HTTP response).
+        if not supported:
+            return self._fail("没有这个接口", status=404)
+        try:
+            body = json.loads(raw or b"{}")
+        except ValueError:
             return self._fail("请求体不是 JSON")
 
         if url.path == "/api/timers":

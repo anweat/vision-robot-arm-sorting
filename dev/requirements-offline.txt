@@ -1,0 +1,5 @@
+numpy>=1.26
+opencv-python<5
+onnxruntime>=1.18
+PyYAML>=6
+playwright==1.65.2
