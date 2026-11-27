@@ -2,6 +2,8 @@
 
 import { EVENTS, categoryName, resultName } from "./contract.js";
 import { fmtXY, cls, fmtRel } from "./format.js";
+import { CATEGORIES, RESULTS } from "./contract.js";
+import { downloadRecords } from "./recordexport.js";
 
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
@@ -14,6 +16,14 @@ export function createLogsView(root) {
     <section class="panel">
       <div class="row spread"><h2 style="margin:0">逐块记录 <small>时间 / 类别 / 来源 / 目标 / 耗时 / 结果</small></h2>
         <label>只看 <select id="lRound"><option value="cur">本轮</option><option value="all">全部</option></select></label></div>
+      <div class="row">
+        <label>类别 <select id="lCategory"><option value="">全部类别</option>${CATEGORIES.map(c => `<option value="${c}">${categoryName(c)}</option>`).join("")}</select></label>
+        <label>结果 <select id="lResult"><option value="">全部结果</option>${RESULTS.map(r => `<option value="${r}">${resultName(r)}</option>`).join("")}</select></label>
+        <button id="lCsv">导出筛选结果 CSV</button><button id="lExcel">导出筛选结果 Excel</button>
+      </div>
+      <p id="lError" role="status"></p><button id="lRetry" hidden>重试读取记录</button>
+      <div class="row"><button id="lPrev">上一页</button><span id="lPage"></span><button id="lNext">下一页</button></div>
+      <p id="lExportStatus" role="status"></p>
       <table><thead><tr><th>#</th><th>时间</th><th>轮</th><th>类别</th><th>来源 cm</th><th>目标位</th><th>耗时 s</th><th>结果</th><th>原因</th></tr></thead>
       <tbody id="lRecords"></tbody></table>
     </section>
@@ -24,9 +34,23 @@ export function createLogsView(root) {
     </section>`;
   const $ = (id) => root.querySelector("#" + id);
   let filter = "";
+  let page = 0, snapshot = [], lastStore = null;
+  const PAGE_SIZE = 100;
+  const redraw = () => { if (lastStore) view.update(lastStore); };
   $("lFilter").addEventListener("input", () => { filter = $("lFilter").value.trim(); });
-  return {
+  for (const id of ["lRound", "lCategory", "lResult"]) $(id).addEventListener("change", () => { page = 0; redraw(); });
+  $("lPrev").onclick = () => { page = Math.max(0, page - 1); redraw(); };
+  $("lNext").onclick = () => { page++; redraw(); };
+  $("lRetry").onclick = () => lastStore?.refresh();
+  for (const [id, excel] of [["lCsv", false], ["lExcel", true]]) $(id).onclick = () => {
+    downloadRecords(snapshot, excel);
+    $("lExportStatus").textContent = `已导出 ${snapshot.length} 条记录`;
+  };
+  const view = {
     update(store) {
+      lastStore = store;
+      $("lError").textContent = store.recordsError ? `更新失败，保留上次记录：${store.recordsError}` : "";
+      $("lRetry").hidden = !store.recordsError;
       const s = store.summary ?? {};
       const blocks = s.by_result ?? {};
       const n = (k) => blocks?.[k] ?? 0;
@@ -39,9 +63,16 @@ export function createLogsView(root) {
 
       const base = store.events[0]?.t ?? store.records[0]?.t;
       const cur = store.current ?? store.rounds.at(-1) ?? null;
-      const rows = ($("lRound").value === "all" ? store.records
+      snapshot = ($("lRound").value === "all" ? store.records
         : cur ? store.records.filter((r) => r.t >= cur.t && (!cur.endedAt || r.t <= cur.endedAt))
-        : store.records.filter((r) => r.round === (store.records.at(-1)?.round ?? 0))).slice(-200).reverse();
+        : store.records.filter((r) => r.round === (store.records.at(-1)?.round ?? 0)))
+        .filter(r => (!$("lCategory").value || r.category === $("lCategory").value) && (!$("lResult").value || r.result === $("lResult").value));
+      page = Math.max(0, Math.min(page, Math.ceil(snapshot.length / PAGE_SIZE) - 1));
+      $("lPage").textContent = `共 ${snapshot.length} 条 · 第 ${page + 1}/${Math.max(1, Math.ceil(snapshot.length / PAGE_SIZE))} 页`;
+      $("lPrev").disabled = page === 0;
+      $("lNext").disabled = (page + 1) * PAGE_SIZE >= snapshot.length;
+      $("lCsv").disabled = $("lExcel").disabled = !snapshot.length;
+      const rows = [...snapshot].reverse().slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
       const rHtml = rows.map((r) => `<tr><td>${r.seq}</td><td>${fmtRel(r.t, base)}</td><td>${r.round ?? "—"}</td>
         <td>${categoryName(r.category)}</td><td>${fmtXY(r.cube)}</td><td>${esc(r.bin ?? "—")}</td>
         <td>${r.seconds == null ? "—" : r.seconds.toFixed(1)}</td><td class="${cls(r.result)}">${resultName(r.result)}</td>
@@ -58,4 +89,5 @@ export function createLogsView(root) {
       if ($("lFeed").dataset.sig !== fHtml) { $("lFeed").dataset.sig = fHtml; $("lFeed").innerHTML = fHtml; }
     },
   };
+  return view;
 }

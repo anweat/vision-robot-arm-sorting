@@ -348,10 +348,10 @@ def plan(ctx: Context, to="by_class", table_m=None, start=None, tuning=None, on=
                    dict(steps=len(p["steps"]), tiers=tiers, aligned=aligned))
 
 
-def _execute(ctx: Context, phases, grip_must_hold=True, motion: str | None = None) -> dict:
+def _execute(ctx: Context, phases, grip_must_hold=True, motion: str | None = None, correct: bool = True) -> dict:
     return ST.execute(ctx.block_session(), console=ctx.console, really=ctx.really, confirm=lambda _q: "yes",
                       backend=ctx.make_backend(), phases=phases, grip_must_hold=grip_must_hold,
-                      motion=motion or ctx.motion)
+                      motion=motion or ctx.motion, correct=correct)
 
 
 def grasp(ctx: Context, motion: str | None = None, **_) -> Outcome:
@@ -416,9 +416,9 @@ def back_off(ctx: Context, **_) -> Outcome:
     return Outcome("done", "已张爪退回观察位")
 
 
-def place(ctx: Context, motion: str | None = None, **_) -> Outcome:
+def place(ctx: Context, motion: str | None = None, correct: bool = True, **_) -> Outcome:
     """S6: carry, release, return (the plan's `place` and `transit` steps)."""
-    r = _execute(ctx, ("place", "transit"), motion=motion)
+    r = _execute(ctx, ("place", "transit"), motion=motion, correct=correct)
     if not r["ok"]:
         return Outcome("failed", f"放置中途停止：{r['stopped']}", dict(stopped=r["stopped"]))
     ctx.sorted.append(ctx.block)

@@ -1,0 +1,21 @@
+[
+  {
+    "round": 1,
+    "block": "b1",
+    "verified": true,
+    "evidence": "模拟示例：假设的量尺读数，不是实机证据",
+    "target_m": [0.10, 0.20],
+    "measured_m": [0.103, 0.204],
+    "tilt_deg": 2.0,
+    "touched_neighbor": false,
+    "date": "2026-11-27",
+    "device": "simulation example only",
+    "revision": "example-not-measured",
+    "map": "map_a4_v4",
+    "bins": "bins_acrylic_v2_pair",
+    "speed_deg_s": null,
+    "method": "构造坐标，平面偏差 sqrt(3^2+4^2)=5 mm",
+    "session": "example",
+    "notes": "仅演示填写格式，不计入任何真实验收成功率"
+  }
+]

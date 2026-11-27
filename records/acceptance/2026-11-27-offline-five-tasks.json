@@ -1,0 +1,352 @@
+{
+  "date": "2026-11-27T15:07:13.925286+08:00",
+  "device": "LAPTOP-MFA1PPBQ",
+  "platform": "Windows-11-10.0.26300-SP0",
+  "python": "3.14.5 (tags/v3.14.5:5607950, May 10 2026, 10:43:50) [MSC v.1944 64 bit (AMD64)]",
+  "revision": "34cb05404db90f946869e9ac7cb803b9cbc9f93b",
+  "working_tree_dirty": true,
+  "metadata_warnings": [],
+  "evidence": "offline/simulation only",
+  "hardware_connected": false,
+  "dependencies": {
+    "numpy": "2.5.4",
+    "opencv-python": "4.14.0.94",
+    "onnxruntime": "1.31.1",
+    "pyyaml": "6.0.4"
+  },
+  "tests": 17,
+  "failures": [],
+  "errors": [],
+  "skipped": [],
+  "seconds": 74.86,
+  "ok": true,
+  "full_suites": {
+    "application": {
+      "tests": 426,
+      "skipped": 9,
+      "seconds": 123.141,
+      "ok": true,
+      "log": "data\\offline-app-tests-final.out"
+    },
+    "development": {
+      "tests": 119,
+      "skipped": 0,
+      "seconds": 93.603,
+      "ok": true,
+      "log": "data\\offline-dev-tests-utf8.out"
+    }
+  },
+  "cases": {
+    "test_concurrent_start_and_stop_leave_no_running_child": {
+      "summary": {
+        "rounds": 1,
+        "rounds_finished": 0,
+        "rounds_all_reported_sorted": 0,
+        "blocks": 0,
+        "counts": {},
+        "denominator": 0,
+        "reported_success_rate": null,
+        "placement_verified": 0,
+        "placement_observed": 0,
+        "placement_unknown": 0,
+        "unaccounted_blocks": 0,
+        "verified_success_rate": null,
+        "verified_fraction_lower_bound": null,
+        "retries": 0,
+        "alarms": 0,
+        "block_seconds": null,
+        "failure_handling_seconds": null,
+        "round_seconds": null
+      },
+      "states": [
+        "unfinished"
+      ],
+      "log": "data\\offline-acceptance\\20261127-five-tasks-sticker\\gateway\\test_concurrent_start_and_stop_leave_no_running_child\\log.jsonl"
+    },
+    "test_console_disconnection_fails_and_never_sorts": {
+      "summary": {
+        "rounds": 1,
+        "rounds_finished": 0,
+        "rounds_all_reported_sorted": 0,
+        "blocks": 0,
+        "counts": {},
+        "denominator": 0,
+        "reported_success_rate": null,
+        "placement_verified": 0,
+        "placement_observed": 0,
+        "placement_unknown": 0,
+        "unaccounted_blocks": 0,
+        "verified_success_rate": null,
+        "verified_fraction_lower_bound": null,
+        "retries": 0,
+        "alarms": 1,
+        "block_seconds": null,
+        "failure_handling_seconds": null,
+        "round_seconds": {
+          "n": 1,
+          "median": 2.076842,
+          "p90": 2.076842,
+          "max": 2.076842
+        }
+      },
+      "states": [
+        "stopped"
+      ],
+      "log": "data\\offline-acceptance\\20261127-five-tasks-sticker\\gateway\\test_console_disconnection_fails_and_never_sorts\\log.jsonl"
+    },
+    "test_full_round_scan_to_truth_records_and_reports": {
+      "summary": {
+        "rounds": 1,
+        "rounds_finished": 1,
+        "rounds_all_reported_sorted": 1,
+        "blocks": 1,
+        "counts": {
+          "sorted": 1
+        },
+        "denominator": 1,
+        "reported_success_rate": 1.0,
+        "placement_verified": 0,
+        "placement_observed": 0,
+        "placement_unknown": 1,
+        "unaccounted_blocks": 0,
+        "verified_success_rate": null,
+        "verified_fraction_lower_bound": 0.0,
+        "retries": 0,
+        "alarms": 0,
+        "block_seconds": {
+          "n": 1,
+          "median": 5.5,
+          "p90": 5.5,
+          "max": 5.5
+        },
+        "failure_handling_seconds": null,
+        "round_seconds": {
+          "n": 1,
+          "median": 45.024895,
+          "p90": 45.024895,
+          "max": 45.024895
+        }
+      },
+      "states": [
+        "done"
+      ],
+      "log": "data\\offline-acceptance\\20261127-five-tasks-sticker\\gateway\\test_full_round_scan_to_truth_records_and_reports\\log.jsonl"
+    },
+    "test_grip_miss_retries_then_records_miss_and_alarm": {
+      "summary": {
+        "rounds": 1,
+        "rounds_finished": 1,
+        "rounds_all_reported_sorted": 0,
+        "blocks": 1,
+        "counts": {
+          "missed": 1
+        },
+        "denominator": 1,
+        "reported_success_rate": 0.0,
+        "placement_verified": 0,
+        "placement_observed": 0,
+        "placement_unknown": 1,
+        "unaccounted_blocks": 0,
+        "verified_success_rate": null,
+        "verified_fraction_lower_bound": 0.0,
+        "retries": 2,
+        "alarms": 1,
+        "block_seconds": {
+          "n": 1,
+          "median": 10.2,
+          "p90": 10.2,
+          "max": 10.2
+        },
+        "failure_handling_seconds": {
+          "n": 1,
+          "median": 7.987077,
+          "p90": 7.987077,
+          "max": 7.987077
+        },
+        "round_seconds": {
+          "n": 1,
+          "median": 10.305721,
+          "p90": 10.305721,
+          "max": 10.305721
+        }
+      },
+      "states": [
+        "done"
+      ],
+      "log": "data\\offline-acceptance\\20261127-five-tasks-sticker\\gateway\\test_grip_miss_retries_then_records_miss_and_alarm\\log.jsonl"
+    },
+    "test_missing_bin_is_skipped_without_execution": {
+      "summary": {
+        "rounds": 1,
+        "rounds_finished": 1,
+        "rounds_all_reported_sorted": 0,
+        "blocks": 1,
+        "counts": {
+          "skipped": 1
+        },
+        "denominator": 1,
+        "reported_success_rate": 0.0,
+        "placement_verified": 0,
+        "placement_observed": 0,
+        "placement_unknown": 1,
+        "unaccounted_blocks": 0,
+        "verified_success_rate": null,
+        "verified_fraction_lower_bound": 0.0,
+        "retries": 0,
+        "alarms": 0,
+        "block_seconds": null,
+        "failure_handling_seconds": {
+          "n": 1,
+          "median": 0.001553,
+          "p90": 0.001553,
+          "max": 0.001553
+        },
+        "round_seconds": {
+          "n": 1,
+          "median": 0.126993,
+          "p90": 0.126993,
+          "max": 0.126993
+        }
+      },
+      "states": [
+        "done"
+      ],
+      "log": "data\\offline-acceptance\\20261127-five-tasks-sticker\\gateway\\test_missing_bin_is_skipped_without_execution\\log.jsonl"
+    },
+    "test_unreachable_plan_is_rejected_without_execution": {
+      "summary": {
+        "rounds": 1,
+        "rounds_finished": 1,
+        "rounds_all_reported_sorted": 0,
+        "blocks": 1,
+        "counts": {
+          "skipped": 1
+        },
+        "denominator": 1,
+        "reported_success_rate": 0.0,
+        "placement_verified": 0,
+        "placement_observed": 0,
+        "placement_unknown": 1,
+        "unaccounted_blocks": 0,
+        "verified_success_rate": null,
+        "verified_fraction_lower_bound": 0.0,
+        "retries": 0,
+        "alarms": 0,
+        "block_seconds": null,
+        "failure_handling_seconds": {
+          "n": 1,
+          "median": 0.001241,
+          "p90": 0.001241,
+          "max": 0.001241
+        },
+        "round_seconds": {
+          "n": 1,
+          "median": 0.187563,
+          "p90": 0.187563,
+          "max": 0.187563
+        }
+      },
+      "states": [
+        "done"
+      ],
+      "log": "data\\offline-acceptance\\20261127-five-tasks-sticker\\gateway\\test_unreachable_plan_is_rejected_without_execution\\log.jsonl"
+    }
+  },
+  "conditions": {
+    "hardware": false,
+    "map": "map_a4_v4",
+    "bins": "bins_acrylic_v2_pair",
+    "seed": 17,
+    "sim_speed": 100,
+    "block": {
+      "category": "kitchen",
+      "up": "fish_bone",
+      "map_cm": [
+        0,
+        21
+      ],
+      "yaw_deg": 5
+    },
+    "first_scan": {
+      "observe": "field",
+      "refine": false,
+      "min_views": 3
+    },
+    "tuning": "isolated copy; simulation table trim only; no relaxed safety tolerances"
+  },
+  "truth": {
+    "blocks": 1,
+    "inside": true,
+    "held": false,
+    "contacts": {
+      "contacts": 0,
+      "block_contacts": 0,
+      "platform_contacts": 0
+    },
+    "evidence": "data\\offline-acceptance\\20261127-five-tasks-sticker\\gateway\\test_full_round_scan_to_truth_records_and_reports\\truth.json"
+  },
+  "cli": {
+    "readback_groups": 15,
+    "readback_warnings": [],
+    "readback_json": "data\\offline-acceptance\\20261127-five-tasks-sticker\\cli-readback.json",
+    "acceptance_summary": {
+      "rounds": 1,
+      "rounds_finished": 1,
+      "rounds_all_reported_sorted": 1,
+      "blocks": 1,
+      "counts": {
+        "sorted": 1
+      },
+      "denominator": 1,
+      "reported_success_rate": 1.0,
+      "placement_verified": 1,
+      "placement_observed": 1,
+      "placement_unknown": 0,
+      "unaccounted_blocks": 0,
+      "verified_success_rate": 1.0,
+      "verified_fraction_lower_bound": 1.0,
+      "retries": 0,
+      "alarms": 0,
+      "block_seconds": {
+        "n": 1,
+        "median": 5.5,
+        "p90": 5.5,
+        "max": 5.5
+      },
+      "failure_handling_seconds": null,
+      "round_seconds": {
+        "n": 1,
+        "median": 45.024895,
+        "p90": 45.024895,
+        "max": 45.024895
+      }
+    },
+    "acceptance_json": "data\\offline-acceptance\\20261127-five-tasks-sticker\\cli-acceptance.json"
+  },
+  "source_sha256": {
+    "app\\src\\flow\\capabilities.py": "529563305582683226c128905753f977fe609e60f4bac072c80b4b8178329382",
+    "app\\src\\flow\\steps.py": "3f581de51c84b3e8d07767777edb79b153609723c17574ecbd866e22e8c107cd",
+    "app\\src\\web\\serve.py": "a7b5644619b1eb0d37aca963cd2dcf1f7ddabe8eba38ca16753623c3134963d7",
+    "app\\tests\\test_place_correct.py": "cecf909ff1eaf22de05838d7289b5bce0ceb185dafebf08a6a0cf68d45554376",
+    "dev\\tests\\test_gateway_integration.py": "987e675bfa7e41f691c0cb840881233032b64b34daec91aee81b8281235738b5",
+    "dev\\tests\\test_acceptance_stats.py": "fb58757c6c4297888308bebbca31cea048201a17c3c15102faf3b00f6fb53bff",
+    "dev\\tests\\test_readback_stats.py": "51400193e221fa29a0955d51d9b5b1c13cba24047b7da1e5f79298afb18f710e",
+    "dev\\tools\\readback_stats.py": "58958c93536fb9f7261a339c7c9d04d09f3b9b193911487903c6198e72a4adeb",
+    "dev\\tools\\acceptance_stats.py": "8d034e8e5b29a3521ac1dad30ec0074c4141e01b92e5e63d7c6a17febb00cf8a",
+    "dev\\tools\\offline_logs.py": "a5a5937957b8fc87a628196eeb7d362365696636d025208f444d656588711bd0",
+    "dev\\tools\\offline_acceptance.py": "2fa293131f93b4f5da2f08c19d0ce2018423e460f099698a9b0a67daa2f5b0d1",
+    "app\\config\\planning_tuning.json": "87fa0466482754dc84cb330d35df29a7d2116565ed9d0bc639e16e917f70545f",
+    "app\\config\\arm_limits.json": "6a20edd0a522aea4e8c42132ebec57fb19c217a5deda3c9c71ff57e3b7c577b5",
+    "app\\config\\flows\\sort.yaml": "d48092c6efe36ffc8ec6f37ed43ab898180f02badbb13f35a2ee45040abe2d16",
+    "app\\config\\observe\\field.yaml": "e24c4b930f1cb388c94e37509c445774d891e8c97e01fd504b64c9d103a45440",
+    "data\\models\\blocks4\\v3\\best.onnx": "bb39115d21e8c4329dd396284ced6981acab1308fd3e9d9b77e7f5c77c983e05"
+  },
+  "notes": [
+    "Simulation/offline only; not T03/T04 or R04/R07 hardware acceptance.",
+    "Application suite skips existing Windows/POSIX, recorded-frame and environment-dependent checks.",
+    "Initial full-suite attempt used Windows default GBK and failed; successful full suites enabled PYTHONUTF8=1.",
+    "An earlier unfiltered near-bin layout produced false detections and rejected plans; full-round fixture is constrained as recorded.",
+    "Unknown POST route consumed no request body and could reset Windows connections; gateway now drains it before 404.",
+    "Full-suite development run precedes the final JSON input validation hardening; its nine targeted statistics tests were rerun successfully afterwards."
+  ]
+}

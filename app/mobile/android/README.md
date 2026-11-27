@@ -41,6 +41,8 @@ App「连接」页：网关地址 `http://127.0.0.1:8090`；跳板的板卡地�
 
 ## 记录页
 
+2026-11-27：任务页新增流程脚本列表、运行、按事件路径显示逐行状态和告警确认；脚本仍由网关统一校验，`wait_voice`/`say` 不可运行。离线 instrumentation 测试需要已启动的 Android 模拟器，构建 `assembleDebugAndroidTest` 后由 `dev/tools/android_offline.py --serial emulator-... --out <新目录>` 自动连接独立的本地网关/仿真，完成交互并保存真实 CSV/XLSX 与界面截图。完整检查、验证边界和已知场景问题见 [47](../../../docs/current/47-记录交互与多端离线验收.md)。
+
 底部「记录」页签（移植自 PR #2 的 3b2f521）：逐块记录、历史统计（成功率 = 成功 ÷（成功 + 夹空 + 跳过 + 失败），挪开障碍单独计数；各类别已分拣数；成功耗时中位数），导出 CSV（UTF-8 BOM）或 Excel。网关地址和口令用「连接」页那一份，不另设。
 
 - 读 `GET /api/log/records`、`/api/log/summary`，每秒刷新；读失败时保留上次结果并给「重试」。

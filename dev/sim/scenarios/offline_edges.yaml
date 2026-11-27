@@ -1,0 +1,13 @@
+name: offline_edges
+title: 不可达拒绝、读回停短和入桶回归
+map: map_a4_v4
+bins: bins_acrylic_v2_pair
+seed: 17
+locate: truth
+table_trim: true
+faults: {stop_short_deg: 1.5}
+blocks:
+  - {tag: K, category: kitchen, up: fish_bone, map_cm: [0, 21], yaw: 5}
+cases:
+  - {name: unreachable, pick: K, to: {table_m: [0, 0.9]}, expect: {planned: false}}
+  - {name: bin_set, pick: K, to: {bin: auto, mode: set}, expect: {inside: true}}

@@ -1,0 +1,21 @@
+[
+  {
+    "round": 1,
+    "block": "b1",
+    "verified": null,
+    "evidence": null,
+    "target_m": [null, null],
+    "measured_m": [null, null],
+    "tilt_deg": null,
+    "touched_neighbor": null,
+    "date": null,
+    "device": null,
+    "revision": null,
+    "map": "map_a4_v4",
+    "bins": "bins_acrylic_v2_pair",
+    "speed_deg_s": null,
+    "method": null,
+    "session": null,
+    "notes": null
+  }
+]

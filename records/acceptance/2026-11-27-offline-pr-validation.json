@@ -1,0 +1,314 @@
+{
+  "date": "2026-11-27T15:46:14.136577+08:00",
+  "device": "LAPTOP-MFA1PPBQ",
+  "platform": "Windows-11-10.0.26300-SP0",
+  "python": "3.14.5 (tags/v3.14.5:5607950, May 10 2026, 10:43:50) [MSC v.1944 64 bit (AMD64)]",
+  "revision": "8173b722c839dbea5c156442b55cfeef06f314ae",
+  "working_tree_dirty": true,
+  "base_branch": "planner-solve-tiers",
+  "branch": "codex/offline-acceptance-tests",
+  "aggregate_checks_ok_after_fix": true,
+  "initial_full_run": {
+    "date": "2026-11-27T15:45:04.564271+08:00",
+    "device": "LAPTOP-MFA1PPBQ",
+    "platform": "Windows-11-10.0.26300-SP0",
+    "python": "3.14.5 (tags/v3.14.5:5607950, May 10 2026, 10:43:50) [MSC v.1944 64 bit (AMD64)]",
+    "revision": "8173b722c839dbea5c156442b55cfeef06f314ae",
+    "working_tree_dirty": true,
+    "profile": "all",
+    "ok": false,
+    "checks": [
+      {
+        "name": "schema_scripts_templates",
+        "ok": true,
+        "exit_code": 0,
+        "tests": null,
+        "skipped": 0,
+        "seconds": 0.25,
+        "log": "D:\\30817\\vision-robot-arm-sorting-offline-tests-pr\\data\\pr-validation\\checks\\schema_scripts_templates.out"
+      },
+      {
+        "name": "python_app",
+        "ok": false,
+        "exit_code": 1,
+        "tests": 424,
+        "skipped": 0,
+        "seconds": 112.85,
+        "log": "D:\\30817\\vision-robot-arm-sorting-offline-tests-pr\\data\\pr-validation\\checks\\python_app.out"
+      },
+      {
+        "name": "python_dev",
+        "ok": true,
+        "exit_code": 0,
+        "tests": 128,
+        "skipped": 0,
+        "seconds": 143.1,
+        "log": "D:\\30817\\vision-robot-arm-sorting-offline-tests-pr\\data\\pr-validation\\checks\\python_dev.out"
+      },
+      {
+        "name": "android_build_unit",
+        "ok": true,
+        "exit_code": 0,
+        "tests": null,
+        "skipped": 0,
+        "seconds": 27.63,
+        "log": "D:\\30817\\vision-robot-arm-sorting-offline-tests-pr\\data\\pr-validation\\checks\\android_build_unit.out"
+      },
+      {
+        "name": "android_emulator",
+        "ok": true,
+        "exit_code": 0,
+        "tests": null,
+        "skipped": 0,
+        "seconds": 20.73,
+        "log": "D:\\30817\\vision-robot-arm-sorting-offline-tests-pr\\data\\pr-validation\\checks\\android_emulator.out"
+      }
+    ],
+    "known_findings": [
+      {
+        "scenario": "vertical",
+        "case": "unstack",
+        "contacts": {
+          "block_contacts": [
+            {
+              "block": "b15",
+              "what": "block",
+              "at_cm": [
+                4.7,
+                23.1,
+                4.5
+              ],
+              "servos": [
+                75.0,
+                48.0,
+                61.0,
+                22.0,
+                270.0,
+                133.0
+              ]
+            },
+            {
+              "block": "b15",
+              "what": "block",
+              "at_cm": [
+                5.0,
+                23.3,
+                4.4
+              ],
+              "servos": [
+                72.0,
+                42.0,
+                62.0,
+                29.0,
+                270.0,
+                133.0
+              ]
+            }
+          ]
+        },
+        "evidence": "D:\\30817\\vision-robot-arm-sorting-offline-tests-pr\\data\\pr-validation\\checks\\python_dev\\scenarios\\test_vertical_reports_unstack_and_drop_contacts_as_failures\\vertical\\report.json"
+      },
+      {
+        "scenario": "vertical",
+        "case": "bin_drop",
+        "contacts": {
+          "block_contacts": [
+            {
+              "block": "b15",
+              "what": "finger",
+              "at_cm": [
+                5.3,
+                22.9,
+                4.5
+              ],
+              "servos": [
+                68.0,
+                35.0,
+                35.0,
+                63.0,
+                270.0,
+                30.0
+              ]
+            },
+            {
+              "block": "b15",
+              "what": "finger",
+              "at_cm": [
+                4.5,
+                22.4,
+                4.6
+              ],
+              "servos": [
+                68.0,
+                35.0,
+                35.0,
+                63.0,
+                270.0,
+                133.0
+              ]
+            }
+          ]
+        },
+        "evidence": "D:\\30817\\vision-robot-arm-sorting-offline-tests-pr\\data\\pr-validation\\checks\\python_dev\\scenarios\\test_vertical_reports_unstack_and_drop_contacts_as_failures\\vertical\\report.json"
+      }
+    ],
+    "evidence": "offline/simulation/emulator; no physical hardware",
+    "hardware_connected": false,
+    "dependencies": {
+      "numpy": "2.5.4",
+      "opencv-python": "4.14.0.94",
+      "onnxruntime": "1.31.1",
+      "pyyaml": "6.0.4",
+      "playwright": "1.65.2"
+    }
+  },
+  "reruns": [
+    {
+      "check": "python_app",
+      "tests": 424,
+      "skipped": 9,
+      "ok": true,
+      "log": "data/pr-validation/python-app-corrected.out",
+      "reason": "quote YAML on key in stack.yaml"
+    }
+  ],
+  "android": {
+    "ok": true,
+    "evidence": "Android emulator and local simulator only",
+    "serial": "emulator-5580",
+    "tests": 3,
+    "csv_records": 1000,
+    "xlsx_records": 1000,
+    "android_api": "35"
+  },
+  "android_unit_tests": 16,
+  "known_findings": [
+    {
+      "scenario": "vertical",
+      "case": "unstack",
+      "contacts": {
+        "block_contacts": [
+          {
+            "block": "b15",
+            "what": "block",
+            "at_cm": [
+              4.7,
+              23.1,
+              4.5
+            ],
+            "servos": [
+              75.0,
+              48.0,
+              61.0,
+              22.0,
+              270.0,
+              133.0
+            ]
+          },
+          {
+            "block": "b15",
+            "what": "block",
+            "at_cm": [
+              5.0,
+              23.3,
+              4.4
+            ],
+            "servos": [
+              72.0,
+              42.0,
+              62.0,
+              29.0,
+              270.0,
+              133.0
+            ]
+          }
+        ]
+      },
+      "evidence": "D:\\30817\\vision-robot-arm-sorting-offline-tests-pr\\data\\pr-validation\\checks\\python_dev\\scenarios\\test_vertical_reports_unstack_and_drop_contacts_as_failures\\vertical\\report.json"
+    },
+    {
+      "scenario": "vertical",
+      "case": "bin_drop",
+      "contacts": {
+        "block_contacts": [
+          {
+            "block": "b15",
+            "what": "finger",
+            "at_cm": [
+              5.3,
+              22.9,
+              4.5
+            ],
+            "servos": [
+              68.0,
+              35.0,
+              35.0,
+              63.0,
+              270.0,
+              30.0
+            ]
+          },
+          {
+            "block": "b15",
+            "what": "finger",
+            "at_cm": [
+              4.5,
+              22.4,
+              4.6
+            ],
+            "servos": [
+              68.0,
+              35.0,
+              35.0,
+              63.0,
+              270.0,
+              133.0
+            ]
+          }
+        ]
+      },
+      "evidence": "D:\\30817\\vision-robot-arm-sorting-offline-tests-pr\\data\\pr-validation\\checks\\python_dev\\scenarios\\test_vertical_reports_unstack_and_drop_contacts_as_failures\\vertical\\report.json"
+    }
+  ],
+  "source_sha256": {
+    ".github/workflows/offline-checks.yml": "fd7f269bdbb9d4b65fe2fdd15986db850ba7db05427f2b00ef2515c587d11e1b",
+    "app/config/flows/stack.yaml": "3e38028c1c85a4882e8369ad554c24ba96f38f646fdeca0f780012a6854fdf94",
+    "app/mobile/android/app/src/androidTest/java/com/example/myapplication00001/OfflineGatewayTest.kt": "6a540b902915183c244d14fe2976f453c9d453e738060cd91e7f952d3b932272",
+    "app/mobile/android/app/src/main/java/com/example/myapplication00001/FlowScriptsPanel.kt": "47fa1279aab697ec9cfa4f660e496f82808f7e6b0a09889eb6d7bed4e0410deb",
+    "app/mobile/android/app/src/main/java/com/example/myapplication00001/TaskScreen.kt": "e14743981a8fef44f72cc3019343f12296824934da92a5eff6ee5adc1d37bbf6",
+    "app/mobile/android/app/src/test/java/com/example/myapplication00001/ScriptProgressTest.kt": "502ab8e12bc7b8b414c1bcf1b8f63432d6d7fe0c91e717729e12d747c59b2d01",
+    "app/mobile/android/gradle/wrapper/gradle-wrapper.properties": "b8cbeeaf0caefce816525a0dff339316703c7f05389c0432f9abd30d18a9ab43",
+    "app/src/flow/capabilities.py": "529563305582683226c128905753f977fe609e60f4bac072c80b4b8178329382",
+    "app/src/flow/steps.py": "3f581de51c84b3e8d07767777edb79b153609723c17574ecbd866e22e8c107cd",
+    "app/src/web/js/logs.js": "c72246a67d3002cfd5828ae8077e147960c048d49723d04af42a00e829cd4685",
+    "app/src/web/js/recordexport.js": "02de456a867ad419acee745db35dd02793554c31f5f4ac8f2b340d84796193da",
+    "app/src/web/js/store.js": "99db490f1e718aecc598276e3d68bbdb4be4df20fd27587eef45818bfa46e5c5",
+    "app/src/web/serve.py": "a7b5644619b1eb0d37aca963cd2dcf1f7ddabe8eba38ca16753623c3134963d7",
+    "app/tests/test_place_correct.py": "cecf909ff1eaf22de05838d7289b5bce0ceb185dafebf08a6a0cf68d45554376",
+    "app/tests/test_safe_arm.py": "7e6e07b7f4b9e95ee507efeb4cb526258262de5e99625a0dfee16c15450dfaf7",
+    "app/tests/test_web_serve.py": "34bb7daebe34a2b56696f2d87c094412bd912628e07d22652b57c8379c4d408c",
+    "dev/requirements-offline.txt": "21317922d961d87af7ef768d015a09dcfed53140ce7eb887fdc1131017bd8724",
+    "dev/sim/bench.py": "c7453996281be9a4cc2fc7dea5aff7e307eafe3f06897d639fdca5dbaed0c4c1",
+    "dev/sim/scenarios/offline_edges.yaml": "bf553aa2c16f5b4170318b7a85b8aa6bcc9afbb6e56e436a9fe1e306c7e76e0f",
+    "dev/tests/offline_fixture.py": "2c2838af890d51dc6c4e33ebce92ac6c331b41e0d86feecaff1196c3be66293a",
+    "dev/tests/test_acceptance_stats.py": "fb58757c6c4297888308bebbca31cea048201a17c3c15102faf3b00f6fb53bff",
+    "dev/tests/test_gateway_integration.py": "ac1195e89633fd8ce33ee8aff8d5a5658c50bc95ea746a4340474e2ccec33f3c",
+    "dev/tests/test_interaction_gateway.py": "7859e38dd3dc6de7f54bdd1d2ba942463589967e4affaefe3deaaae816eb0533",
+    "dev/tests/test_readback_stats.py": "51400193e221fa29a0955d51d9b5b1c13cba24047b7da1e5f79298afb18f710e",
+    "dev/tests/test_scenario_regression.py": "cc3d30349b24145b3ca482b2fc164f627ce48d3db4728a50e567555f6ade136e",
+    "dev/tests/test_web_records_browser.py": "08c0a0b43c5b58bef47b840a356e952e4ff9d3884414b8fb7a88142b70fc01f9",
+    "dev/tools/acceptance_stats.py": "8d034e8e5b29a3521ac1dad30ec0074c4141e01b92e5e63d7c6a17febb00cf8a",
+    "dev/tools/android_offline.py": "57f2e0dbfe57522633ada617b6b1b5332027ed45ee1db9d5bced3fdf75c1be7d",
+    "dev/tools/check_offline.py": "6e95b7be3ead2930a54c0839e5d12fedd879a71586c35f0f4ea1d0ef7596ae55",
+    "dev/tools/offline_acceptance.py": "2fa293131f93b4f5da2f08c19d0ce2018423e460f099698a9b0a67daa2f5b0d1",
+    "dev/tools/offline_logs.py": "a5a5937957b8fc87a628196eeb7d362365696636d025208f444d656588711bd0",
+    "dev/tools/readback_stats.py": "58958c93536fb9f7261a339c7c9d04d09f3b9b193911487903c6198e72a4adeb"
+  },
+  "notes": [
+    "Initial full run failed; original report is preserved, not relabelled as success.",
+    "Only the affected application suite was rerun after the YAML fix; remaining phases passed on this isolated branch.",
+    "The two known vertical contact defects remain unfixed; their detection tests pass but the motion cases report ok=false.",
+    "No physical hardware validation; App instrumentation uses a stationary demonstration flow.",
+    "GitHub Actions execution results are separate from these local Windows checks."
+  ]
+}

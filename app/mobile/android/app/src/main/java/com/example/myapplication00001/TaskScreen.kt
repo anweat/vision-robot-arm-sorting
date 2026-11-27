@@ -140,6 +140,8 @@ fun TaskScreen(client: ArmClient?, foreground: Boolean, modifier: Modifier = Mod
         )
         if (message.isNotBlank()) Text(message)
 
+        FlowScriptsPanel(client, foreground)
+
         Text("单步执行", style = MaterialTheme.typography.titleMedium)
         val blocks = f?.blocks.orEmpty().filter { !it.optBoolean("in_bin") }
         if (blocks.isEmpty()) {

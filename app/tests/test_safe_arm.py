@@ -204,6 +204,7 @@ class SafeArmTest(unittest.TestCase):
         self.assertEqual(arm.move([70, 105, 5, 5, 95]), [70, 105, 5, 5, 95, 11])
         self.assertEqual(fake.writes, [])
 
+    @unittest.skipIf(sys.platform == "win32", "Execution requires the POSIX fcntl process lock")
     def test_execute_writes_six_values_in_small_steps(self):
         original = safe_arm.time.sleep
         safe_arm.time.sleep = lambda s: None
@@ -216,6 +217,7 @@ class SafeArmTest(unittest.TestCase):
         self.assertTrue(all(len(p) == 6 for p in fake.writes))
         self.assertEqual(len(fake.writes), 4)
 
+    @unittest.skipIf(sys.platform == "win32", "Execution requires the POSIX fcntl process lock")
     def test_resistance_retreats_to_last_verified_pose(self):
         import tempfile
         original = safe_arm.time.sleep

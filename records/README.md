@@ -8,5 +8,7 @@
 | `experiments/` | 不接板卡的 2/3 视角方块定位实验（说明 + 结果 JSON + 合成视角图） | `dev/spatial/multiview_demo.py` | [实验说明](experiments/多视角方块定位离线实验.md) |
 | `inventory/` | 2026-09 的资料盘点快照（全部文件 CSV、代码结构、统计） | `dev/scripts/inventory_resources.py` | 归档的阶段 0 文档 |
 | `sim/` | Blender 运动学回放视频 | `dev/scripts/blender_arm_playback.py` | [28a](../docs/current/28a-三维模型与Blender仿真.md) |
+| `acceptance/` | 验收汇总；`2026-11-27-offline-five-tasks.json` 为开发机离线/仿真测试，不能作为实机结论 | `dev/tools/offline_acceptance.py` 等 | [46 离线集成与统计](../docs/current/46-无需硬件的集成测试与统计.md) |
+| `acceptance/2026-11-27-offline-tasks-6-11.json` | 网页、App 模拟器、交互、场景与 CI 入口的本机证据；含 2 个待修仿真接触场景 | `dev/tools/check_offline.py` | [47 多端离线验收](../docs/current/47-记录交互与多端离线验收.md) |
 
 新增结果的约定（`AGENTS.md`）：文件名带日期；内容里写设备、版本、条件；文档里引用时注明这是实机、仿真还是离线。

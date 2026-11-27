@@ -540,7 +540,7 @@ class StartTaskChoiceTest(unittest.TestCase):
         reply, cmd = self.started('pipeline', ['--bins', 'bins_acrylic_v2_pair'])
         self.assertTrue(reply['ok'])
         self.assertEqual(reply['task'], 'pipeline')
-        self.assertTrue(cmd[1].endswith('src/pipeline/task.py'))
+        self.assertEqual(Path(cmd[1]), ROOT / 'src' / 'pipeline' / 'task.py')
         self.assertEqual(cmd[2:4], ['--console', 'http://127.0.0.1:8770'])
         self.assertEqual(cmd[-2:], ['--bins', 'bins_acrylic_v2_pair'])
         self.assertNotIn('--really', cmd)
@@ -548,5 +548,5 @@ class StartTaskChoiceTest(unittest.TestCase):
     def test_the_step_flow_is_still_there_when_asked_for(self):
         reply, cmd = self.started('flow')
         self.assertEqual(reply['task'], 'flow')
-        self.assertTrue(cmd[1].endswith('src/flow/orchestrator.py'))
+        self.assertEqual(Path(cmd[1]), ROOT / 'src' / 'flow' / 'orchestrator.py')
         self.assertIn('--really', cmd)

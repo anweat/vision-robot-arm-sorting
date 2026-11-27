@@ -144,9 +144,13 @@ def run_once(sim: H.Sim, sc: dict, ov: H.Overrides, seed: int, out: Path) -> dic
                 continue
             row.update(to=to, planned=p["ok"])
             if not p["ok"]:
-                row.update(ok=False, reasons=p["reasons"][:4])
+                row.update(ok=(case.get("expect") or {}).get("planned") is False, reasons=p["reasons"][:4])
                 report["cases"].append(row)
                 print(json.dumps(row, ensure_ascii=False))
+                continue
+            if (case.get("expect") or {}).get("planned") is False:
+                row.update(ok=False, reasons=["expected planning rejection, but a plan was accepted"], executed=False)
+                report["cases"].append(row)
                 continue
             pk, pl = p["plans"][0]["summary"], p["plans"][1]["summary"]
             row.update(grasp=dict(pitch=pk["pitch"], tier=pk.get("grasp_tier"), bottom_cm=pk["target"].get("bottom_cm", 0)),
@@ -168,7 +172,8 @@ def run_once(sim: H.Sim, sc: dict, ov: H.Overrides, seed: int, out: Path) -> dic
             row["truth"] = dict(landed=landed, inside=b.get("inside"), perched=b.get("perched"),
                                 off_target_mm=round(math.dist(b["base_cm"][:2], want) * 10, 1),
                                 **{k: c1[k] - c0[k] for k in c0})
-            row["ok"] = judge(case.get("expect") or {}, landed, b, ids, ex["ok"])
+            row["contact_records"] = {k: w2[k]["recent"][-(c1[k] - c0[k]):] for k in c0 if c1[k] > c0[k]}
+            row["ok"] = judge(case.get("expect") or {}, landed, b, ids, ex["ok"]) and all(c1[k] == c0[k] for k in c0)
             report["cases"].append(row)
             print(json.dumps(row, ensure_ascii=False))
     finally:

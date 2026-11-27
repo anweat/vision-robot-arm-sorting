@@ -102,7 +102,9 @@ CAPABILITIES: dict[str, dict] = {
         results=["done", "failed"], success=["done"]),
     "place": dict(
         group="grasp", label="放置", moves=True, block=True, status="ready",
-        help="搬到目标位、松手、回观察位", params=dict(motion=P("enum", "动作方式", None, enum=["steps", "continuous"],
+        help="搬到目标位、松手、回观察位", params=dict(correct=P("bool", "放下前修正", True,
+                                help="按读回修正放下位置；关闭仅用于对照，不影响逐步补发与控制台检查"),
+                                motion=P("enum", "动作方式", None, enum=["steps", "continuous"],
                                 help="steps：每一步停下、读回核对再走下一步；continuous：合爪、放下前修正之间的各步连成一条轨迹一次发出，"
                                      "只在张爪处和末尾停（docs/current/42 §4，未上实机）。不填按脚本顶层 motion")),
         results=["done", "failed"], success=["done"]),

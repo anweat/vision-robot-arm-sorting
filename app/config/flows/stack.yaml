@@ -19,7 +19,7 @@ steps:
     order: reach
     do:
       - step: plan
-        with: {to: stack, on: top, levels: 3}
+        with: {to: stack, "on": top, levels: 3}
         on_result:
           base: [{next_block: true}]                  # 塔底：留在原处
           no_destination: [{record: skipped, reason: 塔已经够高}, {next_block: true}]
