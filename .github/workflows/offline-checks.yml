@@ -26,7 +26,7 @@ jobs:
           name: python-browser-evidence
           path: data/ci-python
   android-emulator:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
@@ -37,6 +37,8 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+      - name: Initialize Android SDK tools
+        uses: android-actions/setup-android@v4
       - run: pip install -r dev/requirements-offline.txt
       - name: Install compile SDK
         run: sdkmanager 'platforms;android-36.1' 'build-tools;36.0.0'
