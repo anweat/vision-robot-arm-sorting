@@ -56,6 +56,7 @@ sys.path.insert(0, str(ROOT / "src" / "interact"))
 import intents as I  # noqa: E402
 from flow import script as FS  # noqa: E402   纯标准库：校验与存储，不导入 numpy
 from flow.capabilities import catalog as capability_catalog  # noqa: E402
+import arm_mesh as AM  # noqa: E402   整臂网格与每段姿态（T12）；numpy 缺失时降级为 501
 
 WEB = Path(__file__).resolve().parent
 
@@ -551,6 +552,15 @@ class State:
             age_s = round(max(0.0, time.time() - self.console_observed_at), 3)
         else:
             age_s = None
+        # 整臂网格的每段姿态：按回读角度现算（复用 planning.body / gripper_geometry，与仿真同源）。
+        # 没装 numpy 时降级为 None，页面退回线框骨架，不影响其它字段。
+        pose = status.get("pose")
+        frames = None
+        if pose:
+            try:
+                frames = AM.frames(pose)
+            except AM.ArmMeshUnavailable:
+                frames = None
         return dict(
             attached=True, error=self.console_error,
             joints_deg=status.get("pose"),
@@ -562,6 +572,7 @@ class State:
             clearance_cm=status.get("clearance_cm"),
             tip_cm=chain.get("tip"),
             chain_cm=dict(chain, base=[0.0, 0.0, 0.0]) if chain else None,
+            frames=frames,
             tip_pitch_deg=(fk.get("tip_pitch_deg") or [None])[0],
             grip_action=grip.get("action"), grip_readback=grip.get("readback"),
             holding=grip.get("holding"), grip_result=grip.get("result"),
@@ -1076,6 +1087,29 @@ class Handler(BaseHTTPRequestHandler):
                                  centre_cm=[round(float(v), 2) for v in pos]))
             return self._send(dict(count=len(rows), block_side_cm=(world or {}).get("block_side_cm"),
                                    blocks=rows, keep_out=load_keep_out_cm()))
+
+        # T12：整臂网格本体（课程 STL 抽稀，dev/sim/web_meshes.json）。页面取一次缓存住，
+        # 每帧只按 frames 变换顶点。缺网格或缺 numpy 时 501，页面退回线框骨架。
+        if path == "/api/arm/meshes":
+            try:
+                return self._send(AM.mesh())
+            except AM.ArmMeshUnavailable as exc:
+                return self._fail(str(exc), status=501)
+
+        # T12：按给定六个舵机角度算每段 4x4 姿态（厘米）。无控制台也能算（纯运动学），
+        # 供回放/无臂时预览整臂网格；接了控制台时 status.arm.frames 已带同一份结果。
+        if path == "/api/arm/pose":
+            raw = (query.get("joints") or [""])[0]
+            try:
+                joints = [float(x) for x in raw.split(",") if x.strip()]
+            except ValueError:
+                return self._fail("joints 应为逗号分隔的六个角度", status=400)
+            if len(joints) != 6:
+                return self._fail("joints 需要六个角度，如 90,90,90,90,90,90", status=400)
+            try:
+                return self._send(dict(frames=AM.frames(joints)))
+            except AM.ArmMeshUnavailable as exc:
+                return self._fail(str(exc), status=501)
 
         # E6 未知物体存档。判定与图片由 H1-6 的视觉侧写进 --archive 目录并记 unknown_object
         # 事件；这里只负责把图片安全地取出来给页面看，自己不做任何识别。
